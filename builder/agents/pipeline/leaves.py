@@ -62,8 +62,8 @@ def _invoke_structured_with_usage(
     With no ``usage_sink`` this is the legacy path: bind ``with_structured_output``
     and return the bare parsed object. With a sink, it binds with
     ``include_raw=True`` so the raw ``AIMessage`` is available, mines
-    ``(input_tokens, output_tokens, model_name, system_fingerprint)`` off it via the SAME
-    provider-agnostic helpers the ReAct model node uses
+    ``(input_tokens, output_tokens, model_name, system_fingerprint)`` off it via
+    the SAME provider-agnostic helpers the ReAct model node uses
     (:func:`builder.agents.react.agent_loop._extract_token_usage`), reports them, and
     returns the parsed object — so callers are unaffected by the capture.
     """
@@ -499,10 +499,11 @@ def extract_plan(
             empty set resolves the drafter tier from the environment, which is
             the pre-existing behaviour.
         usage_sink: Optional callback notified of this call's token usage as
-            ``(input_tokens, output_tokens, model_name, system_fingerprint)``. When given, the call
-            binds structured output with ``include_raw=True`` so usage can be
-            mined off the raw response (Issue #221). Default ``None`` leaves the
-            call (and its return) unchanged.
+            ``(input_tokens, output_tokens, model_name, system_fingerprint)``.
+            When given, the call binds structured output with
+            ``include_raw=True`` so usage can be mined off the raw response
+            (Issue #221). Default ``None`` leaves the call (and its return)
+            unchanged.
 
     Returns:
         A candidate-plan dict free of fabricated identifiers. An empty/
@@ -560,10 +561,11 @@ def draft_entity_fields(
             empty set resolves the drafter tier from the environment, which is
             the pre-existing behaviour.
         usage_sink: Optional callback notified of this call's token usage as
-            ``(input_tokens, output_tokens, model_name, system_fingerprint)``. When given, the call
-            binds structured output with ``include_raw=True`` so usage can be
-            mined off the raw response (Issue #221). Default ``None`` leaves the
-            call (and its return) unchanged.
+            ``(input_tokens, output_tokens, model_name, system_fingerprint)``.
+            When given, the call binds structured output with
+            ``include_raw=True`` so usage can be mined off the raw response
+            (Issue #221). Default ``None`` leaves the call (and its return)
+            unchanged.
 
     Returns:
         A dict of the entity's descriptive fields, validating against

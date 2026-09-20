@@ -271,7 +271,7 @@ class TestTheLeafSeesThePinnedModel:
         monkeypatch.setattr(leaves, "describe_files", _leaf)
         pinned = ModelOverrides(model="pinned")
 
-        def sink(i, o, m) -> None:
+        def sink(i, o, m, f) -> None:
             return None
 
         written = describe_payload_files(crate_with_files, usage_sink=sink, overrides=pinned)

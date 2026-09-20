@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -51,31 +51,16 @@ __all__ = [
     "effective_sampling_settings",
 ]
 
-class UsageSink(Protocol):
-    """One bounded-leaf call's token usage, reported by whoever made the call.
-
-    Any element may be ``None`` when the provider (or an offline fake) reported no
-    usage; ``system_fingerprint`` is additionally ``None`` for every provider that
-    does not publish one (Anthropic), which is why it is optional and why readers
-    see the key omitted rather than nulled (#771). Callers that own an engine pass
-    :func:`make_usage_logger`'s sink, which logs each call to the engine profiler
-    so every surface that reads ``profile.ndjson`` -- the interactive status bar,
-    the dashboard's token table, the eval's metric miner -- sees the same numbers
-    regardless of which orchestrator made the call.
-
-    A ``Protocol`` rather than a ``Callable`` alias because ``Callable`` cannot
-    express a trailing OPTIONAL parameter: existing three-argument sinks stay
-    valid.
-    """
-
-    def __call__(
-        self,
-        input_tokens: int | None,
-        output_tokens: int | None,
-        model_name: str | None,
-        system_fingerprint: str | None = None,
-        /,
-    ) -> None: ...
+# A usage sink receives one bounded-leaf call's token usage as
+# ``(input_tokens, output_tokens, model_name, system_fingerprint)``; any element
+# may be ``None`` when the provider (or an offline fake) reported no usage, and
+# ``system_fingerprint`` is ``None`` for every provider that does not publish one
+# (Anthropic), which is why readers see the key omitted rather than nulled (#771).
+# Callers that own an engine pass :func:`make_usage_logger`'s sink, which logs each
+# call to the engine profiler so every surface that reads ``profile.ndjson`` -- the
+# interactive status bar, the dashboard's token table, the eval's metric miner --
+# sees the same numbers regardless of which orchestrator made the call.
+UsageSink = Callable[[int | None, int | None, str | None, str | None], None]
 
 
 class UsageEngine(Protocol):
