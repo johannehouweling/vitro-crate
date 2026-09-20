@@ -106,7 +106,10 @@ def test_stamp_generator_records_effective_settings(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("VITRO_MAX_HISTORY_TOKENS", "9000")
     state = CrateState()
     state.max_iterations = 42
-    settings = state.stamp_generator(architecture="react").settings
+    # The arm is stamped on the state by the build entrypoint, which is where
+    # `stamp_generator` reads it from — `export_crate` calls it with no arguments.
+    state.generator.architecture = "react"
+    settings = state.stamp_generator().settings
     assert settings["max_iterations"] == "42"
     assert settings["max_history_tokens"] == "9000"
     assert settings["reasoning_effort"] == "high"
