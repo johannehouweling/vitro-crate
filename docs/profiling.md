@@ -41,7 +41,7 @@ Every line in `profile.ndjson` is a JSON object with **required fields**:
 
 | Event | Optional fields | When emitted |
 |-------|----------------|--------------|
-| `tool_call` | `tool`, `duration_ms`, `iteration`, `args`, `result` | After each tool execution completes. `result` is the stringified return value, truncated to 20000 characters so a validation issue list survives intact. |
+| `tool_call` | `tool`, `duration_ms`, `iteration`, `args`, `result` | After each tool execution completes. `result` is the stringified return value, truncated to 200000 characters — headroom over the largest result measured on a real session (a `build_and_validate` sweep at `severity="optional"`, 358 issues, ~173 KB). Anything past the cap is still cut, ending in an ellipsis. |
 | `node_start` | `node`, `iteration` | When a graph node begins execution |
 | `node_end` | `node`, `duration_ms`, `iteration`, `messages_in`, `messages_out`, `produced_tool_calls`, `tools`, `input_tokens`, `output_tokens`, `model_name`, `response_text` | When a graph node finishes execution. For `"node": "model"` events, `input_tokens`, `output_tokens`, `model_name`, and `response_text` are populated from the LLM response (when available). `response_text` is truncated to ~2000 characters. |
 | `tool_start` | `tool`, `iteration`, `args` | *Before* a tool begins executing, so a long call is visible while it runs; the matching `tool_call` follows on return. |

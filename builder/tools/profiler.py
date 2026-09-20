@@ -156,8 +156,10 @@ class ProfilingLogger:
         args:
             Stringified call arguments (truncated, see ``log_event``).
         result:
-            Stringified tool return value (capped by the caller at 20000
-            chars, so a validation issue list survives intact — see
+            Stringified tool return value (capped by the caller at 200000
+            chars — chosen for headroom over the largest result measured on
+            a real session, a ~173 KB ``build_and_validate`` sweep; a result
+            past the cap is still cut and ends in an ellipsis — see
             :meth:`builder.engine.AgentEngine.run_tool`).
         """
         self.log_event(

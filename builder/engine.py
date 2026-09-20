@@ -1366,14 +1366,28 @@ class AgentEngine:
             # `build_and_validate` returns the `issues` list — the action points
             # a run raises, resolves automatically, or resolves from researcher
             # input — and the former 500-char cap cut it off entirely, so no
-            # completed session could be audited for them (#768). profile.ndjson
-            # is append-only NDJSON read offline, where a few hundred KB per
-            # session costs nothing; 20k holds a full issue list.
+            # completed session could be audited for them (#768). The largest
+            # result measured on a real session (20260825_142036, restored and
+            # re-run) is a severity="optional", profile="all" round: 358 issues,
+            # ~173 KB; the recommended round is ~80 KB. 200k clears the measured
+            # worst case with headroom — it is not a guarantee of intactness, a
+            # result past it is still cut and ends in an ellipsis.
+            #
+            # On size: validation rounds are the only results that come near the
+            # cap, and the ReAct loop makes at most a handful of them per session
+            # (agents/react/agent_loop.py runs one recommended and one optional
+            # round per escalation). Every other tool logs far below it, so a
+            # normal profile.ndjson grows by a few hundred KB, not by 200k per
+            # call. A pathological session can still be large: the busiest
+            # profile on disk (20260817_150959) holds 501 results that hit the
+            # old cap, 83 of them build_and_validate. profile.ndjson is
+            # append-only NDJSON read offline, so that is a disk cost, not a
+            # runtime one.
             _result_str: str | None = None
             try:
                 res_text = str(result)
-                if len(res_text) > 20000:
-                    res_text = res_text[:19997] + "..."
+                if len(res_text) > 200000:
+                    res_text = res_text[:199997] + "..."
                 _result_str = res_text if result is not None else "None"
             except Exception:
                 _result_str = "<unprintable>"
