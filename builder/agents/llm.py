@@ -43,8 +43,11 @@ __all__ = [
     "_get_request_timeout",
     "_apply_temperature",
     "_is_openai_reasoning_model",
+    "_resolve_reasoning_effort",
     "_resolve_temperature",
     "_recursion_limit",
+    "_use_responses_api",
+    "effective_sampling_settings",
 ]
 
 # A usage sink receives one bounded-leaf call's token usage as
@@ -257,9 +260,19 @@ def _use_responses_api(resolved_model: str | None) -> bool:
 def effective_sampling_settings(model: str | None = None) -> dict[str, str]:
     """The sampling controls this process will actually send, stringified (#769).
 
-    ``temperature`` appears only when it is genuinely applied: the OpenAI branch
-    omits it for a Responses-API reasoning model, so a crate recording one would
-    claim a setting the API never saw. The Anthropic branch always applies it.
+    ``temperature`` appears only when it is genuinely applied, and only when
+    BOTH model tiers apply it. The OpenAI branch omits it for a Responses-API
+    reasoning model, and the tiers can disagree: the pipeline builds every leaf
+    with ``role="drafter"``, so ``VITRO_OPENAI_DRAFTER_MODEL`` can put a
+    reasoning model behind the pipeline while the orchestrator stays on a
+    standard one (or the reverse). When the two disagree no single temperature
+    was in effect, and that is recorded as absence — the same way
+    :func:`_apply_temperature` expresses "no opinion" — rather than as a number
+    half the run's calls never saw.
+
+    ``reasoning_effort`` needs no such care: it has no per-tier environment
+    variable and :func:`_build_chat_model` forwards it whenever set, so it is
+    identical on both tiers by construction.
 
     Best effort — provenance must never fail an export, so an unreadable
     environment yields ``{}`` rather than raising.
@@ -268,15 +281,18 @@ def effective_sampling_settings(model: str | None = None) -> dict[str, str]:
     try:
         provider = _detect_provider()
         if provider == "openai":
-            resolved_model = (
+            primary = (
                 model
                 or os.environ.get("VITRO_OPENAI_MODEL")
                 or os.environ.get("OPENAI_MODEL", "gpt-4o")
             )
+            # Mirrors _build_chat_model's role resolution: an explicit model wins
+            # for both tiers, otherwise the drafter tier prefers its own model.
+            drafter = model or os.environ.get("VITRO_OPENAI_DRAFTER_MODEL") or primary
             effort = _resolve_reasoning_effort()
             if effort:
                 settings["reasoning_effort"] = effort
-            if not _use_responses_api(resolved_model):
+            if not (_use_responses_api(primary) or _use_responses_api(drafter)):
                 settings["temperature"] = str(_resolve_temperature())
         elif provider == "anthropic":
             settings["temperature"] = str(_resolve_temperature())

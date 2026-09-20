@@ -24,6 +24,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "VITRO_TEMPERATURE",
         "VITRO_OPENAI_REASONING_EFFORT",
         "VITRO_OPENAI_MODEL",
+        "VITRO_OPENAI_DRAFTER_MODEL",
         "OPENAI_MODEL",
         "VITRO_ANTHROPIC_MODEL",
         "ANTHROPIC_MODEL",
@@ -80,6 +81,20 @@ def test_reasoning_effort_none_restores_temperature(monkeypatch: pytest.MonkeyPa
     settings = effective_sampling_settings()
     assert settings["temperature"] == "0.0"
     assert settings["reasoning_effort"] == "none"
+
+
+def test_disagreeing_tiers_record_no_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tiers that disagree on whether a temperature is sent record none at all.
+
+    The pipeline builds every leaf on the drafter tier, so a reasoning drafter
+    behind a standard orchestrator means half the run's calls omitted the
+    temperature — "no single temperature was in effect" is absence, not 0.0.
+    """
+    _clean_env(monkeypatch)
+    monkeypatch.setenv("VITRO_OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("VITRO_OPENAI_MODEL", "gpt-4o")
+    monkeypatch.setenv("VITRO_OPENAI_DRAFTER_MODEL", "gpt-5.6-luna")
+    assert "temperature" not in effective_sampling_settings()
 
 
 def test_stamp_generator_records_effective_settings(monkeypatch: pytest.MonkeyPatch) -> None:
