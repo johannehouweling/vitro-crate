@@ -1402,25 +1402,29 @@ class CrateState:
         Never raises: a pricing lookup needs network on first use, and a crate
         must still export when it is unavailable.
 
-        The recorded ``settings`` name the run's loop and history budgets plus
-        whatever sampling controls the provider is actually sent — asked for by
+        The recorded ``settings`` name the run's budgets plus whatever sampling
+        controls the provider is actually sent — asked for by
         :func:`builder.agents.llm.effective_sampling_settings`, because a
         temperature that a Responses-API reasoning model never receives must not
-        appear here (#769).
+        appear here (#769). ``max_history_tokens`` is on the same footing: only
+        the ReAct loop trims history against it, so it is recorded only for a run
+        known to be ReAct rather than naming a budget a pipeline run never read.
         """
         prior = self.generator
+        arm = architecture or prior.architecture
         settings: dict[str, Any] = {}
         if getattr(self, "max_iterations", None):
             settings["max_iterations"] = self.max_iterations
         try:
             from builder.agents.llm import effective_sampling_settings
 
-            settings["max_history_tokens"] = _config.get_max_history_tokens()
+            if arm == "react":
+                settings["max_history_tokens"] = _config.get_max_history_tokens()
             settings.update(effective_sampling_settings())
         except Exception:  # noqa: BLE001 - provenance is best effort, never fatal
             pass
         info = GeneratorInfo.capture(
-            architecture=architecture or prior.architecture,
+            architecture=arm,
             settings=settings or None,
         )
         info.input_tokens = prior.input_tokens
