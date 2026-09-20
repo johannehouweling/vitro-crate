@@ -23,8 +23,9 @@ trusty URIs are checked in, and a re-published batch shows up as a diff. Run::
 
     uv run python scripts/fetch_dsm_nanopub_refs.py
 
-This is the only script in the repo that reaches the network. ``gen_dsm_indicators.py``
-and the assessors read the vendored file off disk, so they stay offline (#117).
+Like ``scripts/refresh_type_vocabulary.py``, this is a dev-time script that reaches the
+network; nothing it touches runs at build time. ``gen_dsm_indicators.py`` and the
+assessors read the vendored file off disk, so they stay offline (#117).
 """
 
 from __future__ import annotations
@@ -88,9 +89,16 @@ _HEADER = """\
 """
 
 
-# The recorded query is provenance a reader has to be able to read, so dump the one
-# multi-line string as a literal block rather than a `\n`-escaped one-liner.
-yaml.SafeDumper.add_representer(
+class _BlockStringDumper(yaml.SafeDumper):
+    """Dumps the recorded query as a literal block, not a ``\\n``-escaped one-liner.
+
+    A subclass rather than a representer on ``yaml.SafeDumper`` itself: that one is a
+    process-global, so registering there would change how every ``yaml.safe_dump`` in
+    the interpreter renders strings the moment anything imports this module.
+    """
+
+
+_BlockStringDumper.add_representer(
     str,
     lambda dumper, value: dumper.represent_scalar(
         "tag:yaml.org,2002:str", value, style="|" if "\n" in value else None
@@ -99,8 +107,15 @@ yaml.SafeDumper.add_representer(
 
 
 def _one(values: set[str]) -> Any:
-    """A batch-wide constant, or the list of values if the batch is not uniform."""
-    return sorted(values)[0] if len(values) == 1 else sorted(values)
+    """A batch-wide constant, or the sorted values when the batch is not uniform.
+
+    A second timestamp or signing key means the 83 nanopublications are not one batch,
+    which the header must show rather than hide behind whichever value sorts first.
+    """
+    if len(values) == 1:
+        return next(iter(values))
+    print(f"note: not a uniform batch, recording all {len(values)} values: {sorted(values)}")
+    return sorted(values)
 
 
 def main() -> None:
@@ -124,7 +139,13 @@ def main() -> None:
                 term.removeprefix(FAIR_TERMS) for term in row["principles"].split()
             )
         if row["t4fs"]:
-            entry["t4fs_ref"] = row["t4fs"]
+            # GROUP_CONCAT joins on a space, so a second term would vendor as one
+            # space-joined pseudo-IRI. No indicator carries two today; refuse rather
+            # than write a corrupt string if a re-published batch ever does.
+            terms = row["t4fs"].split()
+            if len(terms) > 1:
+                raise SystemExit(f"{row['code']} carries {len(terms)} T4FS terms: {terms}")
+            entry["t4fs_ref"] = terms[0]
         indicators[row["code"]] = entry
 
     data = {
@@ -140,7 +161,9 @@ def main() -> None:
         },
         "indicators": indicators,
     }
-    body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
+    body = yaml.dump(
+        data, Dumper=_BlockStringDumper, sort_keys=False, allow_unicode=True, width=100
+    )
     OUT.write_text(_HEADER + "\n" + body)
     print(
         f"Wrote {OUT.relative_to(REPO)} ({len(indicators)} indicators, "

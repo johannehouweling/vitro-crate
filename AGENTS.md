@@ -690,9 +690,9 @@ granularity or cross-reference from there, because those nanopublications transc
 docs site rather than v1.2 of the workbook and contradict it on most indicators. The pin
 is per indicator — there is no set-level or version IRI — so the 83 trusty URIs are
 vendored in `fair/dsm_nanopub_refs.yaml` and a re-published batch is a diff.
-`scripts/fetch_dsm_nanopub_refs.py` is the only script that reaches the network, and it
-refuses to write unless it retrieved exactly 83; the generator and the assessors read the
-vendored file off disk and stay offline.
+`scripts/fetch_dsm_nanopub_refs.py` refuses to write unless it retrieved exactly 83. It
+reaches the network, as `scripts/refresh_type_vocabulary.py` does; both run by hand, and
+the generator and the assessors read the vendored file off disk and stay offline.
 
 **Where an instrument's own arithmetic is not reproduced, the YAML says so.** The RDA
 workbook computes a maturity level per FAIR area (`calc!C13:F13`, Level 0-5 gated on
