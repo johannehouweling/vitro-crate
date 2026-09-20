@@ -36,6 +36,17 @@ source:
     name: RDA FAIR Data Maturity Model
     doi: 10.15497/rda00050
     url: https://doi.org/10.15497/rda00050
+  nanopublications:
+    provides: iri, fair_principles, t4fs_ref, nanopub
+    vendored: fair/dsm_nanopub_refs.yaml (scripts/fetch_dsm_nanopub_refs.py)
+    endpoint: https://query.knowledgepixels.com/repo/full
+    namespace: https://w3id.org/Data-Maturity/
+    license: CC-BY-4.0
+    signed_by: FAIRplus DSM Bot
+    note: 'Version skew is real: the nanopublications derive from https://fairplus.github.io/Data-Maturity/,
+      not from the v1.2 workbook, and assert no version. Only fields the workbook has no column for are
+      taken, so the two editions have nothing to disagree about. There is no set-level or version IRI
+      to pin, so the pin is the 83 trusty URIs, one per indicator.'
   retrieved: '2026-08-21'
   note: 'The model assesses a DATASET, not an organisation: the FAIR Cookbook states it defines ''maturity
     levels which can used to describe a dataset''. Level names are the workbook''s own ''State of Data''.
@@ -665,48 +676,75 @@ indicators:
   scope: na
   granularity: Dataset
   text: Dataset(s) are NOT Identifiable via Unique Identifiers
+  iri: https://w3id.org/Data-Maturity/DSM-0-C0
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000616
+  nanopub: https://w3id.org/np/RABrzI2ZEgu804PHJ8e1-hEHACJyfSjylLWA_x6IoQyo8
 - id: DSM-0-C1
   level: 0
   category: C
   scope: na
   granularity: Project
   text: Metadata does NOT contain context-related information required to interpret the data
+  iri: https://w3id.org/Data-Maturity/DSM-0-C1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000629
+  nanopub: https://w3id.org/np/RAip273r1e7IGE1uC8GsZYaaOG8cdHZRrDuVzFfJ5pJIE
 - id: DSM-0-C2
   level: 0
   category: C
   scope: na
   granularity: Dataset
   text: Dataset Descriptor does NOT include a reference to the Dataset it describes
+  iri: https://w3id.org/Data-Maturity/DSM-0-C2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000634
+  nanopub: https://w3id.org/np/RAKiZk0ZrBp5Wnx9AK3Df7OLeiaEITYTiEAQaG3o7TYeo
 - id: DSM-0-R1
   level: 0
   category: R
   scope: na
   granularity: Dataset
   text: Contextual Metadata is NOT formally represented in any form
+  iri: https://w3id.org/Data-Maturity/DSM-0-R1
+  fair_principles:
+  - F2
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000600
+  nanopub: https://w3id.org/np/RAJDAsB2VIxnKM-Kyb7mX4wHA5fhEFneImZkyzIrzRJ2g
 - id: DSM-0-R2
   level: 0
   category: R
   scope: na
   granularity: Dataset
   text: No representation of Data purposed for sharing and re-use is available
+  iri: https://w3id.org/Data-Maturity/DSM-0-R2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000587
+  nanopub: https://w3id.org/np/RAb3tpWakJGF0p3oTnPGYmWcxizHlOaT0r1ni0uH8cXpk
 - id: DSM-0-R3
   level: 0
   category: R
   scope: na
   granularity: Dataset
   text: Metadata is available but NOT formally represented in a structured Dataset Descriptor
+  iri: https://w3id.org/Data-Maturity/DSM-0-R3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000593
+  nanopub: https://w3id.org/np/RArHq0t1J36uPTkjSAIkv9Kfw2F5y5u8MxrozePqI8wmA
 - id: DSM-0-R4
   level: 0
   category: R
   scope: na
   granularity: Dataset
   text: Metadata is NOT available in a Machine Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-0-R4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000606
+  nanopub: https://w3id.org/np/RA0oGn0ywvJwis8vJuYDJXmifjXYjNBA07YQb740guSDY
 - id: DSM-0-R5
   level: 0
   category: R
   scope: na
   granularity: Dataset
   text: Dataset(s) are NOT available in a Machine Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-0-R5
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000611
+  nanopub: https://w3id.org/np/RAomOTFBKa8STajzIIqnxGL_sBC7l6AsRuvNATe29YoNM
 - id: DSM-0-H1
   level: 0
   category: H
@@ -714,18 +752,27 @@ indicators:
   granularity: Storage Capability
   text: Data or metadata is hosted in non-accessible storage (e.g., personal desktop, local file system
     or archive)
+  iri: https://w3id.org/Data-Maturity/DSM-0-H1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000644
+  nanopub: https://w3id.org/np/RAzxCRC7OG-QItKPca6WbGMcgoGfDa7EFzeYWt5RYF5Iw
 - id: DSM-0-H2
   level: 0
   category: H
   scope: na
   granularity: Retrieval Capability
   text: Data or metadata is hosted in an accessible resource but with no retrieval capability
+  iri: https://w3id.org/Data-Maturity/DSM-0-H2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000649
+  nanopub: https://w3id.org/np/RAA39ULbZaoZWMfXOiA8YtOhqq_irRpzQzhkK22Qt2U00
 - id: DSM-0-H3
   level: 0
   category: H
   scope: na
   granularity: Search Capability
   text: Hosting enviornment does NOT offer searching capabilities to discover data or metadata
+  iri: https://w3id.org/Data-Maturity/DSM-0-H3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000656
+  nanopub: https://w3id.org/np/RACrbj3URkNaxEX53yetoioFVjDNjAL6QMUJ96Z6cUPEw
 - id: DSM-1-C0
   level: 1
   category: C
@@ -738,6 +785,11 @@ indicators:
   rda_ref: RDA-F1-02D
   fairsfair_ref: FsF-F1-01D
   text: Each Dataset purposed for sharing and re-use is assigned a unique identifier
+  iri: https://w3id.org/Data-Maturity/DSM-1-C0
+  fair_principles:
+  - F1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000617
+  nanopub: https://w3id.org/np/RAtrEwSKgi466Ssdws1aFB6VrElgQ-WCZm3qxd9sV1UTw
 - id: DSM-1-C1
   level: 1
   category: C
@@ -749,6 +801,11 @@ indicators:
   granularity: Project
   fairsfair_ref: FsF-F2-01M
   text: Dataset Descriptor(s) includes Descriptive Study/Project-Level summary information
+  iri: https://w3id.org/Data-Maturity/DSM-1-C1
+  fair_principles:
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000630
+  nanopub: https://w3id.org/np/RA54dYbG1NU7OYlNEnqlwx-YaeRofE9lExXrEA9WkT8qQ
 - id: DSM-1-C2
   level: 1
   category: C
@@ -760,6 +817,12 @@ indicators:
   granularity: Dataset
   fairsfair_ref: FsF-F2-01M
   text: Dataset Descriptor(s) includes Identifying & Descriptive Dataset-Level metadata
+  iri: https://w3id.org/Data-Maturity/DSM-1-C2
+  fair_principles:
+  - F3
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000635
+  nanopub: https://w3id.org/np/RAyEZrixMmS3hkSoeKNBqD_48EQaj0I2Ww_hXmsoJBG6Y
 - id: DSM-1-C3
   level: 1
   category: C
@@ -773,6 +836,11 @@ indicators:
   rda_ref: RDA-A1-01M
   fairsfair_ref: FsF-A1-01M
   text: Dataset Descriptor(s) contains access information for the Dataset
+  iri: https://w3id.org/Data-Maturity/DSM-1-C3
+  fair_principles:
+  - A1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000636
+  nanopub: https://w3id.org/np/RAt4O7-fw8kAsr84PU0qst28y62WdYx0tpZKRXQYzmpKg
 - id: DSM-1-R0
   level: 1
   category: R
@@ -783,6 +851,11 @@ indicators:
     why: a reuser cannot tell one deposit's descriptor from another's
   granularity: Dataset
   text: Dataset Metadata is formally represented in the form of an Identifiable Dataset Descriptor
+  iri: https://w3id.org/Data-Maturity/DSM-1-R0
+  fair_principles:
+  - F1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000594
+  nanopub: https://w3id.org/np/RAhVMT8Zr7MTi5P0Pb8zJeQ5WceqvmneJkmPn3DDsO3jo
 - id: DSM-1-R1
   level: 1
   category: R
@@ -793,6 +866,11 @@ indicators:
     why: a reuser opens a container that records nothing but its own packaging
   granularity: ''
   text: Contextual Metadata is represented at summary level and reported in the Dataset Descriptor
+  iri: https://w3id.org/Data-Maturity/DSM-1-R1
+  fair_principles:
+  - F2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000601
+  nanopub: https://w3id.org/np/RABLf8nCP4cPMLV1PrCOXakOIg52BOxMVbMmfWxe4IIGk
 - id: DSM-1-R2
   level: 1
   category: R
@@ -803,6 +881,9 @@ indicators:
     why: a reuser cannot tell which study or assay a file belongs to
   granularity: Dataset
   text: Data intended for sharing and reuse have a purposely defined representation as Datasets
+  iri: https://w3id.org/Data-Maturity/DSM-1-R2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000588
+  nanopub: https://w3id.org/np/RAsduWVYDJCHa4GjaxJL8o9ufUvD2QTaxXW6UCGh_ShZs
 - id: DSM-1-R3
   level: 1
   category: R
@@ -814,6 +895,11 @@ indicators:
   granularity: Dataset
   text: A representation of the Dataset Descriptor conforming to a relevant General Purpose Metadata Schema
     is available
+  iri: https://w3id.org/Data-Maturity/DSM-1-R3
+  fair_principles:
+  - R1.3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000595
+  nanopub: https://w3id.org/np/RAje8wjxpmAasPjRUpRnZR9QvduzTX7O8-SB4Hpoa1iHM
 - id: DSM-1-R4
   level: 1
   category: R
@@ -826,6 +912,11 @@ indicators:
   rda_ref: RDA-I1-02M
   fairsfair_ref: FsF-F4-01M
   text: Dataset Descriptor is available in Machine Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-1-R4
+  fair_principles:
+  - F4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000607
+  nanopub: https://w3id.org/np/RAVy_s99JkkY0l_4hMfegNQKRJ4RjczSlMGgw3gcjO2cU
 - id: DSM-1-R5
   level: 1
   category: R
@@ -837,6 +928,11 @@ indicators:
   granularity: Dataset
   rda_ref: RDA-I1-02D
   text: Dataset(s) available in Machine Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-1-R5
+  fair_principles:
+  - F4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000612
+  nanopub: https://w3id.org/np/RASlEV5m7YC7KdRmuEH6aT1ojWu2nZoPv0Oq7woI7HCHs
 - id: DSM-1-H1
   level: 1
   category: H
@@ -845,6 +941,11 @@ indicators:
   rda_ref: RDA-F1-01M, RDA-F1-01D
   text: Metadata hosting environment stores and maintains an identifiable Dataset Descriptor for each
     identifiable Dataset
+  iri: https://w3id.org/Data-Maturity/DSM-1-H1
+  fair_principles:
+  - A1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000645
+  nanopub: https://w3id.org/np/RAFus8MSEUHLeAt7RPBEhRcdDvAiN7_r0HnlsNoyhuNnQ
 - id: DSM-1-H2
   level: 1
   category: H
@@ -854,6 +955,11 @@ indicators:
   fairsfair_ref: FsF-F1-02D
   text: The Dataset and its Descriptor are indexed and retrievable (in the same or separate hosting environments)
     via unique and persistent identifiers
+  iri: https://w3id.org/Data-Maturity/DSM-1-H2
+  fair_principles:
+  - A1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000650
+  nanopub: https://w3id.org/np/RAIMkQU9hpjiaLHQWVablJ3n4xOvirSHY8l0sPnCkUlmU
 - id: DSM-1-H3
   level: 1
   category: H
@@ -862,6 +968,11 @@ indicators:
   rda_ref: RDA-A1.1-01D
   text: Retrieval of the Dataset and the Dataset Descriptor utilises a standardized communication protocol
     that is open, free and universally implementable
+  iri: https://w3id.org/Data-Maturity/DSM-1-H3
+  fair_principles:
+  - A1.1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000651
+  nanopub: https://w3id.org/np/RAY4kU9jTHkaWU96YaVmhFSVODtP_oMBbuFI_Z6y-38bk
 - id: DSM-1-H4
   level: 1
   category: H
@@ -869,6 +980,11 @@ indicators:
   granularity: Search Capability
   text: Metadata hosting environment offers the capability to browse and search contents of the Dataset
     Descriptor
+  iri: https://w3id.org/Data-Maturity/DSM-1-H4
+  fair_principles:
+  - F4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000657
+  nanopub: https://w3id.org/np/RAJCFL1SOeU4Ao9RynhIMmVpW0k1PCkaRiVCje-8SnDGk
 - id: DSM-2-C1
   level: 2
   category: C
@@ -883,6 +999,11 @@ indicators:
   text: The locally defined Domain Model contains concepts that describes the overall project/study design,
     the relationships between the Datasets, the key entities reported within the Datasets and the relationships
     between them.
+  iri: https://w3id.org/Data-Maturity/DSM-2-C1
+  fair_principles:
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000631
+  nanopub: https://w3id.org/np/RAjzOwde84mkdZEnnoulxYGzlBk7xvyHL5yC01WxesPJo
 - id: DSM-2-C2
   level: 2
   category: C
@@ -895,6 +1016,11 @@ indicators:
   rda_ref: RDA-F1-02D
   fairsfair_ref: FsF-F1-01D
   text: Where applicable, data is structured in the Dataset according to the Tidy Data Principles
+  iri: https://w3id.org/Data-Maturity/DSM-2-C2
+  fair_principles:
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000618
+  nanopub: https://w3id.org/np/RAr91dZtDZzol8nQntr-dHbyx9jluisjSzX2oMNHSmQ3U
 - id: DSM-2-C3
   level: 2
   category: C
@@ -905,6 +1031,9 @@ indicators:
     why: a reuser cannot join the table's rows to the samples and compounds measured
   granularity: Dataset Fields
   text: Dataset(s) include Reference Fields that enable joining related datasets
+  iri: https://w3id.org/Data-Maturity/DSM-2-C3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000621
+  nanopub: https://w3id.org/np/RAtiU5RidPCjpeVwOyu5Cr25oHFwh_Lu8n89ZgsMboFag
 - id: DSM-2-C4
   level: 2
   category: C
@@ -916,6 +1045,12 @@ indicators:
   granularity: Dataset Field Values
   text: Where applicable, Dataset Field Values are standardized against a locally defined Data Dictionary
     within and across related Datasets
+  iri: https://w3id.org/Data-Maturity/DSM-2-C4
+  fair_principles:
+  - F2
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000625
+  nanopub: https://w3id.org/np/RA0ewZzoYqBRRX8EjYDotgNoFKbx87E0c0AkpqXcZZE_I
 - id: DSM-2-C5
   level: 2
   category: C
@@ -927,6 +1062,9 @@ indicators:
   granularity: ''
   text: Dataset Descriptor includes reference to related Datasets and if applicable the relevant joining
     Dataset Fields
+  iri: https://w3id.org/Data-Maturity/DSM-2-C5
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000637
+  nanopub: https://w3id.org/np/RAMrqE_9PKsT66eZvkVxkEMHJazQBCg3nmix6CbDSPNew
 - id: DSM-2-C6
   level: 2
   category: C
@@ -940,6 +1078,12 @@ indicators:
   rda_ref: RDA-F2-01M
   fairsfair_ref: FsF-R1-01MD
   text: Dataset Descriptor includes Field-level Metadata as prescribed by a locally defined Dataset Model
+  iri: https://w3id.org/Data-Maturity/DSM-2-C6
+  fair_principles:
+  - F2
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000639
+  nanopub: https://w3id.org/np/RAjsCppjtVsGU2_XEjIgx2uJalKS6F3M4hkDq0E0qGjMo
 - id: DSM-2-C7
   level: 2
   category: C
@@ -951,6 +1095,12 @@ indicators:
   granularity: Dataset Field Values
   text: Dataset Descriptor includes Value-level Metadata or if applicable includes a reference to a locally
     defined Data Dictionary
+  iri: https://w3id.org/Data-Maturity/DSM-2-C7
+  fair_principles:
+  - F2
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000642
+  nanopub: https://w3id.org/np/RAdxrNW_w3_QofaEM7CKng7ZgYK2wW6Bn_yLOaUu4wdjo
 - id: DSM-2-R1
   level: 2
   category: R
@@ -962,6 +1112,11 @@ indicators:
   granularity: Project
   text: Contextual Metadata is formally represented and reported in the form of a locally defined Domain
     Model
+  iri: https://w3id.org/Data-Maturity/DSM-2-R1
+  fair_principles:
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000602
+  nanopub: https://w3id.org/np/RA-pkWLphz896OXQppG0Vbiu6gmYKRlR8fIgLixus2wUY
 - id: DSM-2-R2
   level: 2
   category: R
@@ -972,6 +1127,11 @@ indicators:
     why: a reuser opening the CSV has no column list to read the numbers against
   granularity: Dataset
   text: Dataset(s) are standardised to a locally defined Dataset Model suitable for data sharing and re-use
+  iri: https://w3id.org/Data-Maturity/DSM-2-R2
+  fair_principles:
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000589
+  nanopub: https://w3id.org/np/RA6Moz37ptxGFljl_J9rDdNhZYuOuucAfwdvgzMvLtf_w
 - id: DSM-2-R3
   level: 2
   category: R
@@ -984,6 +1144,9 @@ indicators:
   rda_ref: RDA-R1.3-02M
   text: Dataset Descriptor(s) adopt a Metadata Schema representation that describes the locally defined
     Dataset Model including its structural metadata (i.e. Field-level and Value-level metadata)
+  iri: https://w3id.org/Data-Maturity/DSM-2-R3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000596
+  nanopub: https://w3id.org/np/RAv-FQn5cVbynllFW_6juOrhsn5bXb82ABusl6inzppHk
 - id: DSM-2-R4
   level: 2
   category: R
@@ -994,6 +1157,9 @@ indicators:
     why: a reuser gets a protocol title and no account of what was done
   granularity: Dataset
   text: A formal documentation of the locally defined Domain Model is available in a Human Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-2-R4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000608
+  nanopub: https://w3id.org/np/RA3K8_R78UP6MMvKE65CtmnfksS_8Oua4gT3sPBuHOoOk
 - id: DSM-2-R5
   level: 2
   category: R
@@ -1006,6 +1172,10 @@ indicators:
   granularity: Dataset
   rda_ref: RDA-I1-02D
   text: Dataset(s) available in Machine Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-2-R5
+  fair_principles:
+  - I1
+  nanopub: https://w3id.org/np/RA_eJPMxEijG2mvR-p1nUnSw6l4evFawyL-MG7kRz2pvw
 - id: DSM-2-H1
   level: 2
   category: H
@@ -1013,6 +1183,11 @@ indicators:
   granularity: Storage Capability
   text: The Data hosting environment's Persistence Model is aligned with a locally defined Domain Model
     to enable interpretation of Datasets
+  iri: https://w3id.org/Data-Maturity/DSM-2-H1
+  fair_principles:
+  - R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000646
+  nanopub: https://w3id.org/np/RAKC96T7FqIX3GVWKAhFONveEvXIdtYLX6Ei_QVotZdPI
 - id: DSM-2-H2
   level: 2
   category: H
@@ -1022,6 +1197,11 @@ indicators:
   fairsfair_ref: FsF-A1-02M
   text: Metadata hosting environment provides programmatic access and retrieval (API) for the Dataset
     Descriptor
+  iri: https://w3id.org/Data-Maturity/DSM-2-H2
+  fair_principles:
+  - A1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000652
+  nanopub: https://w3id.org/np/RAQHnmF8eY9OLmpI6FdwbgLziHWct3BMu9ltnXJtdRnBI
 - id: DSM-2-H3
   level: 2
   category: H
@@ -1029,6 +1209,11 @@ indicators:
   granularity: Search Capability
   rda_ref: RDA-F4-01M
   text: Data hosting environment offers the capability to browse and search related Datasets
+  iri: https://w3id.org/Data-Maturity/DSM-2-H3
+  fair_principles:
+  - F4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000658
+  nanopub: https://w3id.org/np/RAIQu7gsIKws5lQkEvjv4k5TQg47JHsyS4_pMJomej_1k
 - id: DSM-3-C1
   level: 3
   category: C
@@ -1038,6 +1223,11 @@ indicators:
   fairsfair_ref: FsF-R1.3-01M
   text: Where applicable, study-level / experimental metadata is reported in compliance with relevant
     Minimum Information Reporting Guidelines
+  iri: https://w3id.org/Data-Maturity/DSM-3-C1
+  fair_principles:
+  - R1.3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000632
+  nanopub: https://w3id.org/np/RAb_ZFzjJoFIvy4ITdrr7gbxVv_kB9mSnBlP90pBVwP9k
 - id: DSM-3-C2
   level: 3
   category: C
@@ -1050,6 +1240,11 @@ indicators:
   rda_ref: RDA-R1.3-01D
   text: Where applicable, Dataset(s) definition and content are reported in compliance with relevant community-defined
     Data Reporting Guidelines
+  iri: https://w3id.org/Data-Maturity/DSM-3-C2
+  fair_principles:
+  - R1.3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000619
+  nanopub: https://w3id.org/np/RA9gSatIjaBqWU_OmiTkld0oehK_1WTrHgXn2i09_FuH8
 - id: DSM-3-C3
   level: 3
   category: C
@@ -1061,6 +1256,11 @@ indicators:
   granularity: ''
   text: Where applicable, Dataset Field Names use standard controlled terms as recommended by the adopted
     Standard
+  iri: https://w3id.org/Data-Maturity/DSM-3-C3
+  fair_principles:
+  - R1.1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000622
+  nanopub: https://w3id.org/np/RAvXvuQKiQLX_2on0DjrSxxZc2g25zgfOmyv8fEEPuMok
 - id: DSM-3-C4
   level: 3
   category: C
@@ -1074,6 +1274,12 @@ indicators:
   rda_ref: RDA-I2-01D
   text: Where applicable, Dataset Field Values are standardised against domain-specific Controlled Terminologies
     and/or Ontology Terms
+  iri: https://w3id.org/Data-Maturity/DSM-3-C4
+  fair_principles:
+  - I2
+  - R1.3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000626
+  nanopub: https://w3id.org/np/RAgKFpNbtwINm46-TwpGystwF7HHhXI2srh9EJEoNgMXQ
 - id: DSM-3-C5
   level: 3
   category: C
@@ -1087,6 +1293,12 @@ indicators:
   rda_ref: RDA-I2-01D
   text: Value Level Metadata includes Resolvable Identifiers for Controlled and/or Standard Terms reported
     in the Dataset
+  iri: https://w3id.org/Data-Maturity/DSM-3-C5
+  fair_principles:
+  - I2
+  - I3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000643
+  nanopub: https://w3id.org/np/RAHiVMGRomduR9qtkrD9QpAq1NVKJBXKS05inwR_HQDF0
 - id: DSM-3-C6
   level: 3
   category: C
@@ -1099,6 +1311,9 @@ indicators:
   granularity: ''
   text: Dataset Descriptor includes standard-compliant Field-level Metadata as prescribed by the adopted
     standard Dataset Model.
+  iri: https://w3id.org/Data-Maturity/DSM-3-C6
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000640
+  nanopub: https://w3id.org/np/RAUTXfh-ULDuEOz5HEncnvQ-3L5K5UF-qcXuHbUQEyAmg
 - id: DSM-3-C7
   level: 3
   category: C
@@ -1109,6 +1324,9 @@ indicators:
     why: nobody may legally reuse the data without one
   granularity: ''
   text: Dataset Descriptor references a standard license under which the dataset can be re-used.
+  iri: https://w3id.org/Data-Maturity/DSM-3-C7
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000638
+  nanopub: https://w3id.org/np/RAkXtlIkC03q-AyEe6gwjbzKmIKdaUsYnf9k4potG8ViI
 - id: DSM-3-R1
   level: 3
   category: R
@@ -1122,6 +1340,9 @@ indicators:
   fairsfair_ref: FsF-R1.3-01M
   text: Contextual Metadata is formally represented and modeled according to a community or domain-specific
     standard
+  iri: https://w3id.org/Data-Maturity/DSM-3-R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000603
+  nanopub: https://w3id.org/np/RAMjvrDAH71gRRFfiNSTqWXbDT0Glb7pv9gfuDDfsmCOI
 - id: DSM-3-R2
   level: 3
   category: R
@@ -1134,6 +1355,9 @@ indicators:
   rda_ref: RDA-R1.3-01D
   text: Dataset(s) are standardised to relevant Domain or Community Standard Dataset Model(s) suitable
     for data sharing and re-use
+  iri: https://w3id.org/Data-Maturity/DSM-3-R2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000590
+  nanopub: https://w3id.org/np/RA1InCu1_x6n3meZSpGIQ5mCECrUqv1zbJ91cwpO0DylU
 - id: DSM-3-R3
   level: 3
   category: R
@@ -1146,6 +1370,9 @@ indicators:
   rda_ref: RDA-R1.3-01M
   fairsfair_ref: FsF-R1.3-01M
   text: Dataset Descriptor(s) use community-defined or domain-specific metadata standard
+  iri: https://w3id.org/Data-Maturity/DSM-3-R3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000597
+  nanopub: https://w3id.org/np/RAG07WUlfckrvNt7E8ZIeNRlzIn6DyNTYiGc1K25-KZo0
 - id: DSM-3-R4
   level: 3
   category: R
@@ -1157,6 +1384,9 @@ indicators:
   granularity: ''
   text: A formal documentation of the adopted Standard Dataset Model is available in a Machine Readable
     Format
+  iri: https://w3id.org/Data-Maturity/DSM-3-R4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000609
+  nanopub: https://w3id.org/np/RASzdClX9HyGH3rdx9ZHYBpG_kOIwWoIn1__LjDnBvhnM
 - id: DSM-3-R5
   level: 3
   category: R
@@ -1170,6 +1400,9 @@ indicators:
   fairsfair_ref: FsF-R1.3-02D
   text: Dataset(s) available in non-proprietary Machine Readable Format as prescribed by a standard Dataset
     Model
+  iri: https://w3id.org/Data-Maturity/DSM-3-R5
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000613
+  nanopub: https://w3id.org/np/RA-xonlCYx864IEYceLiwKaUnxSMRXIBby5oNmNXqxVNE
 - id: DSM-3-H1
   level: 3
   category: H
@@ -1177,6 +1410,9 @@ indicators:
   granularity: Storage Capability
   text: The Data hosting environment's Persistence Model is aligned with a standard Dataset model or compliant
     with relevant Minimum Information Reporting Guidelines
+  iri: https://w3id.org/Data-Maturity/DSM-3-H1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000647
+  nanopub: https://w3id.org/np/RAyxQDFGKo5c96p_x6fq3qi3Ev-7i0kNY_BM0w0sx2CxQ
 - id: DSM-3-H2
   level: 3
   category: H
@@ -1186,6 +1422,11 @@ indicators:
   fairsfair_ref: FsF-F1-02D
   text: For each dataset, the hosting environment maintains a globally unique, persistent and resolvable
     identifier for access and retrieval
+  iri: https://w3id.org/Data-Maturity/DSM-3-H2
+  fair_principles:
+  - F1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000653
+  nanopub: https://w3id.org/np/RA8QLVFhZb8eo6ujFsi1dRyiZCvzsIwy7jT7z_v9awh8U
 - id: DSM-3-H3
   level: 3
   category: H
@@ -1193,6 +1434,11 @@ indicators:
   granularity: Search Capability
   text: Data Hosting environment utilises controlled terms and/or ontology terms to search within Dataset
     content.
+  iri: https://w3id.org/Data-Maturity/DSM-3-H3
+  fair_principles:
+  - F1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000659
+  nanopub: https://w3id.org/np/RAcQanGpaOTP7T57WWTubHlB_t7O6TxaE11BR83wxadZ4
 - id: DSM-3-H4
   level: 3
   category: H
@@ -1201,6 +1447,11 @@ indicators:
   rda_ref: RDA-A1.2-01D
   text: If applicable, Dataset hosting environment offers dataset-level authentication and authorisation
     capabilities
+  iri: https://w3id.org/Data-Maturity/DSM-3-H4
+  fair_principles:
+  - A1.2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000654
+  nanopub: https://w3id.org/np/RA5G8t18FOdnN98kA_7KKHKrQx9DRBBra4SESemDEo99U
 - id: DSM-4-C1
   level: 4
   category: C
@@ -1212,6 +1463,11 @@ indicators:
   granularity: Dataset
   text: The adopted Semantic Data Model includes study design Data Elements and the relationships between
     them
+  iri: https://w3id.org/Data-Maturity/DSM-4-C1
+  fair_principles:
+  - I1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000633
+  nanopub: https://w3id.org/np/RAM24ws85fkozwOOzgHHjYMNSajMItqWbtMoctQq4d7Lo
 - id: DSM-4-C2
   level: 4
   category: C
@@ -1222,6 +1478,11 @@ indicators:
     why: an unmapped column leaves a reuser guessing what the field records
   granularity: ''
   text: Dataset(s) content is harmonised against a designed-for-purpose Semantic Data Model
+  iri: https://w3id.org/Data-Maturity/DSM-4-C2
+  fair_principles:
+  - I1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000620
+  nanopub: https://w3id.org/np/RARxnAeEBpp5jnoTj-dohpOZ1MRIjWAePrCM89fUDrklI
 - id: DSM-4-C3
   level: 4
   category: C
@@ -1234,6 +1495,9 @@ indicators:
   granularity: Dataset Fields
   rda_ref: RDA-I2-01D
   text: Key Dataset Fields are mapped to Common Data Elements as defined by the Semantic Data Model
+  iri: https://w3id.org/Data-Maturity/DSM-4-C3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000623
+  nanopub: https://w3id.org/np/RAdUTT6CIudsD8Fxt4Yi2PaAm-Jt0jf5rP6jeJzelBT38
 - id: DSM-4-C4
   level: 4
   category: C
@@ -1246,6 +1510,9 @@ indicators:
   granularity: Dataset Field Values
   text: Values for key Domain Entities reported in the Dataset(s) are standardised and assigned unique
     Standard Identifiers
+  iri: https://w3id.org/Data-Maturity/DSM-4-C4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000627
+  nanopub: https://w3id.org/np/RAg8_vu2WDOV153sn4jmO00gAWzIUvh0V8jN_TmiDZcoc
 - id: DSM-4-C5
   level: 4
   category: C
@@ -1259,6 +1526,9 @@ indicators:
   rda_ref: RDA-R1-01M
   text: The Semantic Data Model includes a pre-defined set of Common Data Elements reported within the
     Datasets and the relationships between them
+  iri: https://w3id.org/Data-Maturity/DSM-4-C5
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000641
+  nanopub: https://w3id.org/np/RAKmmHDkYcOecnVI4UoPDBHq4q0GeDF6VBYei5akrd34U
 - id: DSM-4-R1
   level: 4
   category: R
@@ -1269,6 +1539,9 @@ indicators:
     why: a bare label tells a machine nothing about which property was recorded
   granularity: Dataset
   text: Contextual Metadata is formally represented by a set of semantically defined Common Data Elements
+  iri: https://w3id.org/Data-Maturity/DSM-4-R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000604
+  nanopub: https://w3id.org/np/RABsn0aTr_6PL5G076g-SJ2vCAAOAhhF0zcTNVpCtyKwA
 - id: DSM-4-R2
   level: 4
   category: R
@@ -1280,6 +1553,9 @@ indicators:
   granularity: Dataset
   text: Dataset(s) are standardised to a defined Semantic Data Model and represented using Linked Data
     Represetations suitable for data sharing and re-use
+  iri: https://w3id.org/Data-Maturity/DSM-4-R2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000591
+  nanopub: https://w3id.org/np/RA9mbcFL9psKbtrq4j7atz5o7T7bhYPtWnbk7fKI8cLfM
 - id: DSM-4-R3
   level: 4
   category: R
@@ -1292,6 +1568,9 @@ indicators:
   granularity: Dataset
   text: A Semantic Data Model (Metadata) used for data harmonisation across Datasets is formally defined
     and represented using Linked Data Representations
+  iri: https://w3id.org/Data-Maturity/DSM-4-R3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000598
+  nanopub: https://w3id.org/np/RAEW3kUKEG03TFJq3h1DOioJMYxZGJ5IHdtHDCORm-2tM
 - id: DSM-4-R4
   level: 4
   category: R
@@ -1304,6 +1583,9 @@ indicators:
   granularity: Dataset Field Values
   text: A Semantic Data Model (Metadata) describing the data is represented in a Machine Readable and
     Machine Interptretable format
+  iri: https://w3id.org/Data-Maturity/DSM-4-R4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000610
+  nanopub: https://w3id.org/np/RAf1FyzQiGLsLH-r6gmDGcUSpc9BHGEiG5546Ry7rASVU
 - id: DSM-4-R5
   level: 4
   category: R
@@ -1314,6 +1596,9 @@ indicators:
     why: a reuser's software cannot tell what any column measures
   granularity: ''
   text: Datasets are available in a Machine Readable and Machine Interpretable format
+  iri: https://w3id.org/Data-Maturity/DSM-4-R5
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000614
+  nanopub: https://w3id.org/np/RAe54RJfGz8Y_4EsLu17N0WC7enyf1CEtICX-q7YrwL28
 - id: DSM-4-R6
   level: 4
   category: R
@@ -1325,6 +1610,9 @@ indicators:
   granularity: Dataset Fields
   text: If applicable, license information and/or permitted use and accessability to parts of the dataset
     is formally represented and encoded in a Machine Readable Format
+  iri: https://w3id.org/Data-Maturity/DSM-4-R6
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000615
+  nanopub: https://w3id.org/np/RAszhQztSK0cTVGQLUxSJGuVwJ4mLBAPioP5QOOfgUuSk
 - id: DSM-4-H1
   level: 4
   category: H
@@ -1332,30 +1620,42 @@ indicators:
   granularity: Storage Capability
   text: Data Hosting environment stores data in a relevant linked data store (e.g., Triple Store or Graph
     Databaase)
+  iri: https://w3id.org/Data-Maturity/DSM-4-H1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000648
+  nanopub: https://w3id.org/np/RATVDQN19nTW_TeASkMPcf6O4QZ7PfRQ4J1sIABaqPMcM
 - id: DSM-4-H2
   level: 4
   category: H
   scope: na
   granularity: Retrieval Capability
   text: Data Hosting Environment provides semantic querying capability
+  iri: https://w3id.org/Data-Maturity/DSM-4-H2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000660
+  nanopub: https://w3id.org/np/RA0TLYWUZdgS5mYJatzVMjeAnMZE9v6DBnabA6Sb1zyYQ
 - id: DSM-4-H3
   level: 4
   category: H
   scope: na
   granularity: Search Capability
   text: Data Hosting Environment provides semantic search capability
+  iri: https://w3id.org/Data-Maturity/DSM-4-H3
+  nanopub: https://w3id.org/np/RAe5fj6qeboA6sG8I2UqUO5rt6WtRhE7WXY8etJuOYPx0
 - id: DSM-5-C1
   level: 5
   category: C
   scope: na
   granularity: ''
   text: WHAT's included in the MASTER Data Consolidation Model
+  iri: https://w3id.org/Data-Maturity/DSM-5-C1
+  nanopub: https://w3id.org/np/RAmcwmTT8_6tvbierpOLSqa466kMi4EknS6fTM2aH7zoQ
 - id: DSM-5-C2
   level: 5
   category: C
   scope: na
   granularity: ''
   text: What is included in the MASTER Dataset Model
+  iri: https://w3id.org/Data-Maturity/DSM-5-C2
+  nanopub: https://w3id.org/np/RA27CkEh8w_vLSRk4L1BZH7EPOO_ISNxLLOXN2DmUv9UQ
 - id: DSM-5-C3
   level: 5
   category: C
@@ -1363,12 +1663,18 @@ indicators:
   granularity: Dataset Fields
   text: Dataset Fields are linked and harmonized against enterprise managed Metadata Elements (e.g. MDR
     registered Data Elements)
+  iri: https://w3id.org/Data-Maturity/DSM-5-C3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000624
+  nanopub: https://w3id.org/np/RAdMwPGLteyfPmFnQm0H_y3qXilt8zok4FTNiam-DXJGA
 - id: DSM-5-C4
   level: 5
   category: C
   scope: na
   granularity: Dataset Field Values
   text: Dataset Field values are controlled and managed via enterprise managed Reference and Master Data
+  iri: https://w3id.org/Data-Maturity/DSM-5-C4
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000628
+  nanopub: https://w3id.org/np/RAJ0eTQuS9I9sKZCQscIo9Z-hqbz-tAigQwx1gxHysRRg
 - id: DSM-5-C5
   level: 5
   category: C
@@ -1377,12 +1683,17 @@ indicators:
   rda_ref: RDA-R1.2-01M
   fairsfair_ref: FsF-R1.1-01M
   text: Metadata includes provenance information according to a cross-community language
+  iri: https://w3id.org/Data-Maturity/DSM-5-C5
+  nanopub: https://w3id.org/np/RA-1_wuQGn7feSO9XnbNFbI-zau7xVdI8pX67AV3BkuxI
 - id: DSM-5-R1
   level: 5
   category: R
   scope: na
   granularity: Dataset Fields
   text: Data content and context is defined and managed by Master Data Management
+  iri: https://w3id.org/Data-Maturity/DSM-5-R1
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000605
+  nanopub: https://w3id.org/np/RAvHqWAcBZNBLbEnMrxn7k8DNxeVVvyw20AhnixQSbh8I
 - id: DSM-5-R2
   level: 5
   category: R
@@ -1390,39 +1701,55 @@ indicators:
   granularity: ''
   text: Dataset(s) intended for sharing and re-use are granularly standardised and managed at the Data
     Element Level (e.g. ISO 11179 MDR standard)
+  iri: https://w3id.org/Data-Maturity/DSM-5-R2
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000592
+  nanopub: https://w3id.org/np/RAWFB03pKGchStDdfC9Km8LtYauSF4RWUkjZUBLFXoOl0
 - id: DSM-5-R3
   level: 5
   category: R
   scope: na
   granularity: ''
   text: Common Data Elements and their value sets are defined and registered in a managed Metadata Registry
+  iri: https://w3id.org/Data-Maturity/DSM-5-R3
+  t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000599
+  nanopub: https://w3id.org/np/RA012y3FD2gSdCuAS7vuKzjiozh2ltQVdgYncOe_bpla8
 - id: DSM-5-R4
   level: 5
   category: R
   scope: na
   granularity: ''
   text: '[Metadata Formatting requirements]'
+  iri: https://w3id.org/Data-Maturity/DSM-5-R4
+  nanopub: https://w3id.org/np/RAWMYNV4TgVqylzir0-1vso8bXl0tXB4WRQ0Fl6yvns98
 - id: DSM-5-R5
   level: 5
   category: R
   scope: na
   granularity: ''
   text: '[Dataset Formatting requirements]'
+  iri: https://w3id.org/Data-Maturity/DSM-5-R5
+  nanopub: https://w3id.org/np/RAcHZErvKDTOnD6aUE0mkvv1KEVucFCXCxlgRBszGPwQc
 - id: DSM-5-H1
   level: 5
   category: H
   scope: na
   granularity: ''
   text: Hosting Environment implements Master Data Management Capability
+  iri: https://w3id.org/Data-Maturity/DSM-5-H1
+  nanopub: https://w3id.org/np/RAaSIc6CV-LOKiRZOCl1r9474Uvuo_KUgmfHPpceDNi5E
 - id: DSM-5-H2
   level: 5
   category: H
   scope: na
   granularity: ''
   text: Hosting Environment implements Reference Data Management Capability
+  iri: https://w3id.org/Data-Maturity/DSM-5-H2
+  nanopub: https://w3id.org/np/RAIWurlwpBm7OPEyLgDn0pCGz0GTdHgThtkkDqZTlI8uA
 - id: DSM-5-H3
   level: 5
   category: H
   scope: na
   granularity: ''
   text: Hosting Environment implements Data Governance Capability
+  iri: https://w3id.org/Data-Maturity/DSM-5-H3
+  nanopub: https://w3id.org/np/RAq_g27dP0poib3iiCgdyDgXAxGfQIc7Swktf-WpOLb54
