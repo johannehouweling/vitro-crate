@@ -306,3 +306,58 @@ class TestProfilerEngineIntegration:
             assert all(r["tool"] == "draft_investigation" for r in records)
         finally:
             profiler_mod.SESSION_DIR = orig
+
+    def test_long_tool_result_survives_in_profile(self, tmp_path):
+        """A multi-kilobyte tool result reaches profile.ndjson intact (#768).
+
+        ``build_and_validate`` returns the ``issues`` list — the paper's action
+        points — and the old 500-char cap cut it off entirely, so a completed
+        run could not say which issues were raised or resolved.
+        """
+        import builder.tools.profiler as profiler_mod
+        from builder.engine import AgentEngine
+        from builder.tools.profiler import ProfilingLogger
+
+        orig = profiler_mod.SESSION_DIR
+        profiler_mod.SESSION_DIR = tmp_path / "sessions"
+        try:
+            engine = AgentEngine()
+            engine.initialize()
+            engine.profiler = ProfilingLogger(engine.state.session_id)
+
+            long_name = "z" * 5000
+            engine.run_tool("draft_investigation", hints={"name": long_name})
+
+            profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
+            records = [json.loads(line) for line in profile_path.read_text().strip().splitlines()]
+            completed = [r for r in records if r["event"] == "tool_call"]
+            assert len(completed) == 1
+            assert long_name in completed[0]["result"]
+        finally:
+            profiler_mod.SESSION_DIR = orig
+            engine.close_profiler()
+
+    def test_tool_result_beyond_the_cap_is_still_truncated(self, tmp_path):
+        """Past the cap the result is still cut, with the trailing ellipsis."""
+        import builder.tools.profiler as profiler_mod
+        from builder.engine import AgentEngine
+        from builder.tools.profiler import ProfilingLogger
+
+        orig = profiler_mod.SESSION_DIR
+        profiler_mod.SESSION_DIR = tmp_path / "sessions"
+        try:
+            engine = AgentEngine()
+            engine.initialize()
+            engine.profiler = ProfilingLogger(engine.state.session_id)
+
+            engine.run_tool("draft_investigation", hints={"name": "z" * 30000})
+
+            profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
+            records = [json.loads(line) for line in profile_path.read_text().strip().splitlines()]
+            completed = [r for r in records if r["event"] == "tool_call"]
+            assert len(completed) == 1
+            assert len(completed[0]["result"]) == 20000
+            assert completed[0]["result"].endswith("...")
+        finally:
+            profiler_mod.SESSION_DIR = orig
+            engine.close_profiler()
