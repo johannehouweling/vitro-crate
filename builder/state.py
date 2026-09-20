@@ -1436,13 +1436,14 @@ class CrateState:
         self.user_answers.append({"question": q, "answer": a})
         del self.user_answers[:-limit]
 
-    def stamp_generator(self, *, architecture: str | None = None) -> GeneratorInfo:
+    def stamp_generator(self) -> GeneratorInfo:
         """Finalise the generator record for export: identity, timing, cost.
 
         Called by ``export_crate`` so every written crate carries how it was made.
-        Preserves already-recorded token counts (the accumulator above) and fills
-        in what can only be known at the end: the end time, the elapsed wall-clock
-        since ``created_at``, and the money the run cost.
+        Preserves what only the run knows — the accumulated token counts and the
+        build architecture the entrypoint stamped on ``self.generator`` (#772) —
+        and fills in what can only be known at the end: the end time, the elapsed
+        wall-clock since ``created_at``, and the money the run cost.
 
         Never raises: a pricing lookup needs network on first use, and a crate
         must still export when it is unavailable.
