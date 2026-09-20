@@ -666,7 +666,7 @@ the paper claims to score:
 | Axis | Instrument | Vendored | Generator |
 |---|---|---|---|
 | FAIR | RDA FAIR Data Maturity Model (doi:10.15497/rda00050, CC-BY-4.0) | `fair/rda_fdmm.xlsx` | `scripts/gen_fair_indicators.py` |
-| DSM | FAIRplus **Dataset** Maturity Model v1.2 (FAIRplus D2.6, doi:10.5281/zenodo.7464523, model text CC-BY-4.0) | `fair/fairplus_dsm_v1.2.xlsx` | `scripts/gen_dsm_indicators.py` |
+| DSM | FAIRplus **Dataset** Maturity Model v1.2 (FAIRplus D2.6, doi:10.5281/zenodo.7464523, model text CC-BY-4.0) | `fair/fairplus_dsm_v1.2.xlsx`, `fair/dsm_nanopub_refs.yaml` | `scripts/gen_dsm_indicators.py` |
 
 Each generator carries **all** the published indicators — the DSM's full 83, not the
 subset we can assess — with verbatim text and the model's own columns, and keeps the
@@ -679,6 +679,20 @@ output and to the source workbook.
 
 Note the DSM model text is **CC-BY-4.0**; the FAIRplus repository's MIT `LICENSE.txt`
 covers only its Jekyll theme and does not license the model.
+
+**A DSM indicator's definition comes from the workbook; its published cross-references
+come from the nanopublication network.** The same 83 indicators are published as
+nanopublications under `https://w3id.org/Data-Maturity/`, which assert two mappings the
+workbook has no column for — the FAIR principles an indicator relates to, and its T4FS
+ontology term. `fair/dsm_indicators.yaml` carries both, plus the indicator's canonical
+IRI and the trusty URI of the nanopublication asserting them; it takes no text, level,
+granularity or cross-reference from there, because those nanopublications transcribe the
+docs site rather than v1.2 of the workbook and contradict it on most indicators. The pin
+is per indicator — there is no set-level or version IRI — so the 83 trusty URIs are
+vendored in `fair/dsm_nanopub_refs.yaml` and a re-published batch is a diff.
+`scripts/fetch_dsm_nanopub_refs.py` is the only script that reaches the network, and it
+refuses to write unless it retrieved exactly 83; the generator and the assessors read the
+vendored file off disk and stay offline.
 
 **Where an instrument's own arithmetic is not reproduced, the YAML says so.** The RDA
 workbook computes a maturity level per FAIR area (`calc!C13:F13`, Level 0-5 gated on

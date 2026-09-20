@@ -1,0 +1,363 @@
+# VENDORED FETCH RESULT — do not edit by hand.
+#
+# Refresh with:  uv run python scripts/fetch_dsm_nanopub_refs.py
+#
+# The published FAIRplus DSM indicator nanopublications, one per indicator: the trusty
+# URI of the nanopublication that asserted it, its FAIR-principle mapping and its T4FS
+# ontology term. Definitions (text, level, category, granularity, cross-references) are
+# NOT taken from here — they come from the vendored v1.2 workbook, whose wording these
+# nanopublications do not reproduce. scripts/gen_dsm_indicators.py merges this file into
+# fair/dsm_indicators.yaml.
+
+source:
+  name: FAIRplus DSM indicator nanopublications
+  endpoint: https://query.knowledgepixels.com/repo/full
+  query: |
+    PREFIX dsm: <https://w3id.org/spaces/fairplus/r/dsm/>
+    PREFIX np: <http://www.nanopub.org/nschema#>
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    SELECT ?nanopub ?code ?created ?signer
+           (GROUP_CONCAT(DISTINCT STR(?principle); separator=" ") AS ?principles)
+           (GROUP_CONCAT(DISTINCT STR(?term); separator=" ") AS ?t4fs)
+    WHERE {
+      GRAPH ?assertion {
+        ?ind dsm:indicatorCode ?code .
+        OPTIONAL { ?ind dsm:relatedFAIRPrinciple ?principle }
+        OPTIONAL {
+          ?ind rdfs:seeAlso ?term .
+          FILTER(STRSTARTS(STR(?term), "http://purl.obolibrary.org/obo/T4FS_"))
+        }
+      }
+      GRAPH ?head { ?nanopub np:hasAssertion ?assertion }
+      GRAPH ?pubinfo {
+        ?nanopub dct:created ?created ; dct:creator ?key .
+        ?key foaf:name ?signer .
+      }
+      FILTER(STRSTARTS(STR(?ind), "https://w3id.org/Data-Maturity/DSM"))
+    }
+    GROUP BY ?nanopub ?code ?created ?signer
+    ORDER BY ?code
+  created: '2026-09-05T09:18:21Z'
+  license: CC-BY-4.0
+  signed_by: FAIRplus DSM Bot
+  fair_principles_vocabulary: https://w3id.org/fair/principles/terms/
+  retrieved: '2026-09-20'
+indicators:
+  DSM-0-C0:
+    nanopub: https://w3id.org/np/RABrzI2ZEgu804PHJ8e1-hEHACJyfSjylLWA_x6IoQyo8
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000616
+  DSM-0-C1:
+    nanopub: https://w3id.org/np/RAip273r1e7IGE1uC8GsZYaaOG8cdHZRrDuVzFfJ5pJIE
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000629
+  DSM-0-C2:
+    nanopub: https://w3id.org/np/RAKiZk0ZrBp5Wnx9AK3Df7OLeiaEITYTiEAQaG3o7TYeo
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000634
+  DSM-0-H1:
+    nanopub: https://w3id.org/np/RAzxCRC7OG-QItKPca6WbGMcgoGfDa7EFzeYWt5RYF5Iw
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000644
+  DSM-0-H2:
+    nanopub: https://w3id.org/np/RAA39ULbZaoZWMfXOiA8YtOhqq_irRpzQzhkK22Qt2U00
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000649
+  DSM-0-H3:
+    nanopub: https://w3id.org/np/RACrbj3URkNaxEX53yetoioFVjDNjAL6QMUJ96Z6cUPEw
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000656
+  DSM-0-R1:
+    nanopub: https://w3id.org/np/RAJDAsB2VIxnKM-Kyb7mX4wHA5fhEFneImZkyzIrzRJ2g
+    fair_principles:
+    - F2
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000600
+  DSM-0-R2:
+    nanopub: https://w3id.org/np/RAb3tpWakJGF0p3oTnPGYmWcxizHlOaT0r1ni0uH8cXpk
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000587
+  DSM-0-R3:
+    nanopub: https://w3id.org/np/RArHq0t1J36uPTkjSAIkv9Kfw2F5y5u8MxrozePqI8wmA
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000593
+  DSM-0-R4:
+    nanopub: https://w3id.org/np/RA0oGn0ywvJwis8vJuYDJXmifjXYjNBA07YQb740guSDY
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000606
+  DSM-0-R5:
+    nanopub: https://w3id.org/np/RAomOTFBKa8STajzIIqnxGL_sBC7l6AsRuvNATe29YoNM
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000611
+  DSM-1-C0:
+    nanopub: https://w3id.org/np/RAtrEwSKgi466Ssdws1aFB6VrElgQ-WCZm3qxd9sV1UTw
+    fair_principles:
+    - F1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000617
+  DSM-1-C1:
+    nanopub: https://w3id.org/np/RA54dYbG1NU7OYlNEnqlwx-YaeRofE9lExXrEA9WkT8qQ
+    fair_principles:
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000630
+  DSM-1-C2:
+    nanopub: https://w3id.org/np/RAyEZrixMmS3hkSoeKNBqD_48EQaj0I2Ww_hXmsoJBG6Y
+    fair_principles:
+    - F3
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000635
+  DSM-1-C3:
+    nanopub: https://w3id.org/np/RAt4O7-fw8kAsr84PU0qst28y62WdYx0tpZKRXQYzmpKg
+    fair_principles:
+    - A1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000636
+  DSM-1-H1:
+    nanopub: https://w3id.org/np/RAFus8MSEUHLeAt7RPBEhRcdDvAiN7_r0HnlsNoyhuNnQ
+    fair_principles:
+    - A1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000645
+  DSM-1-H2:
+    nanopub: https://w3id.org/np/RAIMkQU9hpjiaLHQWVablJ3n4xOvirSHY8l0sPnCkUlmU
+    fair_principles:
+    - A1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000650
+  DSM-1-H3:
+    nanopub: https://w3id.org/np/RAY4kU9jTHkaWU96YaVmhFSVODtP_oMBbuFI_Z6y-38bk
+    fair_principles:
+    - A1.1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000651
+  DSM-1-H4:
+    nanopub: https://w3id.org/np/RAJCFL1SOeU4Ao9RynhIMmVpW0k1PCkaRiVCje-8SnDGk
+    fair_principles:
+    - F4
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000657
+  DSM-1-R0:
+    nanopub: https://w3id.org/np/RAhVMT8Zr7MTi5P0Pb8zJeQ5WceqvmneJkmPn3DDsO3jo
+    fair_principles:
+    - F1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000594
+  DSM-1-R1:
+    nanopub: https://w3id.org/np/RABLf8nCP4cPMLV1PrCOXakOIg52BOxMVbMmfWxe4IIGk
+    fair_principles:
+    - F2
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000601
+  DSM-1-R2:
+    nanopub: https://w3id.org/np/RAsduWVYDJCHa4GjaxJL8o9ufUvD2QTaxXW6UCGh_ShZs
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000588
+  DSM-1-R3:
+    nanopub: https://w3id.org/np/RAje8wjxpmAasPjRUpRnZR9QvduzTX7O8-SB4Hpoa1iHM
+    fair_principles:
+    - R1.3
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000595
+  DSM-1-R4:
+    nanopub: https://w3id.org/np/RAVy_s99JkkY0l_4hMfegNQKRJ4RjczSlMGgw3gcjO2cU
+    fair_principles:
+    - F4
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000607
+  DSM-1-R5:
+    nanopub: https://w3id.org/np/RASlEV5m7YC7KdRmuEH6aT1ojWu2nZoPv0Oq7woI7HCHs
+    fair_principles:
+    - F4
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000612
+  DSM-2-C1:
+    nanopub: https://w3id.org/np/RAjzOwde84mkdZEnnoulxYGzlBk7xvyHL5yC01WxesPJo
+    fair_principles:
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000631
+  DSM-2-C2:
+    nanopub: https://w3id.org/np/RAr91dZtDZzol8nQntr-dHbyx9jluisjSzX2oMNHSmQ3U
+    fair_principles:
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000618
+  DSM-2-C3:
+    nanopub: https://w3id.org/np/RAtiU5RidPCjpeVwOyu5Cr25oHFwh_Lu8n89ZgsMboFag
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000621
+  DSM-2-C4:
+    nanopub: https://w3id.org/np/RA0ewZzoYqBRRX8EjYDotgNoFKbx87E0c0AkpqXcZZE_I
+    fair_principles:
+    - F2
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000625
+  DSM-2-C5:
+    nanopub: https://w3id.org/np/RAMrqE_9PKsT66eZvkVxkEMHJazQBCg3nmix6CbDSPNew
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000637
+  DSM-2-C6:
+    nanopub: https://w3id.org/np/RAjsCppjtVsGU2_XEjIgx2uJalKS6F3M4hkDq0E0qGjMo
+    fair_principles:
+    - F2
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000639
+  DSM-2-C7:
+    nanopub: https://w3id.org/np/RAdxrNW_w3_QofaEM7CKng7ZgYK2wW6Bn_yLOaUu4wdjo
+    fair_principles:
+    - F2
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000642
+  DSM-2-H1:
+    nanopub: https://w3id.org/np/RAKC96T7FqIX3GVWKAhFONveEvXIdtYLX6Ei_QVotZdPI
+    fair_principles:
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000646
+  DSM-2-H2:
+    nanopub: https://w3id.org/np/RAQHnmF8eY9OLmpI6FdwbgLziHWct3BMu9ltnXJtdRnBI
+    fair_principles:
+    - A1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000652
+  DSM-2-H3:
+    nanopub: https://w3id.org/np/RAIQu7gsIKws5lQkEvjv4k5TQg47JHsyS4_pMJomej_1k
+    fair_principles:
+    - F4
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000658
+  DSM-2-R1:
+    nanopub: https://w3id.org/np/RA-pkWLphz896OXQppG0Vbiu6gmYKRlR8fIgLixus2wUY
+    fair_principles:
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000602
+  DSM-2-R2:
+    nanopub: https://w3id.org/np/RA6Moz37ptxGFljl_J9rDdNhZYuOuucAfwdvgzMvLtf_w
+    fair_principles:
+    - R1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000589
+  DSM-2-R3:
+    nanopub: https://w3id.org/np/RAv-FQn5cVbynllFW_6juOrhsn5bXb82ABusl6inzppHk
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000596
+  DSM-2-R4:
+    nanopub: https://w3id.org/np/RA3K8_R78UP6MMvKE65CtmnfksS_8Oua4gT3sPBuHOoOk
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000608
+  DSM-2-R5:
+    nanopub: https://w3id.org/np/RA_eJPMxEijG2mvR-p1nUnSw6l4evFawyL-MG7kRz2pvw
+    fair_principles:
+    - I1
+  DSM-3-C1:
+    nanopub: https://w3id.org/np/RAb_ZFzjJoFIvy4ITdrr7gbxVv_kB9mSnBlP90pBVwP9k
+    fair_principles:
+    - R1.3
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000632
+  DSM-3-C2:
+    nanopub: https://w3id.org/np/RA9gSatIjaBqWU_OmiTkld0oehK_1WTrHgXn2i09_FuH8
+    fair_principles:
+    - R1.3
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000619
+  DSM-3-C3:
+    nanopub: https://w3id.org/np/RAvXvuQKiQLX_2on0DjrSxxZc2g25zgfOmyv8fEEPuMok
+    fair_principles:
+    - R1.1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000622
+  DSM-3-C4:
+    nanopub: https://w3id.org/np/RAgKFpNbtwINm46-TwpGystwF7HHhXI2srh9EJEoNgMXQ
+    fair_principles:
+    - I2
+    - R1.3
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000626
+  DSM-3-C5:
+    nanopub: https://w3id.org/np/RAHiVMGRomduR9qtkrD9QpAq1NVKJBXKS05inwR_HQDF0
+    fair_principles:
+    - I2
+    - I3
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000643
+  DSM-3-C6:
+    nanopub: https://w3id.org/np/RAUTXfh-ULDuEOz5HEncnvQ-3L5K5UF-qcXuHbUQEyAmg
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000640
+  DSM-3-C7:
+    nanopub: https://w3id.org/np/RAkXtlIkC03q-AyEe6gwjbzKmIKdaUsYnf9k4potG8ViI
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000638
+  DSM-3-H1:
+    nanopub: https://w3id.org/np/RAyxQDFGKo5c96p_x6fq3qi3Ev-7i0kNY_BM0w0sx2CxQ
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000647
+  DSM-3-H2:
+    nanopub: https://w3id.org/np/RA8QLVFhZb8eo6ujFsi1dRyiZCvzsIwy7jT7z_v9awh8U
+    fair_principles:
+    - F1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000653
+  DSM-3-H3:
+    nanopub: https://w3id.org/np/RAcQanGpaOTP7T57WWTubHlB_t7O6TxaE11BR83wxadZ4
+    fair_principles:
+    - F1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000659
+  DSM-3-H4:
+    nanopub: https://w3id.org/np/RA5G8t18FOdnN98kA_7KKHKrQx9DRBBra4SESemDEo99U
+    fair_principles:
+    - A1.2
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000654
+  DSM-3-R1:
+    nanopub: https://w3id.org/np/RAMjvrDAH71gRRFfiNSTqWXbDT0Glb7pv9gfuDDfsmCOI
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000603
+  DSM-3-R2:
+    nanopub: https://w3id.org/np/RA1InCu1_x6n3meZSpGIQ5mCECrUqv1zbJ91cwpO0DylU
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000590
+  DSM-3-R3:
+    nanopub: https://w3id.org/np/RAG07WUlfckrvNt7E8ZIeNRlzIn6DyNTYiGc1K25-KZo0
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000597
+  DSM-3-R4:
+    nanopub: https://w3id.org/np/RASzdClX9HyGH3rdx9ZHYBpG_kOIwWoIn1__LjDnBvhnM
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000609
+  DSM-3-R5:
+    nanopub: https://w3id.org/np/RA-xonlCYx864IEYceLiwKaUnxSMRXIBby5oNmNXqxVNE
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000613
+  DSM-4-C1:
+    nanopub: https://w3id.org/np/RAM24ws85fkozwOOzgHHjYMNSajMItqWbtMoctQq4d7Lo
+    fair_principles:
+    - I1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000633
+  DSM-4-C2:
+    nanopub: https://w3id.org/np/RARxnAeEBpp5jnoTj-dohpOZ1MRIjWAePrCM89fUDrklI
+    fair_principles:
+    - I1
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000620
+  DSM-4-C3:
+    nanopub: https://w3id.org/np/RAdUTT6CIudsD8Fxt4Yi2PaAm-Jt0jf5rP6jeJzelBT38
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000623
+  DSM-4-C4:
+    nanopub: https://w3id.org/np/RAg8_vu2WDOV153sn4jmO00gAWzIUvh0V8jN_TmiDZcoc
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000627
+  DSM-4-C5:
+    nanopub: https://w3id.org/np/RAKmmHDkYcOecnVI4UoPDBHq4q0GeDF6VBYei5akrd34U
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000641
+  DSM-4-H1:
+    nanopub: https://w3id.org/np/RATVDQN19nTW_TeASkMPcf6O4QZ7PfRQ4J1sIABaqPMcM
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000648
+  DSM-4-H2:
+    nanopub: https://w3id.org/np/RA0TLYWUZdgS5mYJatzVMjeAnMZE9v6DBnabA6Sb1zyYQ
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000660
+  DSM-4-H3:
+    nanopub: https://w3id.org/np/RAe5fj6qeboA6sG8I2UqUO5rt6WtRhE7WXY8etJuOYPx0
+  DSM-4-R1:
+    nanopub: https://w3id.org/np/RABsn0aTr_6PL5G076g-SJ2vCAAOAhhF0zcTNVpCtyKwA
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000604
+  DSM-4-R2:
+    nanopub: https://w3id.org/np/RA9mbcFL9psKbtrq4j7atz5o7T7bhYPtWnbk7fKI8cLfM
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000591
+  DSM-4-R3:
+    nanopub: https://w3id.org/np/RAEW3kUKEG03TFJq3h1DOioJMYxZGJ5IHdtHDCORm-2tM
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000598
+  DSM-4-R4:
+    nanopub: https://w3id.org/np/RAf1FyzQiGLsLH-r6gmDGcUSpc9BHGEiG5546Ry7rASVU
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000610
+  DSM-4-R5:
+    nanopub: https://w3id.org/np/RAe54RJfGz8Y_4EsLu17N0WC7enyf1CEtICX-q7YrwL28
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000614
+  DSM-4-R6:
+    nanopub: https://w3id.org/np/RAszhQztSK0cTVGQLUxSJGuVwJ4mLBAPioP5QOOfgUuSk
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000615
+  DSM-5-C1:
+    nanopub: https://w3id.org/np/RAmcwmTT8_6tvbierpOLSqa466kMi4EknS6fTM2aH7zoQ
+  DSM-5-C2:
+    nanopub: https://w3id.org/np/RA27CkEh8w_vLSRk4L1BZH7EPOO_ISNxLLOXN2DmUv9UQ
+  DSM-5-C3:
+    nanopub: https://w3id.org/np/RAdMwPGLteyfPmFnQm0H_y3qXilt8zok4FTNiam-DXJGA
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000624
+  DSM-5-C4:
+    nanopub: https://w3id.org/np/RAJ0eTQuS9I9sKZCQscIo9Z-hqbz-tAigQwx1gxHysRRg
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000628
+  DSM-5-C5:
+    nanopub: https://w3id.org/np/RA-1_wuQGn7feSO9XnbNFbI-zau7xVdI8pX67AV3BkuxI
+  DSM-5-H1:
+    nanopub: https://w3id.org/np/RAaSIc6CV-LOKiRZOCl1r9474Uvuo_KUgmfHPpceDNi5E
+  DSM-5-H2:
+    nanopub: https://w3id.org/np/RAIWurlwpBm7OPEyLgDn0pCGz0GTdHgThtkkDqZTlI8uA
+  DSM-5-H3:
+    nanopub: https://w3id.org/np/RAq_g27dP0poib3iiCgdyDgXAxGfQIc7Swktf-WpOLb54
+  DSM-5-R1:
+    nanopub: https://w3id.org/np/RAvHqWAcBZNBLbEnMrxn7k8DNxeVVvyw20AhnixQSbh8I
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000605
+  DSM-5-R2:
+    nanopub: https://w3id.org/np/RAWFB03pKGchStDdfC9Km8LtYauSF4RWUkjZUBLFXoOl0
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000592
+  DSM-5-R3:
+    nanopub: https://w3id.org/np/RA012y3FD2gSdCuAS7vuKzjiozh2ltQVdgYncOe_bpla8
+    t4fs_ref: http://purl.obolibrary.org/obo/T4FS_0000599
+  DSM-5-R4:
+    nanopub: https://w3id.org/np/RAWMYNV4TgVqylzir0-1vso8bXl0tXB4WRQ0Fl6yvns98
+  DSM-5-R5:
+    nanopub: https://w3id.org/np/RAcHZErvKDTOnD6aUE0mkvv1KEVucFCXCxlgRBszGPwQc

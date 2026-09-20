@@ -12,6 +12,18 @@ The *local* decision — which indicators this tool can assess intrinsically fro
 RO-Crate, and with which check function — lives in :data:`LOCAL_SCOPE` below; that is
 inherently repo-specific and stays here.
 
+Each indicator additionally carries its canonical IRI
+(``https://w3id.org/Data-Maturity/{id}``, derived from the id) and, where the
+nanopublication network publishes them, its FAIR-principle mapping (``fair_principles``,
+35 of 83), its T4FS ontology term (``t4fs_ref``, 73 of 83) and the trusty URI of the
+nanopublication asserting both (``nanopub``). Those three are read from the vendored
+``fair/dsm_nanopub_refs.yaml``, refreshed by ``scripts/fetch_dsm_nanopub_refs.py`` —
+this generator makes no network call. The workbook has no column for any of them, which
+is exactly why they are safe to merge: nothing here may touch ``text``, ``level``,
+``category``, ``granularity``, ``rda_ref`` or ``fairsfair_ref``, whose published values
+the nanopublications contradict (their ``rdfs:label`` differs substantively from the
+workbook text on 40 of 83 indicators, and their ``dsm:hasGranularityLevel`` on ~36).
+
 **All 83 published indicators are carried**, including the ones we cannot assess. An
 indicator we do not assess is reported ``na`` (not assessable), never failed — the
 published model is reproduced in full and our coverage of it is visible rather than
@@ -45,6 +57,7 @@ import yaml
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 DSM_XLSX = REPO / "fair" / "fairplus_dsm_v1.2.xlsx"
+NANOPUB_REFS = REPO / "fair" / "dsm_nanopub_refs.yaml"
 OUT = REPO / "fair" / "dsm_indicators.yaml"
 
 # The workbook's authoritative indicator listing. Columns: Level(0), Category(1),
@@ -421,6 +434,26 @@ SOURCE: dict[str, Any] = {
         "doi": "10.15497/rda00050",
         "url": "https://doi.org/10.15497/rda00050",
     },
+    # The same 83 indicators are also published as nanopublications, which carry two
+    # mappings the workbook has no column for. Definitions are NOT taken from there:
+    # the nanopublications transcribe the docs site (still edited against branch v0.3),
+    # carry no version and no DOI, and their wording differs substantively from the
+    # workbook's on 40 of the 83 indicators.
+    "nanopublications": {
+        "provides": "iri, fair_principles, t4fs_ref, nanopub",
+        "vendored": "fair/dsm_nanopub_refs.yaml (scripts/fetch_dsm_nanopub_refs.py)",
+        "endpoint": "https://query.knowledgepixels.com/repo/full",
+        "namespace": "https://w3id.org/Data-Maturity/",
+        "license": "CC-BY-4.0",
+        "signed_by": "FAIRplus DSM Bot",
+        "note": (
+            "Version skew is real: the nanopublications derive from "
+            "https://fairplus.github.io/Data-Maturity/, not from the v1.2 workbook, and "
+            "assert no version. Only fields the workbook has no column for are taken, so "
+            "the two editions have nothing to disagree about. There is no set-level or "
+            "version IRI to pin, so the pin is the 83 trusty URIs, one per indicator."
+        ),
+    },
     "retrieved": "2026-08-21",
     "note": (
         "The model assesses a DATASET, not an organisation: the FAIR Cookbook states it "
@@ -686,6 +719,7 @@ def _superseded_by() -> dict[str, set[str]]:
 def build_data() -> dict[str, Any]:
     """The full ``dsm_indicators.yaml`` payload: source + levels + all indicators."""
     rows = _load_workbook_rows()
+    refs = yaml.safe_load(NANOPUB_REFS.read_text())["indicators"]
     known = {r["id"] for r in rows}
     unknown = sorted(set(LOCAL_SCOPE) - known)
     if unknown:
@@ -725,6 +759,15 @@ def build_data() -> dict[str, Any]:
         if row["fairsfair_ref"]:
             entry["fairsfair_ref"] = row["fairsfair_ref"]
         entry["text"] = row["text"]
+        # The published cross-references. The IRI is a string function of the id —
+        # `https://w3id.org/Data-Maturity/DSM-0-R1` resolves, to HTML, and needs no
+        # network. The other three come from the vendored nanopublication refs; an
+        # indicator the network does not map carries none of them.
+        entry["iri"] = f"https://w3id.org/Data-Maturity/{row['id']}"
+        ref = refs.get(row["id"], {})
+        for field in ("fair_principles", "t4fs_ref", "nanopub"):
+            if value := ref.get(field):
+                entry[field] = value
         indicators.append(entry)
 
     return {

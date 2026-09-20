@@ -24,7 +24,17 @@ import yaml
 REPO = pathlib.Path(__file__).resolve().parents[1]
 DSM_YAML = REPO / "fair" / "dsm_indicators.yaml"
 DSM_XLSX = REPO / "fair" / "fairplus_dsm_v1.2.xlsx"
+NANOPUB_REFS = REPO / "fair" / "dsm_nanopub_refs.yaml"
 GEN = REPO / "scripts" / "gen_dsm_indicators.py"
+
+# The FAIR principles, as the published vocabulary https://w3id.org/fair/principles/terms/
+# enumerates them.
+FAIR_PRINCIPLES = {
+    "F1", "F2", "F3", "F4",
+    "A1", "A1.1", "A1.2", "A2",
+    "I1", "I2", "I3",
+    "R1", "R1.1", "R1.2", "R1.3",
+}
 
 # The published model, as distributed in v1.2 of the assessment sheet.
 PUBLISHED_TOTAL = 83
@@ -177,6 +187,38 @@ class TestLocalScopeIsHonest:
         linked = [i for i in _yaml()["indicators"] if i.get("rda_ref")]
         assert len(linked) == 27
         assert all(i["rda_ref"].startswith(("RDA-", "[")) for i in linked)
+
+
+class TestThePublishedNanopublicationsAreCited:
+    """Each indicator carries its canonical IRI and the nanopublication that asserted
+    the two mappings the v1.2 workbook has no column for.
+
+    Definitions stay workbook-sourced: the nanopubs are a bot transcription of the
+    docs site, whose `rdfs:label` differs substantively from the workbook text on 40 of
+    83 indicators, so nothing here may feed `text`, `granularity` or the cross-references
+    (`test_indicator_text_is_verbatim_never_paraphrased` is what enforces that).
+    """
+
+    def test_every_indicator_carries_its_canonical_iri(self):
+        for ind in _yaml()["indicators"]:
+            assert ind["iri"] == f"https://w3id.org/Data-Maturity/{ind['id']}"
+
+    def test_the_vendored_refs_pin_one_nanopublication_per_indicator(self):
+        """The 83 trusty URIs are the pin: there is no set-level or version IRI."""
+        refs = yaml.safe_load(NANOPUB_REFS.read_text())["indicators"]
+        assert set(refs) == {i["id"] for i in _yaml()["indicators"]}
+        trusty = [r["nanopub"] for r in refs.values()]
+        assert all(uri.startswith("https://w3id.org/np/RA") for uri in trusty)
+        assert len(set(trusty)) == PUBLISHED_TOTAL
+
+    def test_fair_principle_mappings_are_the_published_vocabulary(self):
+        by_id = {i["id"]: i for i in _yaml()["indicators"]}
+        # Verbatim from https://w3id.org/np/RAJDAsB2VIxnKM-Kyb7mX4wHA5fhEFneImZkyzIrzRJ2g:
+        # `dsm:relatedFAIRPrinciple fair:F2, fair:R1`.
+        assert by_id["DSM-0-R1"]["fair_principles"] == ["F2", "R1"]
+        for ind in by_id.values():
+            for term in ind.get("fair_principles", []):
+                assert term in FAIR_PRINCIPLES, f"{ind['id']} cites unknown principle {term}"
 
 
 class TestProvenanceIsRecorded:
