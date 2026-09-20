@@ -219,6 +219,72 @@ def _apply_temperature(kwargs: dict[str, Any], *, supported: bool = True) -> Non
     if supported:
         kwargs["temperature"] = _resolve_temperature()
 
+
+def _resolve_reasoning_effort() -> str | None:
+    """The single parse point for ``VITRO_OPENAI_REASONING_EFFORT``.
+
+    Normalized once (strip + lowercase) so a capitalized/whitespaced value like
+    ``"Medium"`` or ``" none "`` forwards as the clean lowercase enum the OpenAI
+    API expects — and a blank value collapses to ``None`` (a no-op).
+    """
+    return (os.environ.get("VITRO_OPENAI_REASONING_EFFORT") or "").strip().lower() or None
+
+
+def _use_responses_api(resolved_model: str | None) -> bool:
+    """Whether the OpenAI call routes through the Responses API — decided ONCE.
+
+    Reasoning models (gpt-5.x, o-series) reject ``temperature`` and cannot bind
+    function tools on ``/v1/chat/completions`` with ``reasoning_effort`` — the
+    API requires the Responses API instead. Both the ReAct loop and the pipeline
+    drafter leaves bind tools, so such a model routes through it. Detect by name,
+    with ``VITRO_OPENAI_USE_RESPONSES_API`` as an explicit override for
+    custom/Azure deployment names the heuristic cannot recognise. An explicit
+    ``reasoning_effort="none"`` turns reasoning OFF, so that call is treated as a
+    standard (chat/completions, temperature-0) request.
+
+    This also decides whether a temperature is sent at all, which the provenance
+    record must report truthfully, so :func:`effective_sampling_settings` reads
+    the same answer rather than restating the rule (#769).
+    """
+    override = os.environ.get("VITRO_OPENAI_USE_RESPONSES_API")
+    if override is not None:
+        return override.strip().lower() in ("1", "true", "yes", "on")
+    if _resolve_reasoning_effort() == "none":
+        return False
+    return _is_openai_reasoning_model(resolved_model)
+
+
+def effective_sampling_settings(model: str | None = None) -> dict[str, str]:
+    """The sampling controls this process will actually send, stringified (#769).
+
+    ``temperature`` appears only when it is genuinely applied: the OpenAI branch
+    omits it for a Responses-API reasoning model, so a crate recording one would
+    claim a setting the API never saw. The Anthropic branch always applies it.
+
+    Best effort — provenance must never fail an export, so an unreadable
+    environment yields ``{}`` rather than raising.
+    """
+    settings: dict[str, str] = {}
+    try:
+        provider = _detect_provider()
+        if provider == "openai":
+            resolved_model = (
+                model
+                or os.environ.get("VITRO_OPENAI_MODEL")
+                or os.environ.get("OPENAI_MODEL", "gpt-4o")
+            )
+            effort = _resolve_reasoning_effort()
+            if effort:
+                settings["reasoning_effort"] = effort
+            if not _use_responses_api(resolved_model):
+                settings["temperature"] = str(_resolve_temperature())
+        elif provider == "anthropic":
+            settings["temperature"] = str(_resolve_temperature())
+    except Exception:  # noqa: BLE001 - provenance is best effort, never fatal
+        return {}
+    return settings
+
+
 def _build_chat_model(
     provider: str | None = None,
     model: str | None = None,
@@ -315,30 +381,8 @@ def _build_chat_model(
             or os.environ.get("VITRO_OPENAI_MODEL")
             or os.environ.get("OPENAI_MODEL", "gpt-4o")
         )
-        # Reasoning models (gpt-5.x, o-series) reject `temperature` and cannot
-        # bind function tools on /v1/chat/completions with reasoning_effort — the
-        # API requires the Responses API instead. Both the ReAct loop and the
-        # pipeline drafter leaves bind tools, so route reasoning models through
-        # the Responses API. Detect by name, with VITRO_OPENAI_USE_RESPONSES_API
-        # as an explicit override for custom/Azure deployment names the heuristic
-        # cannot recognise. An explicit reasoning_effort="none" turns reasoning
-        # OFF, so that call is treated as a standard (chat/completions,
-        # temperature-0) request.
-        #
-        # reasoning_effort is normalized once (strip + lowercase) so a
-        # capitalized/whitespaced value like "Medium" or " none " forwards as the
-        # clean lowercase enum the OpenAI API expects — and a blank value
-        # collapses to None (a no-op).
-        reasoning_effort = (
-            os.environ.get("VITRO_OPENAI_REASONING_EFFORT") or ""
-        ).strip().lower() or None
-        override = os.environ.get("VITRO_OPENAI_USE_RESPONSES_API")
-        if override is not None:
-            use_responses = override.strip().lower() in ("1", "true", "yes", "on")
-        elif reasoning_effort == "none":
-            use_responses = False
-        else:
-            use_responses = _is_openai_reasoning_model(resolved_model)
+        reasoning_effort = _resolve_reasoning_effort()
+        use_responses = _use_responses_api(resolved_model)
 
         kwargs: dict[str, Any] = {
             "model": resolved_model,
