@@ -2704,6 +2704,11 @@ def _add_generator_provenance(state: CrateState, crate: ROCrate) -> None:
         ("Model", gen.model if not model_url else None),
         ("Model provider", gen.provider),
         ("Drafter model", gen.drafter_model),
+        # Which arm built this crate ("pipeline" / "react"). Without it the two
+        # first-class build paths are indistinguishable from the crate alone, so
+        # comparing them needs an external record of which run wrote which
+        # directory — exactly the unlinked context this tool exists to remove.
+        ("Build architecture", gen.architecture),
     ):
         if not value:
             continue
