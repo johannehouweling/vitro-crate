@@ -40,6 +40,7 @@ from builder.agents.llm import (
     UsageSink,
     _build_chat_model,
     _extract_model_name,
+    _extract_system_fingerprint,
     _extract_token_usage,
 )
 from builder.tools._crate_mapping import draft_hints_schema
@@ -61,7 +62,7 @@ def _invoke_structured_with_usage(
     With no ``usage_sink`` this is the legacy path: bind ``with_structured_output``
     and return the bare parsed object. With a sink, it binds with
     ``include_raw=True`` so the raw ``AIMessage`` is available, mines
-    ``(input_tokens, output_tokens, model_name)`` off it via the SAME
+    ``(input_tokens, output_tokens, model_name, system_fingerprint)`` off it via the SAME
     provider-agnostic helpers the ReAct model node uses
     (:func:`builder.agents.react.agent_loop._extract_token_usage`), reports them, and
     returns the parsed object — so callers are unaffected by the capture.
@@ -73,7 +74,12 @@ def _invoke_structured_with_usage(
     if isinstance(raw_result, dict) and "parsed" in raw_result:
         raw_msg = raw_result.get("raw")
         input_tokens, output_tokens = _extract_token_usage(raw_msg)
-        usage_sink(input_tokens, output_tokens, _extract_model_name(raw_msg))
+        usage_sink(
+            input_tokens,
+            output_tokens,
+            _extract_model_name(raw_msg),
+            _extract_system_fingerprint(raw_msg),
+        )
         return raw_result.get("parsed")
     # Defensive: a model/runnable that ignored include_raw still yields a result.
     return raw_result
@@ -493,7 +499,7 @@ def extract_plan(
             empty set resolves the drafter tier from the environment, which is
             the pre-existing behaviour.
         usage_sink: Optional callback notified of this call's token usage as
-            ``(input_tokens, output_tokens, model_name)``. When given, the call
+            ``(input_tokens, output_tokens, model_name, system_fingerprint)``. When given, the call
             binds structured output with ``include_raw=True`` so usage can be
             mined off the raw response (Issue #221). Default ``None`` leaves the
             call (and its return) unchanged.
@@ -554,7 +560,7 @@ def draft_entity_fields(
             empty set resolves the drafter tier from the environment, which is
             the pre-existing behaviour.
         usage_sink: Optional callback notified of this call's token usage as
-            ``(input_tokens, output_tokens, model_name)``. When given, the call
+            ``(input_tokens, output_tokens, model_name, system_fingerprint)``. When given, the call
             binds structured output with ``include_raw=True`` so usage can be
             mined off the raw response (Issue #221). Default ``None`` leaves the
             call (and its return) unchanged.

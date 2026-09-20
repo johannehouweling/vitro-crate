@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ __all__ = [
     "_build_chat_model",
     "_detect_provider",
     "_extract_model_name",
+    "_extract_system_fingerprint",
     "_extract_token_usage",
     "_get_request_timeout",
     "_apply_temperature",
@@ -50,14 +51,31 @@ __all__ = [
     "effective_sampling_settings",
 ]
 
-# A usage sink receives one bounded-leaf call's token usage as
-# ``(input_tokens, output_tokens, model_name)``; any element may be ``None`` when
-# the provider (or an offline fake) reported no usage. Callers that own an
-# engine pass :func:`make_usage_logger`'s sink, which logs each call to the
-# engine profiler so every surface that reads ``profile.ndjson`` -- the
-# interactive status bar, the dashboard's token table, the eval's metric miner --
-# sees the same numbers regardless of which orchestrator made the call.
-UsageSink = Callable[[int | None, int | None, str | None], None]
+class UsageSink(Protocol):
+    """One bounded-leaf call's token usage, reported by whoever made the call.
+
+    Any element may be ``None`` when the provider (or an offline fake) reported no
+    usage; ``system_fingerprint`` is additionally ``None`` for every provider that
+    does not publish one (Anthropic), which is why it is optional and why readers
+    see the key omitted rather than nulled (#771). Callers that own an engine pass
+    :func:`make_usage_logger`'s sink, which logs each call to the engine profiler
+    so every surface that reads ``profile.ndjson`` -- the interactive status bar,
+    the dashboard's token table, the eval's metric miner -- sees the same numbers
+    regardless of which orchestrator made the call.
+
+    A ``Protocol`` rather than a ``Callable`` alias because ``Callable`` cannot
+    express a trailing OPTIONAL parameter: existing three-argument sinks stay
+    valid.
+    """
+
+    def __call__(
+        self,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        model_name: str | None,
+        system_fingerprint: str | None = None,
+        /,
+    ) -> None: ...
 
 
 class UsageEngine(Protocol):
@@ -525,6 +543,19 @@ def _extract_model_name(message: Any) -> str | None:
     return resp_meta.get("model_name") or resp_meta.get("model")
 
 
+def _extract_system_fingerprint(message: Any) -> str | None:
+    """Extract the serving-backend fingerprint from an ``AIMessage`` (#771).
+
+    ``system_fingerprint`` is the only client-visible handle on "same weights,
+    same serving backend": without it a disagreement between two runs of the same
+    model alias cannot be told apart from a silent backend change. Providers that
+    do not publish one (Anthropic) yield ``None``, and callers omit the key rather
+    than writing a null.
+    """
+    resp_meta: dict = getattr(message, "response_metadata", None) or {}
+    return resp_meta.get("system_fingerprint")
+
+
 def _as_int(value: Any) -> int:
     """Coerce a possibly-missing/None token count to a non-negative int."""
     if value is None:
@@ -559,6 +590,7 @@ def make_usage_logger(engine: UsageEngine, totals: dict[str, int]) -> UsageSink:
         input_tokens: int | None,
         output_tokens: int | None,
         model_name: str | None,
+        system_fingerprint: str | None = None,
     ) -> None:
         in_t = _as_int(input_tokens)
         out_t = _as_int(output_tokens)
@@ -580,6 +612,8 @@ def make_usage_logger(engine: UsageEngine, totals: dict[str, int]) -> UsageSink:
                 input_tokens=in_t,
                 output_tokens=out_t,
                 model_name=model_name,
+                # Omitted, not null, when the provider publishes no fingerprint.
+                **({"system_fingerprint": system_fingerprint} if system_fingerprint else {}),
             )
 
     return _sink

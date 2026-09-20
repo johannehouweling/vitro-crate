@@ -33,6 +33,7 @@ from builder.agents import ui
 from builder.agents.llm import (
     _build_chat_model,
     _extract_model_name,
+    _extract_system_fingerprint,
     _extract_token_usage,
     _get_request_timeout,
     _recursion_limit,
@@ -2666,11 +2667,13 @@ def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> A
         input_tokens: int | None = None
         output_tokens: int | None = None
         model_name: str | None = None
+        system_fingerprint: str | None = None
         response_text: str | None = None
         if out_messages:
             last_msg = out_messages[-1]
             input_tokens, output_tokens = _extract_token_usage(last_msg)
             model_name = _extract_model_name(last_msg)
+            system_fingerprint = _extract_system_fingerprint(last_msg)
             # Capture the model's reply TEXT — truncate to avoid bloating profile.
             # str(content) would write the raw content-block repr (#341): with the
             # Responses API that means every profile line carried reasoning-block
@@ -2695,6 +2698,8 @@ def _wrap_model_node(call_model: Any, profiler: Any, iteration_getter: Any) -> A
             output_tokens=output_tokens,
             model_name=model_name,
             response_text=response_text,
+            # Omitted, not null, when the provider publishes no fingerprint (#771).
+            **({"system_fingerprint": system_fingerprint} if system_fingerprint else {}),
         )
         return result
 

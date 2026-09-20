@@ -177,6 +177,23 @@ class TestExtractModelName:
         assert _extract_model_name(msg) == "gpt-4o"
 
 
+class TestExtractSystemFingerprint:
+    """#771 — the serving-backend handle is the only client-visible evidence that
+    two runs on the same model alias hit the same weights and backend, so it must
+    be captured rather than discarded with the rest of ``response_metadata``."""
+
+    def test_none_when_absent(self) -> None:
+        from builder.agents.llm import _extract_system_fingerprint
+
+        assert _extract_system_fingerprint(_FakeMessage()) is None
+
+    def test_reads_system_fingerprint(self) -> None:
+        from builder.agents.llm import _extract_system_fingerprint
+
+        msg = _FakeMessage(response_metadata={"system_fingerprint": "fp_abc123"})
+        assert _extract_system_fingerprint(msg) == "fp_abc123"
+
+
 class _RecordingProfiler:
     """A profiler double that keeps the kwargs of every event logged to it."""
 
@@ -238,6 +255,34 @@ class TestMakeUsageLogger:
         # …and the crate's own generator record, which the export carries.
         assert engine.state.generator.input_tokens == 200
         assert engine.state.generator.output_tokens == 40
+
+    def test_logs_the_system_fingerprint_when_the_provider_reports_one(self) -> None:
+        """#771 — the pipeline/guidance arm's event carries the backend handle."""
+        from builder.agents.llm import make_usage_logger
+
+        profiler = _RecordingProfiler()
+        engine = _DuckEngine(profiler)
+
+        make_usage_logger(engine, {"input_tokens": 0, "output_tokens": 0})(
+            120, 35, "gpt-4o-mini", "fp_abc123"
+        )
+
+        assert profiler.events[0]["system_fingerprint"] == "fp_abc123"
+
+    def test_omits_the_system_fingerprint_key_when_there_is_none(self) -> None:
+        """Anthropic reports no fingerprint: the key is ABSENT, not ``null``, so a
+        reader cannot mistake "provider does not publish one" for "backend unknown".
+        """
+        from builder.agents.llm import make_usage_logger
+
+        profiler = _RecordingProfiler()
+        engine = _DuckEngine(profiler)
+
+        make_usage_logger(engine, {"input_tokens": 0, "output_tokens": 0})(
+            120, 35, "claude-opus-4"
+        )
+
+        assert "system_fingerprint" not in profiler.events[0]
 
     def test_unknown_usage_coerces_to_zero(self) -> None:
         """``(None, None, None)`` is what ``_extract_token_usage`` reports for an
