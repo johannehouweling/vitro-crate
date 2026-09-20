@@ -379,13 +379,18 @@ def _git_local_version(root: Path = _PACKAGE_ROOT) -> str:
         head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], **kwargs)
         if head.returncode != 0 or not head.stdout.strip():
             return ""
-        # git's own definition of dirty: tracked files only, so an untracked
-        # scratch file beside the code does not restamp the version.
-        dirty = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], **kwargs)
+        # Content-compared, and tracked files only: `--untracked-files=no` keeps
+        # a build's own output/ and sessions/ from restamping the version, and
+        # `status` beats `diff-index --quiet`, which calls a touched-but-
+        # identical file a change and (locks disabled) never refreshes the index
+        # to learn better — permanently stamping a clean checkout `.dirty`.
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], **kwargs)
+        if dirty.returncode != 0:
+            return ""
     except Exception:  # pragma: no cover - provenance is cosmetic, never fatal
         logger.debug("git commit unavailable", exc_info=True)
         return ""
-    return f"+g{head.stdout.strip()}" + (".dirty" if dirty.returncode == 1 else "")
+    return f"+g{head.stdout.strip()}" + (".dirty" if dirty.stdout.strip() else "")
 
 
 @cache
