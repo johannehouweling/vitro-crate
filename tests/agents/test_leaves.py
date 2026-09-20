@@ -71,10 +71,12 @@ class FakeChatModel:
         *,
         usage_metadata: dict[str, Any] | None = None,
         model_name: str | None = None,
+        system_fingerprint: str | None = None,
     ) -> None:
         self.canned_output = canned_output
         self._usage_metadata = usage_metadata
         self._model_name = model_name
+        self._system_fingerprint = system_fingerprint
         self.structured_schemas: list[Any] = []
         self.invoke_calls: list[Any] = []
         self.include_raw_flags: list[bool] = []
@@ -84,8 +86,13 @@ class FakeChatModel:
         from langchain_core.messages import AIMessage
 
         msg = AIMessage(content="", usage_metadata=self._usage_metadata)
+        meta: dict[str, Any] = {}
         if self._model_name is not None:
-            msg.response_metadata = {"model_name": self._model_name}
+            meta["model_name"] = self._model_name
+        if self._system_fingerprint is not None:
+            meta["system_fingerprint"] = self._system_fingerprint
+        if meta:
+            msg.response_metadata = meta
         return msg
 
     def with_structured_output(
@@ -696,17 +703,18 @@ class TestDraftEntityFieldsUsageCapture:
             {"name": "Acetaminophen"},
             usage_metadata={"input_tokens": 120, "output_tokens": 35, "total_tokens": 155},
             model_name="gpt-4o-mini",
+            system_fingerprint="fp_abc123",
         )
-        captured: list[tuple[Any, Any, Any]] = []
+        captured: list[tuple[Any, Any, Any, Any]] = []
 
         out = leaves.draft_entity_fields(
             "MolecularEntity",
             "context",
-            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
         )
 
         assert out["name"] == "Acetaminophen"
-        assert captured == [(120, 35, "gpt-4o-mini")]
+        assert captured == [(120, 35, "gpt-4o-mini", "fp_abc123")]
 
     def test_usage_sink_binds_structured_output_with_include_raw(
         self, _patch_build_chat_model: dict[str, Any]
@@ -742,15 +750,15 @@ class TestExtractPlanUsageCapture:
             usage_metadata={"input_tokens": 500, "output_tokens": 80, "total_tokens": 580},
             model_name="gpt-4o-mini",
         )
-        captured: list[tuple[Any, Any, Any]] = []
+        captured: list[tuple[Any, Any, Any, Any]] = []
 
         plan = leaves.extract_plan(
             _DOC_CONTEXT,
-            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
         )
 
         assert plan["study"]["name"] == "S"
-        assert captured == [(500, 80, "gpt-4o-mini")]
+        assert captured == [(500, 80, "gpt-4o-mini", None)]
 
     def test_no_usage_sink_keeps_legacy_contract(
         self, _patch_build_chat_model: dict[str, Any]
@@ -1165,15 +1173,15 @@ class TestGuidanceLeavesUsageCapture:
             model_name="gpt-4o-mini",
         )
         _patch_build_chat_model["model"] = fake
-        captured: list[tuple[Any, Any, Any]] = []
+        captured: list[tuple[Any, Any, Any, Any]] = []
 
         question = leaves.phrase_gap_question(
             _GAP_CONTEXT,
-            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
         )
 
         assert question == "What does this study examine?", "capture must not alter the result"
-        assert captured == [(210, 18, "gpt-4o-mini")]
+        assert captured == [(210, 18, "gpt-4o-mini", None)]
         assert fake.include_raw_flags == [True]
 
     def test_interpret_gap_reply_usage_sink_receives_token_usage(
@@ -1185,18 +1193,18 @@ class TestGuidanceLeavesUsageCapture:
             model_name="gpt-4o-mini",
         )
         _patch_build_chat_model["model"] = fake
-        captured: list[tuple[Any, Any, Any]] = []
+        captured: list[tuple[Any, Any, Any, Any]] = []
 
         decision = leaves.interpret_gap_reply(
             "What does this study examine?",
             "A dose-response cytotoxicity study.",
             _GAP_CONTEXT,
-            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
         )
 
         assert decision["action"] == "commit"
         assert decision["value"] == "A dose-response cytotoxicity study."
-        assert captured == [(340, 26, "gpt-4o-mini")]
+        assert captured == [(340, 26, "gpt-4o-mini", None)]
         assert fake.include_raw_flags == [True]
 
     def test_extract_field_from_file_usage_sink_receives_token_usage(
@@ -1211,17 +1219,17 @@ class TestGuidanceLeavesUsageCapture:
             model_name="gpt-4o-mini",
         )
         _patch_build_chat_model["model"] = fake
-        captured: list[tuple[Any, Any, Any]] = []
+        captured: list[tuple[Any, Any, Any, Any]] = []
 
         value = leaves.extract_field_from_file(
             "description",
             "Protocol: the cells were exposed for 24h then read out.",
             {"property": "description", "entity_type": "LabProtocol"},
-            usage_sink=lambda i, o, m: captured.append((i, o, m)),
+            usage_sink=lambda i, o, m, f=None: captured.append((i, o, m, f)),
         )
 
         assert value == "A viability assay protocol."
-        assert captured == [(7400, 31, "gpt-4o-mini")]
+        assert captured == [(7400, 31, "gpt-4o-mini", None)]
         assert fake.include_raw_flags == [True]
 
     def test_no_usage_sink_keeps_legacy_contract(

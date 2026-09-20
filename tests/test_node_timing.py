@@ -92,6 +92,34 @@ class TestWrapModelNode:
         wrapped({"messages": []})
         assert _events(prof, "node_end", "model")[0]["produced_tool_calls"] is True
 
+    def test_logs_the_system_fingerprint_when_the_provider_reports_one(self):
+        """#771 — the ReAct arm's model event carries the backend handle too."""
+        prof = _RecordingProfiler()
+
+        def call_model(state):
+            msg = AIMessage(content="done")
+            msg.response_metadata = {"model_name": "gpt-4o", "system_fingerprint": "fp_abc123"}
+            return {"messages": [msg]}
+
+        wrapped = _wrap_model_node(call_model, prof, lambda: 1)
+        wrapped({"messages": []})
+
+        assert _events(prof, "node_end", "model")[0]["system_fingerprint"] == "fp_abc123"
+
+    def test_omits_the_system_fingerprint_key_when_there_is_none(self):
+        """Anthropic reports no fingerprint: the key is ABSENT, not ``null``."""
+        prof = _RecordingProfiler()
+
+        def call_model(state):
+            msg = AIMessage(content="done")
+            msg.response_metadata = {"model_name": "claude-opus-4"}
+            return {"messages": [msg]}
+
+        wrapped = _wrap_model_node(call_model, prof, lambda: 1)
+        wrapped({"messages": []})
+
+        assert "system_fingerprint" not in _events(prof, "node_end", "model")[0]
+
     def test_noop_without_profiler_returns_original(self):
         def call_model(state):
             return {"messages": []}
