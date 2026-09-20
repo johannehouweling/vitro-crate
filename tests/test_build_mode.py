@@ -9,6 +9,8 @@ two modes drive the same engine + toolbox; only orchestration differs (AGENTS.md
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -17,6 +19,15 @@ from builder.agents.build import BuildMode, run_build
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
+
+
+def _stub_engine() -> AgentEngine:
+    """A dispatch-only engine double: just enough state for the arm stamp (#772)."""
+    from types import SimpleNamespace
+
+    from builder.state import CrateState
+
+    return cast("AgentEngine", SimpleNamespace(state=CrateState()))
 
 
 class TestBuildModeFromCli:
@@ -60,7 +71,7 @@ class TestRunBuildDispatch:
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
 
-        result = run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), output=print)
+        result = run_build(BuildMode.PIPELINE, _stub_engine(), output=print)
 
         assert captured["kw"].get("output") is print
         assert result == {"pipeline": {}, "guidance": None}
@@ -78,7 +89,7 @@ class TestRunBuildDispatch:
 
         result = run_build(
             BuildMode.REACT,
-            cast("AgentEngine", object()),
+            _stub_engine(),
             provider="openai",
             model="m",
             base_url="u",
@@ -113,7 +124,7 @@ class TestRunBuildDispatch:
             captured.update(kw)
 
         monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
-        run_build(BuildMode.REACT, cast("AgentEngine", object()), resumed=True)
+        run_build(BuildMode.REACT, _stub_engine(), resumed=True)
 
         assert captured["resumed"] is True
 
@@ -129,7 +140,7 @@ class TestRunBuildDispatch:
             captured.update(kw)
 
         monkeypatch.setattr(agent_loop, "run_interactive_agent", _fake_agent)
-        run_build(BuildMode.REACT, cast("AgentEngine", object()), initial_prompt="build the crate")
+        run_build(BuildMode.REACT, _stub_engine(), initial_prompt="build the crate")
 
         assert captured["initial_prompt"] == "build the crate"
 
@@ -141,7 +152,7 @@ class TestRunBuildDispatch:
             agent_loop, "run_interactive_agent", lambda engine, **kw: captured.update(kw)
         )
 
-        run_build(BuildMode.REACT, cast("AgentEngine", object()), verbose=True)
+        run_build(BuildMode.REACT, _stub_engine(), verbose=True)
 
         assert captured["verbose"] is True
 
@@ -158,7 +169,7 @@ class TestRunBuildDispatch:
             return {}
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
-        run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), initial_prompt="ignored here")
+        run_build(BuildMode.PIPELINE, _stub_engine(), initial_prompt="ignored here")
 
         assert "initial_prompt" not in captured
 
@@ -175,7 +186,7 @@ class TestRunBuildDispatch:
             return {}
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _fake_build)
-        run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), resumed=True)
+        run_build(BuildMode.PIPELINE, _stub_engine(), resumed=True)
 
         assert captured["resumed"] is True
 
@@ -210,7 +221,7 @@ class TestPipelineModelOverrides:
 
         run_build(
             BuildMode.PIPELINE,
-            cast("AgentEngine", object()),
+            _stub_engine(),
             provider="openai",
             model="gpt-5.6-luna",
             base_url="https://example.invalid/v1",
@@ -234,7 +245,66 @@ class TestPipelineModelOverrides:
 
         captured = self._capture_pipeline(monkeypatch)
 
-        run_build(BuildMode.PIPELINE, cast("AgentEngine", object()), output=print)
+        run_build(BuildMode.PIPELINE, _stub_engine(), output=print)
 
         assert captured["kw"]["overrides"] == ModelOverrides()
         assert captured["kw"]["overrides"].is_empty()
+
+
+class TestGeneratorRecordsArchitecture:
+    """The exported crate says which arm built it (#772).
+
+    ``GeneratorInfo.architecture`` existed but nothing ever set it, and the crate
+    mapping never emitted it, so a pipeline crate and a ReAct crate were
+    indistinguishable from their own metadata.
+    """
+
+    @staticmethod
+    def _run_properties(crate_dir: Path) -> dict[str, str]:
+        """``name -> value`` of every PropertyValue on the crate's run action."""
+        graph = json.loads((crate_dir / "ro-crate-metadata.json").read_text())["@graph"]
+        by_id = {node["@id"]: node for node in graph}
+        action = next(node for node in graph if node.get("@type") == "CreateAction")
+        refs = action.get("additionalProperty") or []
+        if isinstance(refs, dict):
+            refs = [refs]
+        return {by_id[r["@id"]]["name"]: by_id[r["@id"]]["value"] for r in refs}
+
+    @staticmethod
+    def _engine(out: Path) -> AgentEngine:
+        from builder.engine import AgentEngine as _Engine
+        from builder.state import CrateState
+
+        engine = _Engine(state=CrateState())  # simulated human => headless path
+        engine.initialize()
+        engine.state.metadata.output_path = str(out)
+        return engine
+
+    def test_pipeline_build_records_pipeline(self, tmp_path: Path) -> None:
+        from builder.agents.build import run_interactive_build
+
+        out = tmp_path / "crate"
+        engine = self._engine(out)
+
+        run_interactive_build(engine, pipeline_runner=lambda *a, **k: {"ok": True, "issues": []})
+
+        assert self._run_properties(out)["Build architecture"] == "pipeline"
+
+    def test_react_build_records_react(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builder.agents.react.agent_loop as agent_loop
+        from builder.tools.builder import export_crate
+
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda engine, **kw: {"stop_reason": "done"}
+        )
+        out = tmp_path / "crate"
+        engine = self._engine(out)
+
+        run_build(BuildMode.REACT, engine)
+        # The real ReAct loop exports from inside itself; the stub above cannot,
+        # so drive the same export it would have run.
+        export_crate(engine.state, str(out))
+
+        assert self._run_properties(out)["Build architecture"] == "react"

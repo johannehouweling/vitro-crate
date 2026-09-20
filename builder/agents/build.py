@@ -193,6 +193,11 @@ def run_interactive_build(
     Raises:
         CrateExportError: If the final on-disk export fails (surfaced first).
     """
+    # Name the arm on the state before anything can export (#772). Stamped here
+    # rather than in ``run_build`` because the A/B harness calls this entrypoint
+    # directly; ``stamp_generator()`` carries it to the crate from ``prior``.
+    engine.state.generator.architecture = BuildMode.PIPELINE.value
+
     base_emit: OutputChannel = output or (lambda _msg: None)
     human: HumanInterface | None = getattr(engine, "human_interface", None)
     interactive = is_interactive(human)
@@ -323,6 +328,10 @@ def run_build(
     if mode is BuildMode.REACT:
         from builder.agents.react.agent_loop import run_interactive_agent
 
+        # The loop exports from inside itself, so the arm must be on the state
+        # before it starts (#772). The pipeline arm stamps itself in
+        # ``run_interactive_build``, which the eval harness calls directly.
+        engine.state.generator.architecture = BuildMode.REACT.value
         react_kwargs: dict[str, Any] = {
             "provider": provider,
             "model": model,
