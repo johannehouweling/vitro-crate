@@ -1411,7 +1411,7 @@ class CrateState:
         known to be ReAct rather than naming a budget a pipeline run never read.
         """
         prior = self.generator
-        arm = architecture or prior.architecture
+        arm = prior.architecture
         settings: dict[str, Any] = {}
         if getattr(self, "max_iterations", None):
             settings["max_iterations"] = self.max_iterations
