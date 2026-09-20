@@ -308,11 +308,18 @@ class TestProfilerEngineIntegration:
             profiler_mod.SESSION_DIR = orig
 
     def test_long_tool_result_survives_in_profile(self, tmp_path):
-        """A multi-kilobyte tool result reaches profile.ndjson intact (#768).
+        """A real-world-sized tool result reaches profile.ndjson intact (#768).
 
         ``build_and_validate`` returns the ``issues`` list — the paper's action
         points — and the old 500-char cap cut it off entirely, so a completed
         run could not say which issues were raised or resolved.
+
+        The payload is 175000 chars, just above the largest result measured on
+        a real session: restoring sessions/20260825_142036 and re-running
+        ``build_and_validate(profile="all", severity="optional")`` returns 358
+        issues, ~173 KB (the ``severity="recommended"`` round is ~80 KB, and
+        the ReAct loop makes both). Sized this way, the test fails if the cap
+        is lowered back to 20k.
         """
         import builder.tools.profiler as profiler_mod
         from builder.engine import AgentEngine
@@ -320,12 +327,12 @@ class TestProfilerEngineIntegration:
 
         orig = profiler_mod.SESSION_DIR
         profiler_mod.SESSION_DIR = tmp_path / "sessions"
+        engine = AgentEngine()
         try:
-            engine = AgentEngine()
             engine.initialize()
             engine.profiler = ProfilingLogger(engine.state.session_id)
 
-            long_name = "z" * 5000
+            long_name = "z" * 175000
             engine.run_tool("draft_investigation", hints={"name": long_name})
 
             profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
@@ -345,18 +352,18 @@ class TestProfilerEngineIntegration:
 
         orig = profiler_mod.SESSION_DIR
         profiler_mod.SESSION_DIR = tmp_path / "sessions"
+        engine = AgentEngine()
         try:
-            engine = AgentEngine()
             engine.initialize()
             engine.profiler = ProfilingLogger(engine.state.session_id)
 
-            engine.run_tool("draft_investigation", hints={"name": "z" * 30000})
+            engine.run_tool("draft_investigation", hints={"name": "z" * 300000})
 
             profile_path = tmp_path / "sessions" / engine.state.session_id / "profile.ndjson"
             records = [json.loads(line) for line in profile_path.read_text().strip().splitlines()]
             completed = [r for r in records if r["event"] == "tool_call"]
             assert len(completed) == 1
-            assert len(completed[0]["result"]) == 20000
+            assert len(completed[0]["result"]) == 200000
             assert completed[0]["result"].endswith("...")
         finally:
             profiler_mod.SESSION_DIR = orig
