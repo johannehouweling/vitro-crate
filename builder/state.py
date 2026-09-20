@@ -12,10 +12,13 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import cache
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import builder.config as _config
@@ -348,6 +351,44 @@ class ArchivePreview:
 # ---------------------------------------------------------------------------
 
 
+# The checkout the running code lives in, found from the package location and
+# never the CWD: a build runs with an arbitrary CWD, and a wheel installed
+# inside someone else's repository must not borrow their commit.
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _git_local_version(root: Path = _PACKAGE_ROOT) -> str:
+    """PEP 440 local version segment naming ``root``'s commit, or ``""``.
+
+    ``"+g54e1df8"``, or ``"+g54e1df8.dirty"`` when tracked files differ from
+    HEAD — a crate built from uncommitted changes must not claim to be that
+    commit. Best-effort and silent: no ``.git``, no ``git`` on PATH, a slow or
+    failing call all yield ``""`` so provenance never fails an export.
+    """
+    if not (root / ".git").exists():
+        return ""
+    kwargs: dict[str, Any] = {
+        "cwd": root,
+        "capture_output": True,
+        "text": True,
+        "timeout": 5,
+        "stdin": subprocess.DEVNULL,
+        "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"},
+    }
+    try:
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], **kwargs)
+        if head.returncode != 0 or not head.stdout.strip():
+            return ""
+        # git's own definition of dirty: tracked files only, so an untracked
+        # scratch file beside the code does not restamp the version.
+        dirty = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], **kwargs)
+    except Exception:  # pragma: no cover - provenance is cosmetic, never fatal
+        logger.debug("git commit unavailable", exc_info=True)
+        return ""
+    return f"+g{head.stdout.strip()}" + (".dirty" if dirty.returncode == 1 else "")
+
+
+@cache
 def _app_version() -> str:
     """The running vitro-crate version, for the crate's generator record.
 
@@ -359,23 +400,32 @@ def _app_version() -> str:
     the export it is trying to reach.
 
     Prefers the installed distribution metadata so a wheel reports its real
-    version, falling back to the source ``__version__``.
+    version, falling back to the source ``__version__``, and appends the
+    commit as a local version identifier when running from a checkout —
+    ``__version__`` has been ``0.1.0`` for hundreds of commits, so without it a
+    crate cannot be tied back to the code that wrote it.
+
+    Cached: ``build_and_validate`` and the export both read it, and a value
+    that flapped between them would flap a BASE check.
     """
+    base = ""
     try:
         from importlib.metadata import PackageNotFoundError, version
 
         try:
-            return version("vitro-crate")
+            base = version("vitro-crate")
         except PackageNotFoundError:
             pass
     except Exception:  # pragma: no cover - metadata is optional, never fatal
         logger.debug("distribution version unavailable", exc_info=True)
-    try:
-        from builder import __version__
+    if not base:
+        try:
+            from builder import __version__
 
-        return str(__version__)
-    except Exception:  # pragma: no cover - version is cosmetic, never fatal
-        return ""
+            base = str(__version__)
+        except Exception:  # pragma: no cover - version is cosmetic, never fatal
+            return ""
+    return base + _git_local_version()
 
 
 @dataclass
@@ -447,17 +497,6 @@ class GeneratorInfo:
         """Snapshot the running application and its resolved model configuration."""
         import builder.config as _cfg
 
-        # `str(...)` rather than importing straight into the name: `__version__`
-        # is a string LITERAL, so binding the fallback "" to the same name is a
-        # type error against its narrowed type.
-        app_version: str
-        try:
-            from builder import __version__
-
-            app_version = str(__version__)
-        except Exception:  # pragma: no cover - version is cosmetic, never fatal
-            app_version = ""
-
         def _host(raw: str | None) -> str | None:
             if not raw:
                 return None
@@ -478,7 +517,8 @@ class GeneratorInfo:
         model = _quiet(_cfg.get_active_model)
         drafter = _quiet(_cfg.get_drafter_model)
         return cls(
-            version=str(app_version or ""),
+            # The same call the field default makes, so the two never disagree.
+            version=_app_version(),
             provider=_quiet(_cfg.get_provider),
             model=model,
             drafter_model=drafter if drafter and drafter != model else None,
