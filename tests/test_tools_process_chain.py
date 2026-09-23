@@ -1050,6 +1050,50 @@ class TestTheExposureConsumesWhereThePreparationEnded:
             f"consumed; consumes {self._in_ids(self._step(by_id, 'Read'))}"
         )
 
+    def test_an_exposure_naming_the_cell_line_consumes_the_culture(self) -> None:
+        """A culture's INPUT is chain material too: an Exposure whose step names
+        the cell line exposed the cultured cells, not the line itself."""
+        from builder.tools.drafters import draft_cell_line_sample
+
+        state, assay_id = _scaffold()
+        line = draft_cell_line_sample(state, "HepG2", {}).entity_id
+        seed, _, dose, read = self._TWO_CULTURES
+        draft_process_chain(
+            state,
+            assay_id,
+            chain=[{**seed, "object": line}, {**dose, "object": line}, read],
+        )
+        by_id = self._built(state)
+
+        seeded = self._out_ids(self._step(by_id, "Seed"))
+        consumed = self._in_ids(self._step(by_id, "Dose"))
+        assert consumed == seeded, (
+            f"the exposure consumes the cultured cells {seeded}, not the line it "
+            f"was cultured from; consumes {consumed}"
+        )
+
+    def test_a_file_named_as_the_exposures_object_is_not_the_exposed_material(
+        self,
+    ) -> None:
+        """Only a Sample is material an Exposure can keep; a File in its object
+        is the wrong kind for the slot (#650), so the cultured cells stand in."""
+        from builder.tools.management import set_fields
+        from builder.tools.provenance import draft_file
+
+        state, assay_id = _scaffold()
+        seed, _, dose, read = self._TWO_CULTURES
+        ids = draft_process_chain(state, assay_id, chain=[seed, dose, read])["process_ids"]
+        table = draft_file(state, "declared.csv", path="data/declared.csv").entity_id
+        set_fields(state, ids[1], {"object": table})
+        by_id = self._built(state)
+
+        seeded = self._out_ids(self._step(by_id, "Seed"))
+        consumed = self._in_ids(self._step(by_id, "Dose"))
+        assert consumed == seeded, (
+            f"the exposure consumes the cultured cells {seeded}, not a File; "
+            f"consumes {consumed}"
+        )
+
     def test_a_characterisation_readout_measures_where_the_preparation_ended(
         self,
     ) -> None:
