@@ -270,11 +270,11 @@ def _check_transformation_steps_wired(state: CrateState, graph: Graph) -> Verdic
         return None
     processes = _transformation_steps(graph)
     if not processes:
-        return Verdict(False, "0 process steps in the crate — nothing to trace")
+        return Verdict(False, "0 data transformation steps in the crate — nothing to trace")
     wired = [p for p in processes if any(p.get(k) for k in ("object", "result", "input", "output"))]
     return Verdict(
         len(wired) == len(processes),
-        f"{len(wired)}/{len(processes)} process steps wire an input or an output",
+        f"{len(wired)}/{len(processes)} transformation steps wire an input or an output",
     )
 
 
@@ -282,9 +282,10 @@ def _check_software_in_repository(state: CrateState, graph: Graph) -> Verdict | 
     """1.c — the software behind the transformations is in a sustainable repository.
 
     Only software a step from :func:`_transformation_steps` uses counts: its
-    ``instrument``, the protocol it executes when that protocol is itself software (a
-    script), and that protocol's ``computationalTool``. The application that packaged
-    the crate is the build record's instrument, so it never counts.
+    ``instrument``, what it consumes (``object``/``input``, how ``link`` wires a script),
+    the protocol it executes when that protocol is itself software (a script), and that
+    protocol's ``computationalTool``. The application that packaged the crate is the
+    build record's instrument, so it never counts.
     """
     if needs_graph(graph):
         return None
@@ -292,7 +293,9 @@ def _check_software_in_repository(state: CrateState, graph: Graph) -> Verdict | 
     used: set[str] = set()
     for step in _transformation_steps(graph):
         protocols = {ref_id(v) for v in _listed(step.get("executesLabProtocol"))}
-        used |= protocols | {ref_id(v) for v in _listed(step.get("instrument"))}
+        used |= protocols | {
+            ref_id(v) for k in ("object", "input", "instrument") for v in _listed(step.get(k))
+        }
         for protocol in protocols:
             used |= {ref_id(v) for v in _listed(by_id.get(protocol, {}).get("computationalTool"))}
     software = [by_id[i] for i in used if node_types(by_id.get(i, {})) & _SOFTWARE_TYPES]
