@@ -2471,19 +2471,29 @@ class TestCellLinesPanel:
     def test_primary_cells_are_not_asked_for_an_rrid(self) -> None:
         """Cellosaurus assigns no RRID to primary cells (FAQ Q19), so the RRID cell
         is not applicable rather than missing, and no warning counts it (#788)."""
-        graph = self._graph(wire=True, rrid=True)
-        graph["@graph"] += [
-            {
-                "@id": "#t19",
-                "@type": "Sample",
-                "additionalType": "PrimaryCell",
-                "name": "tubuloids T19",
-                "sampleType": {"@id": "#pc"},
-            },
-            {"@id": "#pc", "@type": "DefinedTerm", "name": "primary cell"},
-        ]
-        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+
+        def page_with(*, rrid: bool) -> str:
+            graph = self._graph(wire=True, rrid=rrid)
+            culture = next(n for n in graph["@graph"] if n["@id"] == "#culture")
+            culture["input"] = [{"@id": "#cho"}, {"@id": "#t19"}]
+            graph["@graph"] += [
+                {
+                    "@id": "#t19",
+                    "@type": "Sample",
+                    "additionalType": "PrimaryCell",
+                    "name": "tubuloids T19",
+                    "sampleType": {"@id": "#pc"},
+                },
+                {"@id": "#pc", "@type": "DefinedTerm", "name": "primary cell"},
+            ]
+            return build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+
+        # A cell line without an RRID is 1 of the 1 sample asked for one, not 1 of 2.
+        assert "1 of 1 biological samples carry no Cellosaurus RRID." in page_with(rrid=False)
+        page = page_with(rrid=True)
         assert "carry no Cellosaurus RRID" not in page
+        # The all-clear claims no RRID for the primary-cell sample.
+        assert '<p class="good-note">Every biological sample is consumed by a process.</p>' in page
         row = next(
             r
             for r in re.findall(r"<tr>.*?</tr>", _block(page, "cov-cell"), re.S)
