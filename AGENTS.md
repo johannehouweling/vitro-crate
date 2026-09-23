@@ -2775,7 +2775,9 @@ array; it does not forbid a node being genuinely two things:
 - **Cross-vocabulary co-typing**, where one artefact really is two kinds of thing:
   a deposited procedure document is `File` + `LabProtocol` (#646), and the generated
   per-well condition table is `File` + `csvw:Table` + `LabProtocol` (#650) — a CSV,
-  a typed table, and the layout the exposure follows.
+  a typed table, and the layout the exposure follows — and a deposited script is
+  `File` + `SoftwareSourceCode` + `LabProtocol` (#786): code, and the procedure the
+  analysis follows.
 
 The domain type stays FIRST in every case: it is the specific, meaningful one, and
 the rest are what a generic consumer can follow.
@@ -3076,8 +3078,8 @@ D5 — identifiers come from lookups or the value is dropped, never fabricated):
   table standing beside it.
 - **Characteristics/properties** — CellLineSample `organ`/`tissue` and LabProcess
   `additionalProperty` as PropertyValue characteristics, and source-code co-typing
-  (`@type:[File, SoftwareSourceCode, LabProtocol]`, from the extension, with
-  `schema:programmingLanguage`).
+  (`@type:[File, SoftwareSourceCode, LabProtocol]`, from the extension;
+  `schema:programmingLanguage` when the caller names it).
 
 AOP subgraphs and publications-with-authors are materialized from the spine by their
 own composites (`materialize_aop_subgraph`, `draft_publication_with_authors`). Root

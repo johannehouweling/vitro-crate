@@ -556,7 +556,7 @@ class TestSourceCodeFileTyping:
         assert node is not None, "plot.py File node should exist"
         types = node["@type"] if isinstance(node.get("@type"), list) else [node.get("@type")]
         assert "File" in types and "SoftwareSourceCode" in types, (
-            f"@type should be [File, SoftwareSourceCode]; got {node.get('@type')}"
+            f"@type should hold File and SoftwareSourceCode; got {node.get('@type')}"
         )
         assert node.get("programmingLanguage") == "Python"
         # encodingFormat is still auto-derived from the extension.

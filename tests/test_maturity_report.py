@@ -1804,8 +1804,8 @@ class TestTheMitCardSaysWhatItCouldNotScore:
     PAGE, and the card says why.
 
     #714 landed both facts in the bars' ``aria-label`` only. A sighted reader saw
-    "Analysis and Statistics 7/7" — a finished module. The checklist defines 41
-    parameters there; 34 carry no ``crate_slot``, so no crate field is mapped to
+    "Analysis and Statistics 8/8" — a finished module. The checklist defines 41
+    parameters there; 33 carry no ``crate_slot``, so no crate field is mapped to
     them and nothing in the crate could satisfy or fail them. The same holds for
     every guidance document but LINCS (Nature flags 14 and 7 reach the page).
     """

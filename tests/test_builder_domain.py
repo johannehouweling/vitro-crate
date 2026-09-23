@@ -189,7 +189,8 @@ class TestTheAssayProtocolReachesItsStep:
     Three rules, each pinned below:
 
     * **The default is EndpointReadout.** Measuring is what an assay's SOP
-      describes; culture and analysis are reached only by an explicit cue.
+      describes; culture and analysis are reached only by an explicit cue, or,
+      for analysis, by being source code (#786).
     * **A step executes ALL of its documents, not one.** Every assay in the
       deposit ships two to four (assay_04 has three sequential ones: RNA
       isolation, DNase, cDNA/qPCR). The single-hit D5 rule still governs the

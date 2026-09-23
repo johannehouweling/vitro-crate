@@ -2089,9 +2089,10 @@ _INTENDED_USE: dict[str, str] = {
     _ANALYSIS_PROTOCOL_CUE.pattern: "Data analysis",
 }
 # Measuring is what an assay's SOP describes, so EndpointReadout is where an
-# assay-scoped protocol lands unless a cue sends it elsewhere. Ordered: the first
-# cue that matches wins, and culture is asked first because a culture document
-# naming an assay would otherwise read as that assay's readout procedure.
+# assay-scoped protocol lands unless it is source code or a cue sends it elsewhere.
+# Ordered: the first cue that matches wins, and culture is asked first because a
+# culture document naming an assay would otherwise read as that assay's readout
+# procedure.
 _STEP_PROTOCOL_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("CellCulture", _CULTURE_PROTOCOL_CUE),
     ("DataAnalysis", _ANALYSIS_PROTOCOL_CUE),
