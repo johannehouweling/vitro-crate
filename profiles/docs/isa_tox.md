@@ -101,8 +101,8 @@ Protocol --reagent--> Mol
 > - each `parameter` is a `PropertyValue` **node** with a deterministic `@id`, a
 >   `propertyID` IRI and optional `unitText` — never an inline literal (the
 >   LabProcess shapes use `sh:class schema:PropertyValue`).
-> - a derived `Sample`'s `derivesFrom` links the Sample it was made from; no shape
->   requires it (the tox shapes only bound its count on cultured material, #678).
+> - a derived `Sample`'s `derivesFrom` links the Sample it was made from; only cultured
+>   material is constrained: at most one cell line, or two or more for a co-culture (#678).
 >
 > The four LabProcess shapes are **selected by `additionalType`** (`CellCulture`
 > / `Exposure` / `EndpointReadout` / `DataAnalysis`): a generic `LabProcess` with no
@@ -315,7 +315,7 @@ Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
 |additionalType|MUST|Text|MUST be `"EndpointReadout"`. Discriminator identifying this LabProcess as a measurement readout.|
 |name|MUST|Text|The name of the process, e.g. "Endpoint Readout".|
-|object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s), or the File(s) a re-analysis measures. At least one.|
+|object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s) (the cultured Sample in an assay with no exposure), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Measurement parameter(s); see expected values below. At least one.|
 |executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|

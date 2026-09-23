@@ -1,7 +1,7 @@
 # LabProcessEndpointReadout — endpoint readout process (endpoint read-out module).
 # A bioschemas:LabProcess discriminated by additionalType "EndpointReadout".
-# Measures the exposed Sample (or, in a re-analysis, a deposited File) and yields
-# the raw measurement File(s).
+# Measures the exposed Sample (the culture in a characterisation run, a deposited
+# File in a re-analysis) and yields the raw measurement File(s).
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .

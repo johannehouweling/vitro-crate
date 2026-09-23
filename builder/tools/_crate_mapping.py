@@ -1760,8 +1760,8 @@ def _add_leaves(
     # A Sample's declared lineage is a REFERENCE field, so `_scalar_props` drops
     # it, and nothing wired it afterwards: `derives_from` is a documented `link`
     # verb and a member of `_REF_FIELDS`, yet a Sample carrying one reached the
-    # crate with no `derivesFrom` at all — the profile's own
-    # "each Sample's derivesFrom links the source" (isa_tox.md) went unhonoured.
+    # crate with no `derivesFrom` at all — the profile's own "a derived Sample's
+    # derivesFrom links the Sample it was made from" (isa_tox.md) went unhonoured.
     # Wired here, once every leaf exists, so a target built later in this function
     # (a CellLineSample) still resolves (#650).
     for entity, node in lineage:

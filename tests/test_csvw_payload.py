@@ -395,13 +395,13 @@ class TestEmptyConditionTableSaysSo:
 class TestTheCsvwShapeLooksWhereTheTableIs:
     """The tox CSVW shape must read the edge the table is actually on (#650).
 
-    ``tox:ExposureShouldFollowCsvwConditionTable`` was written when the condition
-    table was the Exposure's ``schema:result``. #650 moved it to
-    ``executesLabProtocol`` — the per-well layout is what the run follows, not
-    what it emits — and the shape was not moved with it. The Warning then fired
-    on **every** exposure, including ones that do emit a perfectly good table:
-    a false gap, and worse than a missing check because it reports a defect that
-    is not there.
+    The Exposure's CSVW shape (``tox:ExposureShouldFollowCsvwConditionTable``)
+    was written when the condition table was the Exposure's ``schema:result``.
+    #650 moved it to ``executesLabProtocol`` — the per-well layout is what the run
+    follows, not what it emits — and the shape was not moved with it. The Warning
+    then fired on **every** exposure, including ones that follow a perfectly good
+    table: a false gap, and worse than a missing check because it reports a
+    defect that is not there.
 
     Nothing caught it. No test in the suite asserted on this shape, so a
     recommended-severity finding could invert its meaning without turning CI
