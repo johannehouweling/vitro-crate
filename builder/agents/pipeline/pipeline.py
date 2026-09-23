@@ -1151,7 +1151,7 @@ def _scanned_path_for_name(
     """Path of the scanned file *name* refers to, matched by BASENAME, or ``None``.
 
     The single resolver for "the plan named a file; which scanned file is that?"
-    — shared by the #245 publication-PDF path and the #408 condition table.
+    — used by the #245 publication-PDF path.
 
     **Basename, deliberately.** :func:`_gather_context` shows the extraction leaf
     only ``f.filename``, never ``f.path``, so a plan can only ever name a bare
@@ -1546,11 +1546,11 @@ def _populate_condition_table_from_deposit(engine: AgentEngine, exposure_id: str
 
     Deterministic and conservative:
 
-    * exactly ONE ``condition_table`` entry is actionable — zero or several and the
-      spine records why and does nothing rather than guess which plate map is the
-      design table;
-    * the path is resolved through :func:`_scanned_path_for_name` (basename match,
-      fail-closed to ``approved_scan_roots``);
+    * exactly ONE candidate among the exposure's own assay tables is written —
+      several and the spine records why and does nothing rather than guess which
+      plate map is the design table;
+    * reading is fail-closed to ``approved_scan_roots``
+      (:func:`_design_table_candidates`);
     * the write goes through ``engine.run_tool("populate_condition_table", ...)``,
       never a hand-rolled CSV, so it lands on the exact path
       :func:`~builder.tools._crate_mapping._synth_condition_table` types as a
@@ -1559,9 +1559,9 @@ def _populate_condition_table_from_deposit(engine: AgentEngine, exposure_id: str
 
     Never raises: a tool failure is logged and reported as a reason, so one bad
     plate map cannot break the spine. A single candidate that cannot be used —
-    no path, outside the scan roots, unreadable, or read-but-unmappable — falls
-    back to the #438 proposal via :func:`_fall_back_to_proposal` (#422); only
-    the several-candidates ambiguity refuses without fallback.
+    unreadable, or read-but-unmappable — falls back to the #438 proposal via
+    :func:`_fall_back_to_proposal` (#422); only the several-candidates ambiguity
+    refuses without fallback.
 
     Returns:
         ``{"populated": bool, "reason": str}`` plus, on success, the tool's
