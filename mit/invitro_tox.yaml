@@ -3681,6 +3681,7 @@ modules:
         oecd_gd417: true
         oecd_oht201: false
       additional: false
+      crate_slot: SoftwareSourceCode:name
     - name: Machine-readable results tables
       id: machine_readable_results
       description: Reporting of main results in machine-readable tables comprising relevant endpoints and statistical parameters

@@ -31,7 +31,7 @@ from rocrate.model import ContextEntity, DataEntity, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
-from builder.tools.document_discovery import CLASS_PROTOCOL
+from builder.tools.document_discovery import CLASS_PROTOCOL, SCRIPT_SUFFIXES
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_id
 from profiles.models.tox import (
@@ -428,7 +428,7 @@ _STRUCT_FIELDS = frozenset(
         "organ",
         "tissue",
         # draft_file's extra @type term(s) — consumed to co-type the File node
-        # (#180, e.g. SoftwareSourceCode), never emitted as a literal property.
+        # (#180), never emitted as a literal property.
         "additional_types",
         # draft_file / attach_files' state-tracking placement label — not a
         # crate property and absent from the RO-Crate @context, so emitting it
@@ -1639,10 +1639,12 @@ def _add_leaves(
         # payload at write() time (#128). Skip on the in-memory build_and_validate
         # path (materialize_payload=False) — nothing is written there.
         source = _file_source(fe, state.metadata.input_path) if materialize_payload else None
-        # Co-type a source-code (or otherwise extra-typed) File as a @type list,
-        # e.g. ["File", "SoftwareSourceCode"] for an analysis script (#180, gold
-        # plot.py). A plain File keeps its scalar @type. additional_types is
-        # consumed here, never emitted as a stray literal (see _STRUCT_FIELDS).
+        # Co-type an extra-typed File as a @type list; a plain File keeps its
+        # scalar @type. additional_types is consumed here, never emitted as a
+        # stray literal (see _STRUCT_FIELDS). A source-code file is typed by its
+        # extension, in both arms and with or without a scan: SoftwareSourceCode,
+        # and LabProtocol because the step that executes it must point at one
+        # (ISA "Process protocols MUST be of type LabProtocol") (#786).
         # A protocol document is typed as one (#646). The scan already decided
         # this — `classify_file` stamps every deposit file — and the crate used
         # to drop the answer, so the document went in as plain data while a
@@ -1651,7 +1653,9 @@ def _add_leaves(
         # the report's categoriser tests it before File, so co-typing is all the
         # graph view needs to draw the file as the protocol it is.
         extra_types = list(fe.fields.get("additional_types") or [])
-        if _scanned_class(state, fe) == CLASS_PROTOCOL:
+        if Path(_file_dest(fe)).suffix.lower() in SCRIPT_SUFFIXES:
+            extra_types += ["SoftwareSourceCode", "LabProtocol"]
+        elif _scanned_class(state, fe) == CLASS_PROTOCOL:
             extra_types.append("LabProtocol")
         file_type: Any = "File"
         if extra_types:
@@ -2068,11 +2072,12 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
 # executing it as the CellCulture's protocol would assert it explains how that
 # line was grown, which nobody checked (#650).
 _CULTURE_PROTOCOL_CUE = re.compile(r"cell\s*culture|culturing|culture\s+protocol")
-# Analysis is cued, never assumed. A document reaches DataAnalysis only by saying
-# so — fitting a curve, running statistics, normalising, quantifying. On the real
-# deposit nothing matches, and that is the right answer: no S-VHPS22 document
-# describes the analysis step, so the honest output is the ISA "SHOULD have a
-# protocol" warning rather than a readout SOP misfiled as an analysis one.
+# Analysis is cued, never assumed. A document reaches DataAnalysis only by being
+# source code or by saying so — fitting a curve, running statistics, normalising,
+# quantifying. On the real deposit nothing matches, and that is the right answer:
+# no S-VHPS22 document describes the analysis step, so the honest output is the
+# ISA "SHOULD have a protocol" warning rather than a readout SOP misfiled as an
+# analysis one.
 _ANALYSIS_PROTOCOL_CUE = re.compile(
     r"data\s*analys|analysis|analyz|statistic|curve\s*fit|fitting|"
     r"normalis|normaliz|quantif|calculat"
@@ -2316,7 +2321,9 @@ def _assay_protocol_documents(
         if not any("LabProtocol" in str(t) for t in types if t):
             continue
         haystack = f"{nid} {node.get('name') or ''}"
-        if _step_for_protocol(haystack) != ptype:
+        # A script is analysis because of what it is, whatever it is called (#786).
+        step = "DataAnalysis" if "SoftwareSourceCode" in types else _step_for_protocol(haystack)
+        if step != ptype:
             continue
         seen.add(nid)
         out.append(node)
@@ -3259,11 +3266,11 @@ def _add_processes(
         elif protocol is None:
             # Everything else is assay-scoped: the deposit files an assay's
             # procedures beside its data, and the Assay already lists them under
-            # hasPart. A document lands on EndpointReadout unless it says it is
-            # about culturing or analysis, because measuring is what an assay's
-            # SOP describes. DataAnalysis legitimately comes up empty on the real
-            # deposit — no document there covers that step — and an empty result
-            # is the honest one (D17).
+            # hasPart. A document lands on EndpointReadout unless it is source
+            # code or says it is about culturing or analysis, because measuring is
+            # what an assay's SOP describes. DataAnalysis legitimately comes up
+            # empty on the real deposit — no document there covers that step — and
+            # an empty result is the honest one (D17).
             assay_protocols = _assay_protocol_documents(state, f.get("assay_id"), idx, ptype)
             if assay_protocols:
                 protocol = assay_protocols

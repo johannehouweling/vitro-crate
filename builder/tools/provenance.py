@@ -111,9 +111,9 @@ def draft_file(
             so e.g. ``run.mzML`` becomes ``application/x-mzml`` rather than being
             left blank or mislabeled text/plain. An explicit value always wins.
         additional_types: Optional extra ``@type`` term(s) to co-type the node
-            alongside ``File`` (Issue #180). e.g. ``["SoftwareSourceCode"]`` makes
-            an analysis script a ``@type:[File, SoftwareSourceCode]`` data entity
-            (gold ``plot.py``). When omitted the node stays a plain ``File``.
+            alongside ``File`` (Issue #180). A source-code extension is co-typed
+            ``SoftwareSourceCode`` and ``LabProtocol`` by the build without it
+            (#786).
         programming_language: Optional schema:programmingLanguage (e.g. "Python")
             — for a source-code File. Left unset when omitted.
         entity_id: Optional explicit id. Ids are normally minted from ``name``,

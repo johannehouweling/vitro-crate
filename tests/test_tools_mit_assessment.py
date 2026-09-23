@@ -509,6 +509,28 @@ class TestGuidanceDocumentCoverageByModule:
             ("oecd_oht201", "Chemical Information"): 1,
         }
 
+    def test_a_deposited_script_credits_analysis_code_access(self):
+        """#786: ``analysis_code_access`` (OECD GD 417, Analysis and Statistics) is
+        scored on ``SoftwareSourceCode``. Both crates hold a data file, so every
+        File-level slot is filled on both sides and only the script differs."""
+        from builder.tools.provenance import draft_file
+
+        data, script = CrateState(), CrateState()
+        for state in (data, script):
+            draft_file(state, "ec50.csv")
+        draft_file(script, "fit_curves.R")
+
+        before = assess_mit_coverage(data).standard_module_scores
+        after = assess_mit_coverage(script).standard_module_scores
+        gained = {
+            (key, module): bucket["completed"] - before[key][module]["completed"]
+            for key, by_module in after.items()
+            for module, bucket in by_module.items()
+        }
+        assert {k: g for k, g in gained.items() if g} == {
+            ("oecd_gd417", "Analysis and Statistics"): 1,
+        }
+
     def test_standard_module_scores_survive_serialization(self):
         report = MITReport(
             module_scores={"m": {"completed": 1, "total": 2}},

@@ -132,6 +132,7 @@ _SLOT_TYPE_MATCH: dict[str, tuple[frozenset[str], str | None]] = {
     "LabProcessEndpointReadout": (frozenset({"LabProcess"}), "EndpointReadout"),
     "LabProcessDataAnalysis": (frozenset({"LabProcess"}), "DataAnalysis"),
     "LabProtocol": (frozenset({"LabProtocol"}), None),
+    "SoftwareSourceCode": (frozenset({"SoftwareSourceCode"}), None),
     "File": (frozenset({"File", "MediaObject"}), None),
 }
 
@@ -348,7 +349,7 @@ def iter_scorable_params(
     previously disagreed on exactly this: the scorer skipped such a parameter,
     the gap engine counted it. The skip is live, not theoretical: checklist
     parameters with no curated slot (the ``crate_slot`` key omitted entirely —
-    44 of 220 at the time of writing; an explicit ``crate_slot: null`` parses
+    43 of 220 at the time of writing; an explicit ``crate_slot: null`` parses
     the same) are excluded from every denominator.
     """
     for module in mit_data.get("modules", []):

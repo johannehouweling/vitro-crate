@@ -336,8 +336,8 @@ class TestProtocolFileTyping:
     the document as data and a reader following ``executesLabProtocol`` arrived
     at something they could not open.
 
-    Co-typing is the same mechanism a script already uses (``["File",
-    "SoftwareSourceCode"]``), and ``LabProtocol`` resolves to
+    Co-typing is the same mechanism a script uses (``["File",
+    "SoftwareSourceCode", "LabProtocol"]``), and ``LabProtocol`` resolves to
     ``https://bioschemas.org/LabProtocol`` through ``profiles/context.py``, so
     what lands in the crate is the bioschemas type rather than a local string.
     """
@@ -535,8 +535,8 @@ class TestProtocolTypingAgainstTheShapes:
 
 
 class TestSourceCodeFileTyping:
-    """draft_file gains additional_types + programming_language so a script
-    round-trips as @type:[File, SoftwareSourceCode] (gold plot.py)."""
+    """A script round-trips as @type:[File, SoftwareSourceCode, LabProtocol] with
+    its programming_language (gold plot.py); additional_types stays generic."""
 
     def test_source_code_file_emits_typed_node(self):
         state = CrateState()
@@ -561,6 +561,18 @@ class TestSourceCodeFileTyping:
         assert node.get("programmingLanguage") == "Python"
         # encodingFormat is still auto-derived from the extension.
         assert node.get("encodingFormat") == "text/x-python"
+
+    def test_a_script_is_source_code_without_being_told(self):
+        """#786: the extension decides, in both arms — the pipeline never passes
+        additional_types, and the agent may not. LabProtocol too, because a
+        process that executes it trips the ISA "MUST be of type LabProtocol"."""
+        state = CrateState()
+        state.metadata.title = "Code crate"
+        from builder.tools.provenance import draft_file
+
+        draft_file(state, "plot.py")
+        node = next(n for n in _graph(state) if n.get("@id", "").endswith("plot.py"))
+        assert node["@type"] == ["File", "SoftwareSourceCode", "LabProtocol"]
 
     def test_plain_file_stays_single_typed(self):
         state = CrateState()
@@ -644,4 +656,74 @@ class TestASampleInTheAnalysisSlotIsReported:
         from builder.tools.validation import build_and_validate
 
         report = build_and_validate(self._state(), severity="required", profile="tox")
+        assert report["conformance"]["tox"] is True, report
+
+
+class TestADataAnalysisShouldFollowAnAnalysisScript:
+    """#786 — an analysis done by hand deposits no re-runnable step, and says so.
+
+    v32's shape: every DataAnalysis executes the wet-lab SOP its readout does, and
+    the software is a "GraphPad Prism" PropertyValue. The ISA "Process SHOULD have
+    a protocol" warning is satisfied by that SOP, so nothing reported the missing
+    script. Warning, not Violation, for the reason the Sample check above gives.
+
+    Driven through ``attach_files``, the way both arms place a deposit's files.
+    """
+
+    SOP = "4.1 Deiodinase activity assay.docx"
+    SCRIPT = "fit_curves.R"
+
+    def _state(self, *filenames: str, analysis_protocol: str | None = None) -> CrateState:
+        from builder.state import FileClassification
+        from builder.tools.document_discovery import CLASS_PROTOCOL
+        from builder.tools.provenance import attach_files, draft_file
+
+        state = CrateState()
+        state.metadata.title = "Analysis crate"
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.scanned_files = [
+            FileClassification(
+                path=f"assay_1/{n}", filename=n, size=10, mime_type="text/plain",
+                classification=CLASS_PROTOCOL,
+            )
+            for n in filenames
+        ]
+        attached = attach_files(state, to="assay_1")["file_ids"]
+        raw, out = draft_file(state, "raw.csv"), draft_file(state, "ec50.csv")
+        fields = {
+            "name": "Analyse",
+            "process_type": "DataAnalysis",
+            "assay_id": "assay_1",
+            "object": [raw.entity_id],
+            "result": [out.entity_id],
+            "software": "GraphPad Prism",
+        }
+        if analysis_protocol:
+            fields["labprotocol"] = attached[filenames.index(analysis_protocol)]
+        state.add_entity(_ent("proc_da", "LabProcess", **fields))
+        return state
+
+    @staticmethod
+    def _script_findings(state: CrateState) -> list[str]:
+        from builder.tools.validation import build_and_validate
+
+        report = build_and_validate(state, severity="recommended", profile="tox")
+        return [str(i.get("message")) for i in report["issues"] if "analysis script" in str(i.get("message"))]
+
+    def test_an_analysis_following_only_a_wet_lab_protocol_is_reported(self) -> None:
+        assert self._script_findings(self._state(self.SOP, analysis_protocol=self.SOP))
+
+    def test_a_deposited_script_clears_it(self) -> None:
+        state = self._state(self.SOP, self.SCRIPT)
+        analysis = _by_id(_graph(state), "#LabProcess_proc_da")
+        assert analysis is not None
+        executed = _ids(analysis.get("executesLabProtocol"))
+        assert [Path(unquote(e)).name for e in executed] == [self.SCRIPT], executed
+        assert self._script_findings(state) == []
+
+    def test_conformance_is_not_withdrawn(self) -> None:
+        from builder.tools.validation import build_and_validate
+
+        state = self._state(self.SOP, analysis_protocol=self.SOP)
+        report = build_and_validate(state, severity="required", profile="tox")
         assert report["conformance"]["tox"] is True, report

@@ -3,6 +3,7 @@
 # Consumes raw/condition data and produces processed-data outputs.
 
 @prefix bioschemas: <https://bioschemas.org/> .
+@prefix bioschemas-prop: <https://bioschemas.org/properties/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -62,4 +63,24 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
         sh:minCount 1 ;
         sh:message "DataAnalysis process MUST have at least one schema:additionalProperty (e.g. Computational Tool, Data Calculation and Statistics)" ;
         sh:severity sh:Violation ;
+    ] .
+
+# The analysis SHOULD follow a deposited script (#786). On `executesLabProtocol`,
+# not `instrument`: the script is the procedure the step follows, which is how the
+# ISA profile models a protocol (and how the condition table rides on Exposure).
+# Warning, not Violation: an analysis done by hand in Excel or Prism deposits no
+# re-runnable step, which is an action point, not non-conformance, and the
+# retroactivity argument above applies here too. A crate with no DataAnalysis
+# passes vacuously (#781).
+tox:DataAnalysisShouldFollowAnalysisScript a sh:NodeShape ;
+    sh:name "DataAnalysis SHOULD follow an analysis script" ;
+    sh:description "A data analysis process SHOULD execute the deposited script it ran" ;
+    sh:targetClass tox:LabProcessDataAnalysis ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path bioschemas-prop:executesLabProtocol ;
+        sh:qualifiedValueShape [ sh:class schema:SoftwareSourceCode ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "DataAnalysis SHOULD follow a deposited analysis script (schema:SoftwareSourceCode) via executesLabProtocol" ;
+        sh:severity sh:Warning ;
     ] .

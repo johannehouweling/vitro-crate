@@ -1168,11 +1168,11 @@ MIME registry the scanner uses — so `run.mzML` becomes `application/x-mzml` an
 `acquisition.fcs` becomes `application/vnd.isac.fcs` rather than being left blank
 or mislabeled `text/plain`. An explicit `encoding_format` always wins; an
 extensionless name leaves the field unset. `additional_types` co-types the node
-beyond plain `File` (Issue #180) — passing `["SoftwareSourceCode"]` plus
-`programming_language="Python"` makes an analysis script a `@type:[File,
-SoftwareSourceCode]` data entity with `schema:programmingLanguage` (gold
-`plot.py`); both are consumed structurally (`File` is always the leading type and
-duplicates are dropped), and a plain File keeps its scalar `@type`.
+beyond plain `File` (Issue #180); it is consumed structurally (`File` is always the
+leading type and duplicates are dropped), and a plain File keeps its scalar `@type`.
+A file whose extension names source code (`document_discovery.SCRIPT_SUFFIXES`) is
+built as `@type:[File, SoftwareSourceCode, LabProtocol]` whatever the caller passes;
+`programming_language` adds `schema:programmingLanguage` (gold `plot.py`).
 
 ### Entity Management Tools
 ```
@@ -2941,8 +2941,14 @@ Claiming a document requires two independent pieces of evidence, because executi
 asserts it explains how that step turns its input into its output:
 
 1. The scan classified it as a protocol **by content**
-   (`document_discovery.classification_of`), not by filename.
+   (`document_discovery.classification_of`), not by filename — except source code,
+   which its extension classifies (`SCRIPT_SUFFIXES`).
 2. Its path is about **that kind of step** and names **exactly one** subject.
+
+A script's kind is its step evidence: a `SoftwareSourceCode` protocol in an assay's
+`hasPart` is the DataAnalysis's, never the readout's, whatever it is called. The tox
+profile then SHOULD-checks that each DataAnalysis executes one (#786): an analysis
+done by hand in Excel or Prism deposits no re-runnable step, and says so.
 
 Ambiguity resolves to nothing: two candidate documents, or one naming two subjects, is
 evidence for neither (D5). Culture protocols are keyed on the **cell line**, not the
@@ -3068,7 +3074,8 @@ D5 — identifiers come from lookups or the value is dropped, never fabricated):
   table standing beside it.
 - **Characteristics/properties** — CellLineSample `organ`/`tissue` and LabProcess
   `additionalProperty` as PropertyValue characteristics, and source-code co-typing
-  (`@type:[File, SoftwareSourceCode]` with `schema:programmingLanguage`).
+  (`@type:[File, SoftwareSourceCode, LabProtocol]`, from the extension, with
+  `schema:programmingLanguage`).
 
 AOP subgraphs and publications-with-authors are materialized from the spine by their
 own composites (`materialize_aop_subgraph`, `draft_publication_with_authors`). Root

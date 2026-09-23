@@ -920,11 +920,11 @@ def _mit_rose_svg(mit: MITReport) -> str:
     own buckets.
 
     **Not the module's share of the checklist**, which is a different picture: the
-    checklist defines 220 parameters and 176 carry a ``crate_slot``, unevenly — 41
-    of Analysis and Statistics' parameters against the 7 this wedge is sized by, so
+    checklist defines 220 parameters and 177 carry a ``crate_slot``, unevenly — 41
+    of Analysis and Statistics' parameters against the 8 this wedge is sized by, so
     that module's true share is over five times its wedge. Sizing wedges by the
     published share would make the drawing honest about weight and dishonest about
-    fill in the same stroke (a 100%-radius wedge over 7 of 41), so the drawing keeps
+    fill in the same stroke (a 100%-radius wedge over 8 of 41), so the drawing keeps
     what it can measure and the section below states the shortfall per module.
 
     Each module is one ``<g>`` holding its pale share wedge, its filled wedge,
@@ -1440,7 +1440,7 @@ def _mit_module_colour(name: str) -> str:
 
 
 def _mit_scope_note(mit: MITReport, scored: int) -> str:
-    """"44 of 220 have no crate slot", when the two denominators differ.
+    """"43 of 220 have no crate slot", when the two denominators differ.
 
     The percentage beside it is of what could be scored: a parameter carrying no
     ``crate_slot`` names nothing a crate field could hold, so it is outside every
@@ -1511,11 +1511,11 @@ def _render_mit_section(mit: MITReport) -> str:
         )
 
     def mscope(covered: int, published: int) -> str:
-        """"7 of 41 mapped" — the visible half of the shortfall the bar's
+        """"8 of 41 mapped" — the visible half of the shortfall the bar's
         accessible name spells out.
 
-        Without it "Analysis and Statistics 7/7" reads as a finished module when
-        34 of the 41 parameters the checklist defines for it were never scored.
+        Without it "Analysis and Statistics 8/8" reads as a finished module when
+        33 of the 41 parameters the checklist defines for it were never scored.
         Empty when the checklist defines no more than we scored, and for a report
         serialised before these counts existed (they arrive as 0) — an absent
         count is not a shortfall.
