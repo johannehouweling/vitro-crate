@@ -77,6 +77,7 @@ _DOCUMENT_MEDIA_TYPES = frozenset(
 )
 
 _PROCESS_TYPES = frozenset({"LabProcess", "CreateAction", "Action", "Computation"})
+_SOFTWARE_TYPES = frozenset({"SoftwareSourceCode", "SoftwareApplication", "ComputationalWorkflow"})
 _SOURCE_TYPES = frozenset(
     {"Sample", "CellLineSample", "BioSample", "BioChemEntity", "MolecularEntity", "CellLine"}
 )
@@ -115,6 +116,21 @@ def _root(graph: Graph) -> dict[str, Any]:
 
 def _of_type(graph: Graph, wanted: frozenset[str] | set[str]) -> list[dict[str, Any]]:
     return [n for n in nodes(graph) if node_types(n) & wanted]
+
+
+def _transformation_steps(graph: Graph) -> list[dict[str, Any]]:
+    """The process steps that act on the data — never the crate's own build record.
+
+    An action whose ``result`` is the Root Data Entity records a change to the crate
+    itself (RO-Crate 1.2, "Recording changes to RO-Crates"): the ``CreateAction`` that
+    ``_crate_mapping._add_generator_provenance`` writes on every export. It is
+    provenance of the packaging, and RDA-R1.2-01M credits it as exactly that.
+    """
+    root_id = str(_root(graph).get("@id") or "./")
+    return [
+        p for p in _of_type(graph, _PROCESS_TYPES)
+        if root_id not in {ref_id(v) for v in _listed(p.get("result"))}
+    ]
 
 
 def _state_check(
@@ -228,7 +244,7 @@ def _check_data_sources_identified(state: CrateState, graph: Graph) -> Verdict |
     if needs_graph(graph):
         return None
     sources = _of_type(graph, _SOURCE_TYPES)
-    processes = _of_type(graph, _PROCESS_TYPES)
+    processes = _transformation_steps(graph)
     consumed = {
         ref_id(value)
         for process in processes
@@ -252,7 +268,7 @@ def _check_transformation_steps_wired(state: CrateState, graph: Graph) -> Verdic
     """
     if needs_graph(graph):
         return None
-    processes = _of_type(graph, _PROCESS_TYPES)
+    processes = _transformation_steps(graph)
     if not processes:
         return Verdict(False, "0 process steps in the crate — nothing to trace")
     wired = [p for p in processes if any(p.get(k) for k in ("object", "result", "input", "output"))]
@@ -263,12 +279,23 @@ def _check_transformation_steps_wired(state: CrateState, graph: Graph) -> Verdic
 
 
 def _check_software_in_repository(state: CrateState, graph: Graph) -> Verdict | None:
-    """1.c — the software behind the transformations is in a sustainable repository."""
+    """1.c — the software behind the transformations is in a sustainable repository.
+
+    Only software a step from :func:`_transformation_steps` uses counts: its
+    ``instrument``, the protocol it executes when that protocol is itself software (a
+    script), and that protocol's ``computationalTool``. The application that packaged
+    the crate is the build record's instrument, so it never counts.
+    """
     if needs_graph(graph):
         return None
-    software = _of_type(
-        graph, {"SoftwareSourceCode", "SoftwareApplication", "ComputationalWorkflow"}
-    )
+    by_id = {str(n.get("@id")): n for n in nodes(graph)}
+    used: set[str] = set()
+    for step in _transformation_steps(graph):
+        protocols = {ref_id(v) for v in _listed(step.get("executesLabProtocol"))}
+        used |= protocols | {ref_id(v) for v in _listed(step.get("instrument"))}
+        for protocol in protocols:
+            used |= {ref_id(v) for v in _listed(by_id.get(protocol, {}).get("computationalTool"))}
+    software = [by_id[i] for i in used if node_types(by_id.get(i, {})) & _SOFTWARE_TYPES]
     hosted = [
         s
         for s in software
@@ -279,10 +306,11 @@ def _check_software_in_repository(state: CrateState, graph: Graph) -> Verdict | 
         )
     ]
     if not software:
-        return Verdict(False, "0 software entities in the crate")
+        return Verdict(False, "0 software entities used by a data transformation step")
     return Verdict(
         bool(hosted),
-        f"{len(hosted)}/{len(software)} software entities resolve to a sustainable repository",
+        f"{len(hosted)}/{len(software)} software entities a transformation step uses"
+        " resolve to a sustainable repository",
     )
 
 

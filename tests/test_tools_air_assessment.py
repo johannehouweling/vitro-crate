@@ -19,6 +19,7 @@ import pytest
 from builder.state import AIRReport, CrateState, Entity, EntityProvenance
 from builder.tools.air_assessment import (
     AIR_CHECKS,
+    _assess_air_readiness_tool,
     air_profile,
     air_verdicts,
     assess_air_readiness,
@@ -144,13 +145,57 @@ class TestTheChecksMeasureWhatTheCriterionAsks:
         assert air_verdicts(CrateState(), None, graph)["3.c"].value is True
 
     def test_software_needs_a_repository_not_just_a_name(self):
-        named = _graph({"@id": "#sw", "@type": "SoftwareApplication", "name": "DESeq2"})
+        step = {"@id": "#run", "@type": "CreateAction", "instrument": {"@id": "#sw"},
+                "result": {"@id": "out.csv"}}
+        named = _graph(step, {"@id": "#sw", "@type": "SoftwareApplication", "name": "DESeq2"})
         assert air_verdicts(CrateState(), None, named)["1.c"].value is False
         hosted = _graph(
+            step,
             {"@id": "#sw", "@type": "SoftwareSourceCode", "name": "pipeline",
              "codeRepository": "https://github.com/example/pipeline"},
         )
         assert air_verdicts(CrateState(), None, hosted)["1.c"].value is True
+
+    def test_software_no_step_uses_does_not_count(self):
+        """1.c asks for the software *of a transformation step*, not any software."""
+        unused = _graph(
+            {"@id": "#sw", "@type": "SoftwareSourceCode", "name": "pipeline",
+             "codeRepository": "https://github.com/example/pipeline"},
+        )
+        assert air_verdicts(CrateState(), None, unused)["1.c"].value is False
+
+    @pytest.mark.parametrize(
+        "step, protocol",
+        [
+            ({"@type": "CreateAction", "instrument": {"@id": "#sw"}}, None),
+            ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#sop"}},
+             {"@id": "#sop", "@type": "LabProtocol", "computationalTool": {"@id": "#sw"}}),
+            ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#sw"}}, None),
+        ],
+        ids=["instrument", "computationalTool", "script_protocol"],
+    )
+    def test_software_a_step_uses_counts(self, step, protocol):
+        """The three ways a step names its software: RO-Crate's ``instrument``, the
+        protocol's ``computationalTool``, or a protocol that is itself the script."""
+        software = {"@id": "#sw", "@type": ["File", "SoftwareSourceCode", "LabProtocol"],
+                    "codeRepository": "https://github.com/example/pipeline"}
+        graph = _graph({"@id": "#step", "result": {"@id": "out.csv"}, **step},
+                       software, *([protocol] if protocol else []))
+        assert air_verdicts(CrateState(), None, graph)["1.c"].value is True
+
+    def test_the_crates_own_build_record_is_not_analysis_software(self):
+        """An empty crate still carries vitro-crate's build record, a github-hosted
+        ``SoftwareApplication`` — provenance of the packaging, not of the data."""
+        report = _assess_air_readiness_tool(CrateState())
+        verdict = next(r for r in report.criterion_results if r["id"] == "1.c")
+        assert verdict["passed"] is False
+        assert verdict["evidence"].startswith("0 software entities")
+
+    def test_the_build_record_is_not_a_transformation_step(self):
+        report = _assess_air_readiness_tool(CrateState())
+        verdict = next(r for r in report.criterion_results if r["id"] == "1.b")
+        assert verdict["passed"] is False
+        assert verdict["evidence"].startswith("0 process steps")
 
 
 class TestSharedQuestionsShareTheirImplementation:

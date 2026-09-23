@@ -1538,6 +1538,11 @@ dimension reports the published denominator (every criterion) beside the local o
 (criteria assessed), because the published formula has no "not assessed" state and
 substituting ours silently would misstate the instrument.
 
+The crate's own build record — the `CreateAction` whose `result` is the Root Data
+Entity — is provenance of the packaging, not a data-transformation step: RDA-R1.2-01M
+credits it, and Bridge2AI 1.a–1.c never count it or its instrument as a step or as
+analysis software.
+
 ### Session & HITL Tools
 ```
 present_to_human(context: str, options: [str]) → HumanResponse
