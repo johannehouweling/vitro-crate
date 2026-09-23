@@ -440,8 +440,8 @@ class TestTheExposureReachesItsCompounds:
         for table in condition_tables:
             about_ids |= _node_ref_ids(table.get("about"))
         assert compound_node_ids <= about_ids, (
-            "condition table's `about` must list every compound (the exposure "
-            f"conditions); table about={about_ids}, compounds={compound_node_ids}"
+            "condition table's `about` must list every compound; "
+            f"table about={about_ids}, compounds={compound_node_ids}"
         )
 
     def test_compounds_are_not_orphaned(self) -> None:
