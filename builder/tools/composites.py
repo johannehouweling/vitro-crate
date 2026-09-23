@@ -2340,7 +2340,8 @@ def resolve_cell_line(
 
     **Primary cells skip both steps.** Cellosaurus holds no record for primary
     cells (FAQ Q19), so any name hit would be a different entity; a source whose
-    ``hints`` say ``source_kind="primary cells"`` is minted without a search.
+    ``hints`` say ``source_kind="primary cells"`` — or, absent that hint, whose
+    reused entity records it — is minted without a search and keeps no accession.
 
     Idempotency is handled HERE, not in the drafter (which stays the plain
     ReAct-callable primitive): ``draft_cell_line_sample`` is not idempotent and
@@ -2385,7 +2386,10 @@ def resolve_cell_line(
     # "Hep G2" and "Hep  G2" one entity, and is what gets searched.
     display_name = " ".join(str(name).split()) or name
 
-    primary_cells = (hints or {}).get("source_kind") == "primary cells"
+    # The hint, else the kind the name's entity already records.
+    existing = state.get_entity(_make_entity_id("cell", display_name, hints or {}))
+    recorded = existing.fields.get("source_kind") if existing is not None else None
+    primary_cells = ((hints or {}).get("source_kind") or recorded) == "primary cells"
     accession, match, query = _search_cell_line_accession(
         [] if primary_cells else _cell_line_candidates(display_name, catalog_name), budget
     )
@@ -2462,8 +2466,6 @@ def resolve_cell_line(
         entity.set_fields_from_dict(refreshed, source="lookup")
         _append_alternate_name(entity, display_name)
     else:
-        entity_id = _make_entity_id("cell", display_name, merged_hints)
-        existing = state.get_entity(entity_id)
         if existing is not None and existing.type == "CellLineSample":
             entity = existing
             entity.set_fields_from_dict({**merged_hints, "name": display_name}, source="lookup")
@@ -2498,6 +2500,9 @@ def resolve_cell_line(
         # published one, and `_mint_id` would still key the node on it.
         entity.fields.pop("accession", None)
         entity.set_field_status("accession", "missing", "lookup")
+    elif primary_cells:
+        # An accession an earlier cell-line call wrote names another entity.
+        entity.fields.pop("accession", None)
 
     return {
         "entity_id": entity.entity_id,
