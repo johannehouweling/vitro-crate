@@ -233,7 +233,7 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
                 "'cell line' (default) or 'primary cells' — cells taken directly from "
                 "donor tissue, which have no Cellosaurus record and are never looked up there."
             ),
-            "species": "Species the cells come from, e.g. 'Homo sapiens'.",
+            "taxonomicRange": "Species the cells come from, e.g. 'Homo sapiens'.",
             "cell_type": "Cell type, e.g. 'hepatocyte'.",
         },
     ),

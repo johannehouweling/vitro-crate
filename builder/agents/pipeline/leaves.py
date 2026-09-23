@@ -357,7 +357,7 @@ def _plan_schema() -> dict[str, Any]:
                         "enum": ["cell line", "primary cells"],
                         "description": "'primary cells' if taken directly from donor tissue.",
                     },
-                    "species": {**str_field, "description": "Species the cells come from."},
+                    "taxonomicRange": {**str_field, "description": "Species the cells come from."},
                     "cell_type": {**str_field, "description": "Cell type, e.g. 'hepatocyte'."},
                 },
                 required=["name"],
