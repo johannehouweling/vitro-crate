@@ -3461,8 +3461,8 @@ def _build_process(
         the first of a split may claim it; the rest synthesize their own, so no
         drafted entity is discarded and none is claimed twice.
     ``cultures``
-        The CellCultures of an Exposure's assay. Where the draft names their
-        material or nothing, the Exposure consumes where they ended.
+        The CellCultures of an Exposure's assay. Where the draft names no Sample
+        but their material, the Exposure consumes where they ended.
     """
     # input/object/samples are interchangeable aliases for the consumed inputs,
     # result/output for the produced outputs (see PROVENANCE_RELATIONS and the
@@ -3540,15 +3540,15 @@ def _build_process(
         # glance, on the Study via schema:mentions. Per-well CSVW population
         # (tableSchema columns + CSV intake) is planned — see the wizard's
         # intake/condition_table.py.
-        # A draft naming a culture's input or output, or nothing, is widened to
+        # A draft naming a culture's input or output, or no Sample, is widened to
         # where the preparation ended (#785), which reaches every line of a split
-        # (#678); one naming other material knows better (#650).
+        # (#678); one naming another Sample knows better (#650).
         cultures, named = cultures or [], samples or obj
         ends = _prepared_samples(cultures)
         chain = {
             n.id for c in cultures for n in _linked_nodes(c, "input", "object", "output", "result")
         }
-        cells = ends if ends and {n.id for n in named} <= chain else named
+        cells = ends if ends and {n.id for n in named if _is_sample_node(n)} <= chain else named
         chems = _resolve_many(idx, f.get("chemicals"))
         # APPENDED, never substituted (#531). The table is
         # the compound's only route to the process (a MolecularEntity cannot be
