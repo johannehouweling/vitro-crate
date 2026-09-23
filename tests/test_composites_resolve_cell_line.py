@@ -291,6 +291,44 @@ class TestResolveCellLine:
         assert entity.fields["source_kind"] == "primary cells"
 
     @responses.activate
+    def test_a_re_resolve_without_the_hint_keeps_primary_cells_out_of_cellosaurus(self):
+        """The kind the entity records governs a re-resolve that omits the hint.
+
+        A second call that only adds a passage must not look the primary-cell
+        source up and commit a cell line's CVCL id onto it.
+        """
+        _route_hepg2()
+        state = CrateState()
+        first = resolve_cell_line(state, "HepG2", hints={"source_kind": "primary cells"})
+
+        second = resolve_cell_line(state, "HepG2", hints={"passage": "7"})
+
+        assert len(responses.calls) == 0
+        assert second["entity_id"] == first["entity_id"]
+        assert second["accession"] == ""
+        entity = _entity(state, second["entity_id"])
+        assert "accession" not in entity.fields
+        assert entity.fields["passage"] == "7"
+
+    @responses.activate
+    def test_a_source_re_resolved_as_primary_cells_drops_the_accession_it_had(self):
+        """A cell-line accession an earlier call wrote does not survive the switch.
+
+        Otherwise the return would report no accession while the crate published
+        a PrimaryCell whose ``@id`` is a Cellosaurus cell-line record.
+        """
+        _route_hepg2()
+        state = CrateState()
+        first = resolve_cell_line(state, "HepG2")
+        assert first["accession"] == "CVCL_0027"
+
+        second = resolve_cell_line(state, "HepG2", hints={"source_kind": "primary cells"})
+
+        assert second["entity_id"] == first["entity_id"]
+        assert second["accession"] == ""
+        assert "accession" not in _entity(state, second["entity_id"]).fields
+
+    @responses.activate
     def test_transient_outage_keeps_a_name_only_sample(self):
         """An outage is not a miss, and not a failure either: mint, no accession."""
         for field in ("id", "sy"):

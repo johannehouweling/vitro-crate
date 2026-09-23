@@ -1040,8 +1040,9 @@ that function, so a following `verify_identifier` would re-issue the same
 `lru_cache`d call, and the status is set directly (mirroring
 `_verify_compound_identifier`). A *transient* step-2 failure keeps the accession
 unverified; a *definitive* step-2 miss clears it. A primary-cell source
-(`hints.source_kind="primary cells"`) skips both steps: Cellosaurus holds no
-record for primary cells (FAQ Q19), so any name hit would be a different entity.
+(`hints.source_kind="primary cells"`, or a reused entity that records it) skips
+both steps and keeps no accession: Cellosaurus holds no record for primary cells
+(FAQ Q19), so any name hit would be a different entity.
 
 **A miss is NOT a failure** — the one deliberate divergence from
 `resolve_compound`, which returns `{ok: False}` and mints nothing. A
