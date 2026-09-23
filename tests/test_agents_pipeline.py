@@ -1633,10 +1633,9 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
 
     * each resolved ``MolecularEntity`` → the Exposure LabProcess via the
       ``chemicals`` ref field. ISA forbids a MolecularEntity as a process object
-      (objects MUST be File/Sample/BioSample), so the compound is connected THROUGH
-      the Exposure's CSVW condition table (``schema:about`` → MolecularEntity) and,
-      at a glance, on the Study via ``schema:mentions`` (the ``chemicals`` Study
-      mention).
+      (objects MUST be File/Sample/BioSample), so the compound is a ``reagent`` of
+      the Exposure's CSVW condition table and, at a glance, on the Study via
+      ``schema:mentions`` (the ``chemicals`` Study mention).
     * the resolved ``CellLineSample`` → the CellCulture LabProcess via the
       ``cell_line`` ref field (its consumed input), replacing the synthesized
       generic ``..._input`` placeholder; also surfaced on the Study via

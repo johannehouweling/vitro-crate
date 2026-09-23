@@ -246,7 +246,7 @@ def draft_process_chain(
     Fuses the recurring ``draft_process`` + ``link`` sequence that wires the gold
     S-VHPS21 chain::
 
-        Sample →[CellCulture]→ Sample →[Exposure]→ condition_table
+        Sample →[CellCulture]→ Sample →[Exposure]→ Sample
                →[EndpointReadout]→ raw/result →[DataAnalysis]→ figures
 
     into a single call. ``chain`` is an ordered list of step dicts; each step has
@@ -2542,8 +2542,8 @@ TOOL_REGISTRY.register(
 # A MolecularEntity or CellLineSample is minted by whichever path resolved it,
 # but it stays an ORPHAN until something references it: ISA forbids a compound as
 # a process object, so a compound reaches the experiment only through the
-# Exposure's `chemicals` field (which the build turns into the condition table's
-# schema:about + the compound column's valueUrl). The pipeline arm wires this at
+# Exposure's `chemicals` field (which the build turns into `reagent`s of the
+# condition table the Exposure executes). The pipeline arm wires this at
 # one moment, conditional on holding the ids then; the ReAct arm relies on the
 # model remembering to pass `hints={'chemicals': ...}`. Neither is a backstop, and
 # a real 22-compound crate shipped with `chemicals=None` on every process.

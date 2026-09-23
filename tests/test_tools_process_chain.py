@@ -2,7 +2,7 @@
 
 ``draft_process_chain`` fuses the recurring
 ``draft_process`` + ``link`` sequence that wires the gold S-VHPS21 derivation
-chain — ``Sample →[CellCulture]→ Sample →[Exposure]→ condition_table
+chain — ``Sample →[CellCulture]→ Sample →[Exposure]→ Sample
 →[EndpointReadout]→ raw/result →[DataAnalysis]→ figures`` — into ONE
 idempotent call. Its keystone job is to **synthesize the missing outputs** for
 EndpointReadout / DataAnalysis (the two subtypes with no build-time output
@@ -153,12 +153,12 @@ class TestChainCreation:
         assert cc_out & exp_in, "Exposure must consume the CellCulture output"
 
         # The material flow continues into the EndpointReadout. The Exposure has
-        # NO in-state output of its own (#285): its output is the build-time CSVW
-        # condition table, so the chain hands its consumed material (the cultured
+        # NO in-state output of its own (#285): its output is the build's exposed
+        # Sample, so the chain hands its consumed material (the cultured
         # Sample) downstream — the EndpointReadout must consume it.
         assert not (
             _ref_ids(exp.fields.get("result")) | _ref_ids(exp.fields.get("output"))
-        ), "Exposure must rely on the build's condition table, not an in-state output"
+        ), "Exposure must rely on the build's exposed Sample, not an in-state output"
         er_in = (
             _ref_ids(er.fields.get("object"))
             | _ref_ids(er.fields.get("input"))
@@ -342,10 +342,10 @@ def _node_ref_ids(value: object) -> set[str]:
     return out
 
 
-class TestExposureOutputIsConditionTable:
-    """Issue #285 — the Exposure's synthesized output must BE the CSVW condition
-    table that ``about``-references the test compounds (the substances the cells
-    were exposed to), NOT a generic placeholder result File.
+class TestTheExposureReachesItsCompounds:
+    """Issue #285 — the Exposure must reach the CSVW condition table that names
+    the test compounds (the substances the cells were exposed to), NOT a generic
+    placeholder result File.
 
     Before #285, ``draft_process_chain`` eagerly synthesized a *generic* result
     File for the Exposure (it is not a sample-producer and had no explicit
@@ -476,7 +476,7 @@ class TestExposureOutputIsConditionTable:
 
     @pytest.mark.timeout(120)
     def test_conformance_unchanged_with_condition_table(self) -> None:
-        """The condition-table output must not regress ISA / ISA-Tox conformance."""
+        """The condition table must not regress ISA / ISA-Tox conformance."""
         state, _ = self._exposure_chain_state()
         report = build_and_validate(state)
         assert "error" not in report, report
@@ -506,8 +506,8 @@ class TestTheAssayListsTheProtocolFilesItExecutes:
 
     @staticmethod
     def _built() -> tuple[list[dict], dict]:
-        state, _ = TestExposureOutputIsConditionTable()._exposure_chain_state()
-        graph = TestExposureOutputIsConditionTable._built_graph(state)
+        state, _ = TestTheExposureReachesItsCompounds()._exposure_chain_state()
+        graph = TestTheExposureReachesItsCompounds._built_graph(state)
         return graph, {n.get("@id"): n for n in graph}
 
     def test_the_executed_protocol_is_nested_under_its_assay(self) -> None:
@@ -615,9 +615,8 @@ class TestExposureProducesTheExposedSample:
     could not see what was exposed to what.
 
     The compound cannot be a process object — ``isa-ro-crate/3_process.ttl``
-    restricts ``schema:object`` to File/Sample/BioSample at Violation severity —
-    and Bioschemas ``LabProcess`` has no other input slot. ``reagent`` is a
-    ``LabProtocol`` property whose published range includes
+    restricts ``schema:object`` to File/Sample/BioSample at Violation severity.
+    ``reagent`` is a ``LabProtocol`` property whose published range includes
     ``schema:MolecularEntity`` outright, so the compounds attach to the protocol
     the exposure executes. The per-well condition table is that protocol when the
     real SOP carries no experimental layout: it is what supplies the layout, not
