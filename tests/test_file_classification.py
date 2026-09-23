@@ -17,6 +17,8 @@ So the answer comes from the file, in this order:
 2. **filename** — ``Combined … _tidy``, ``SOP``, ``README``, ``.prism``;
 3. **path** — the folder tier, and only when the file itself said nothing.
 
+A script is the one exception: its extension decides before its content (#786).
+
 Four values, and every scanned file gets exactly one. ``metadata`` covers the
 deposit record, the assay-metadata workbooks, publications and plate maps;
 ``protocol`` covers SOPs, lab protocols and analysis scripts; the other two are
@@ -219,6 +221,18 @@ class TestTheFilenameDecidesWhenContentIsSilent:
     def test_an_analysis_script_is_a_protocol(self, filename):
         """`protocol` covers how the work was done, computational or benchside."""
         assert _classify(filename, "") == CLASS_PROTOCOL
+
+    def test_a_script_is_a_protocol_whatever_its_comments_say(self):
+        """#786: the one place the extension outranks the content. A script's text
+        is code, so a comment citing its method's DOI is not a publication — and
+        the build types it a protocol by its extension, so the scan must agree."""
+        script = (
+            "# Fit dose-response curves for the deiodinase assay\n"
+            "# Method: Ritz et al. 2015, doi:10.1371/journal.pone.0146021\n"
+            "library(drc)\n"
+            'm <- drm(response ~ conc, data = read.csv("results.csv"), fct = LL.4())\n'
+        )
+        assert _classify("fit_curves.R", script) == CLASS_PROTOCOL
 
     @pytest.mark.parametrize(
         "filename",
