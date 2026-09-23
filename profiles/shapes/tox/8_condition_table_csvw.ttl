@@ -17,7 +17,7 @@
 # table on every exposure that had one — a check that fires on correct crates
 # is worse than no check, because it sends the repair loop after a defect that
 # is not there.
-tox:ExposureShouldEmitCsvwConditionTable a sh:NodeShape ;
+tox:ExposureShouldFollowCsvwConditionTable a sh:NodeShape ;
     sh:name "Exposure SHOULD follow a CSVW condition table" ;
     sh:description "An exposure's condition-table protocol SHOULD be CSVW-typed" ;
     sh:targetClass tox:LabProcessExposure ;

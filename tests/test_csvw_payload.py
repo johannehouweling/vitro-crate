@@ -395,7 +395,7 @@ class TestEmptyConditionTableSaysSo:
 class TestTheCsvwShapeLooksWhereTheTableIs:
     """The tox CSVW shape must read the edge the table is actually on (#650).
 
-    ``tox:ExposureShouldEmitCsvwConditionTable`` was written when the condition
+    ``tox:ExposureShouldFollowCsvwConditionTable`` was written when the condition
     table was the Exposure's ``schema:result``. #650 moved it to
     ``executesLabProtocol`` — the per-well layout is what the run follows, not
     what it emits — and the shape was not moved with it. The Warning then fired
@@ -433,7 +433,7 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
             if "condition table" in str(getattr(issue, "message", "")).lower()
         ]
 
-    def test_an_exposure_that_emits_the_table_is_not_reported(self):
+    def test_an_exposure_that_follows_the_table_is_not_reported(self):
         doc = self._document(_exposure_state())
         assert any(
             str(e.get("@id", "")).endswith("condition_table.csv")
@@ -442,7 +442,7 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
 
         findings = self._condition_table_findings(doc)
         assert findings == [], (
-            "the exposure emits a CSVW condition table, so the shape must not "
+            "the exposure follows a CSVW condition table, so the shape must not "
             f"report one missing; got {findings}"
         )
 

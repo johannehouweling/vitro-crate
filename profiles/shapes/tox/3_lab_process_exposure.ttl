@@ -4,9 +4,7 @@
 #
 # The per-well condition table is what the exposure FOLLOWS, not what it produces:
 # it is attached via executesLabProtocol, supplying the plate layout a procedural
-# SOP leaves out, and carries the compounds as its reagents (#650). isa_tox.md also
-# allows a POPULATED table as a second result — each row naming the sample it
-# produced — which needs per-arm samples (#654) and a populated table (#656).
+# SOP leaves out, and carries the compounds as its reagents (#650).
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .

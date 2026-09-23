@@ -1,6 +1,7 @@
 # LabProcessEndpointReadout — endpoint readout process (endpoint read-out module).
 # A bioschemas:LabProcess discriminated by additionalType "EndpointReadout".
-# Consumes the condition table and yields the per-well raw measurements.
+# Measures the exposed Sample (or, in a re-analysis, a deposited File) and yields
+# the raw measurement File(s).
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
