@@ -3007,10 +3007,11 @@ re-implementation. Its parts:
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
   Chain Tools).
-- **Design table** — for each Exposure the spine writes the one scanned table of its
-  own assay whose rows fit the canonical schema (`data_content.condition_table_fit`,
-  §4.2.2) into the Exposure's typed CSV via `populate_condition_table` (#408, #594),
-  reading fail-closed to `approved_scan_roots`. No fitting table, or one the write
+- **Design table** — for each Exposure the spine writes the one scanned table whose
+  rows fit the canonical schema (`data_content.condition_table_fit`, §4.2.2), among
+  its own assay's files when that assay holds any (#669), into the Exposure's typed
+  CSV via `populate_condition_table` (#408, #594), reading fail-closed to
+  `approved_scan_roots`. No fitting table, or one the write
   refuses, falls back to the propose-from-entities path (#422, #438), so a candidate
   never yields less table content than having none; only the several-candidates
   ambiguity refuses without fallback, because choosing among real plate maps is a
