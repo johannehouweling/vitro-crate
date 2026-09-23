@@ -1,4 +1,4 @@
-# Cultured and co-cultured material — how many cell lines a Sample may come from.
+# Cultured and co-cultured material — how many source Samples a Sample may come from.
 #
 # A CellCulture of several lines emitting ONE Sample asserts the lines were mixed.
 # The builder splits such a step per line (#678); these make the claim
@@ -8,7 +8,7 @@
 # says which it is — never the number of lines listed — and both directions are
 # checked, or the co-culture type becomes a way to escape the first rule.
 #
-#   OBI:0001876  cell culture  ->  exactly one line
+#   OBI:0001876  cell culture  ->  exactly one parent Sample
 #   NCIT:C93168  co-culture    ->  two or more
 #
 # Path is `schema:isBasedOn`: `derivesFrom` is the compact term the crate writes,
@@ -66,25 +66,25 @@ tox:FindCoCultureSamples a sh:NodeShape, validator:HiddenShape ;
     ] .
 
 tox:CulturedSampleDerivesFromOneLine a sh:NodeShape ;
-    sh:name "A cultured Sample derives from ONE cell line" ;
-    sh:description "Culturing several lines separately yields one Sample each; one Sample from several lines is a co-culture and must say so." ;
+    sh:name "A cultured Sample derives from ONE parent Sample" ;
+    sh:description "Culturing several sources separately yields one Sample each; one Sample from several sources is a co-culture and must say so." ;
     sh:targetClass tox:CulturedSample ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;
         sh:maxCount 1 ;
-        sh:message "A cultured Sample MUST derive from at most one cell line — culture each line separately, or type the material as a co-culture (NCIT:C93168)" ;
+        sh:message "A cultured Sample MUST derive from at most one parent Sample — culture each source separately, or type the material as a co-culture (NCIT:C93168)" ;
         sh:severity sh:Violation ;
     ] .
 
 tox:CoCultureDerivesFromSeveralLines a sh:NodeShape ;
-    sh:name "A co-culture Sample derives from SEVERAL cell lines" ;
-    sh:description "The co-culture type describes a mixture; a single line grown alone is a plain culture." ;
+    sh:name "A co-culture Sample derives from SEVERAL parent Samples" ;
+    sh:description "The co-culture type describes a mixture; a single source grown alone is a plain culture." ;
     sh:targetClass tox:CoCultureSample ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;
         sh:minCount 2 ;
-        sh:message "A Sample typed as a co-culture (NCIT:C93168) MUST derive from two or more cell lines — one line grown alone is a cell culture (OBI:0001876)" ;
+        sh:message "A Sample typed as a co-culture (NCIT:C93168) MUST derive from two or more parent Samples — one source grown alone is a cell culture (OBI:0001876)" ;
         sh:severity sh:Violation ;
     ] .

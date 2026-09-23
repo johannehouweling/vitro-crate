@@ -544,6 +544,25 @@ class TestBuildCellLineInventory:
         assert inv["celllines"] == []
         assert inv["counts"]["total"] == 0
 
+    def test_a_primary_cell_source_is_inventoried_without_an_rrid_field(self, tmp_path) -> None:
+        """Cellosaurus assigns no RRID to primary cells (FAQ Q19), so none is asked for (#788)."""
+        state = CrateState()
+        state.add_entity(
+            Entity(
+                entity_id="cell_t19",
+                type="CellLineSample",
+                fields={"name": "tubuloids T19", "source_kind": "primary cells"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, tmp_path, materialize_payload=False)
+
+        lines = build_cellline_inventory(crate.metadata.generate())["celllines"]
+        assert [c["name"] for c in lines] == ["tubuloids T19"]
+        assert "Cellosaurus RRID" not in lines[0]["fields"]
+
 
 class TestAffiliationReachability:
     """``affiliation`` is an edge of the crate graph (#85).

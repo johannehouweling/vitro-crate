@@ -11,6 +11,7 @@
   * [Requirements](#requirements)
     * [MolecularEntity - Chemical](#molecularentity---chemical)
     * [Sample - Cell-based Test System](#sample---cell-based-test-system)
+    * [Sample - Primary Cells](#sample---primary-cells)
     * [LabProcess - Cell Culture](#labprocess---cell-culture)
     * [LabProcess - Exposure](#labprocess---exposure)
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
@@ -33,8 +34,9 @@ The extension is additive and reuse-first: each concept is expressed through the
 [Schema.org](https://schema.org/) or [Bioschemas](https://bioschemas.org/) type, refined where necessary by a fixed
 `additionalType` discriminator (the same pattern the ISA profile uses for its
 [PropertyValue](isa.md#propertyvalue) subtypes). Test/control chemicals are
-[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity) instances; the cell-based test system is a
-[Sample](isa.md#sample) carrying `sampleType` and a Cellosaurus `identifier`; and the experimental workflow is a chain of
+[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity) instances; the cell-based test system's source is a
+[Sample](isa.md#sample) carrying `sampleType`, either a cell line with a Cellosaurus `identifier` or primary cells
+described by species and cell type; and the experimental workflow is a chain of
 [LabProcess](isa.md#labprocess) steps discriminated as `CellCulture`, `Exposure`, `EndpointReadout`, and `DataAnalysis`.
 No new RDF types are introduced, and no change to the base RO-Crate specification or the ISA profile is required.
 
@@ -188,10 +190,11 @@ machine-actionable. Concentration is **not** a property of the compound — it i
 ### Sample - Cell-based Test System
 
 Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample) type ([ISA Sample](isa.md#sample)).
-The cell-based test system (e.g. a cell line) is a single Sample carrying a categorical annotation via `sampleType`
-(a [DefinedTerm](isa.md#definedterm)) and a cell-line identity via `identifier` resolved to a Cellosaurus accession.
-It is discriminated by `additionalType` `"CellLine"` so intermediate, derived Samples (cultured / exposed cells) are not
-constrained by this shape.
+The source of the cell-based test system is a single Sample carrying a categorical annotation via `sampleType`
+(a [DefinedTerm](isa.md#definedterm)). A cell line also carries a cell-line identity via `identifier` resolved to a
+Cellosaurus accession; primary cells are described in [Sample - Primary Cells](#sample---primary-cells). It is
+discriminated by `additionalType` `"CellLine"` (or `"PrimaryCell"`) so intermediate, derived Samples (cultured / exposed
+cells) are not constrained by these shapes.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -203,6 +206,42 @@ constrained by this shape.
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 |url|MAY|URL|Link to the [Cellosaurus](https://www.cellosaurus.org/) entry.|
+
+### Sample - Primary Cells
+
+Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample) type ([ISA Sample](isa.md#sample)).
+Primary cells are taken directly from donor tissue and are not immortalized. Cellosaurus holds no record for them and
+assigns them no RRID ([FAQ Q19](https://www.cellosaurus.org/faq)), so the source is described by the species and the
+cell type it was isolated as instead.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|Could be the unique sample name.|
+|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|additionalType|MUST|Text|MUST be `"PrimaryCell"`. Discriminator identifying this Sample as a test-system source of primary cells.|
+|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|"primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660); its `termCode` also carries the IUCLID OHT 201 test-system type `IUCLID:108175` ("primary cells").|
+|name|MUST|Text|A name identifying the sample, e.g. "kidney tubuloids, donor T19".|
+|taxonomicRange|SHOULD|Text, URL or [schema.org/DefinedTerm](isa.md#definedterm)|The species the cells were taken from, e.g. NCBITaxon:9606.|
+|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the source; see expected values below. The cell type SHOULD be one.|
+|identifier|MAY|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|A BioSamples accession, if the material was deposited. There is no Cellosaurus entry or RRID.|
+
+**Expected `additionalProperty` items.** Each is a Characteristic [PropertyValue](isa.md#propertyvalue---characteristic)
+(`additionalType` `"CharacteristicValue"`). Only the cell type is checked by a shape.
+
+| name | Required | propertyID |
+|------|----------|------------|
+|cell type|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000324` (value e.g. a CL term)|
+|Organ, Tissue|SHOULD|`https://w3id.org/ro/crate/isa-tox/1.0/param/organ`, `https://w3id.org/ro/crate/isa-tox/1.0/param/tissue`|
+|supplier, catalogue number, lot number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C90473`, `http://purl.obolibrary.org/obo/NCIT_C99286`, `http://purl.obolibrary.org/obo/NCIT_C70848`; the lot, not the catalogue number, fixes the donor|
+|donor code, number of donors|SHOULD|—|
+|donor sex, age, health status|MAY|`http://purl.obolibrary.org/obo/PATO_0000047`, `http://www.ebi.ac.uk/efo/EFO_0000246`, —; age as a reported band, never a birth date|
+
+Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, not on the Sample.
+
+**Modelling rules.**
+
+- A donor pool is **one** `PrimaryCell` Sample carrying the number of donors.
+- Donors cultured separately are one Sample each.
 
 ### LabProcess - Cell Culture
 

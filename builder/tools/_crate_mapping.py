@@ -51,7 +51,19 @@ ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 # prof:isProfileOf) and that resolves — the w3id ISA permalink is not yet live.
 PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
-CELL_LINE_TERM_ID = iri("NCIT:C16403")
+# A test-system source's `source_kind` -> (D16 discriminator, sampleType CURIE, term
+# name, IUCLID OHT 201 IntEff_Type code, term set). NCIT's "Cell Line" proliferates
+# indefinitely; EFO's "primary cell" is taken directly from an organism. Else a cell line.
+_SOURCE_KINDS: dict[str, tuple[str, str, str, str, str]] = {
+    "cell line": (
+        "CellLine", "NCIT:C16403", "cell line", "IUCLID:108174",
+        "http://purl.obolibrary.org/obo/ncit.owl",
+    ),
+    "primary cells": (
+        "PrimaryCell", "EFO:0002660", "primary cell", "IUCLID:108175",
+        "http://www.ebi.ac.uk/efo/efo.owl",
+    ),
+}
 # The material a CellCulture produces and an Exposure passes on: OBI's "cell
 # culture" is "a material entity comprised of cultured cells and the media in
 # which they are being propagated or stored" — exactly what both are. Exposure
@@ -217,6 +229,12 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
                 "cell line — never guessed, never reused from another line."
             ),
             "description": _DESC,
+            "source_kind": (
+                "'cell line' (default) or 'primary cells' — cells taken directly from "
+                "donor tissue, which have no Cellosaurus record and are never looked up there."
+            ),
+            "species": "Species the cells come from, e.g. 'Homo sapiens'.",
+            "cell_type": "Cell type, e.g. 'hepatocyte'.",
         },
     ),
     "LabProcess": EntityDraftSchema(
@@ -421,10 +439,12 @@ _STRUCT_FIELDS = frozenset(
         "acceptance_criteria",
         "evaluation_criteria",
         # CellLineSample characteristics promoted to additionalProperty PropertyValue
-        # nodes (#143 passage/growth, #180 organ/tissue) — consumed structurally,
-        # never emitted as raw literals on the Sample node.
+        # nodes (#143 passage/growth, #180 organ/tissue, #788 cell_type) and its
+        # `source_kind` discriminator — consumed structurally, never raw literals.
+        "source_kind",
         "passage",
         "growth",
+        "cell_type",
         "organ",
         "tissue",
         # draft_file's extra @type term(s) — consumed to co-type the File node
@@ -1394,8 +1414,9 @@ _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
     _Characteristic(("growth",), "growth", iri("BAO:0002648")),
     _Characteristic(("organ",), "Organ", f"{PROFILE_ISATOX}/param/organ"),
     _Characteristic(("tissue",), "Tissue", f"{PROFILE_ISATOX}/param/tissue"),
+    _Characteristic(("cell_type",), "cell type", iri("EFO:0000324")),
 )
-# NB: the field names above (passage/growth/organ/tissue) are also listed in
+# NB: the field names above (passage/growth/organ/tissue/cell_type) are also listed in
 # _STRUCT_FIELDS so _scalar_props strips them from the Sample node — they round-trip
 # only as additionalProperty PropertyValue characteristics, never as raw literals.
 
@@ -1404,7 +1425,7 @@ def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
     """Build CharacteristicValue (PropertyValue) nodes for a CellLineSample.
 
     Promotes recognised culture-characteristic fields (``passage``, ``growth``,
-    ``organ``, ``tissue``) to ISA Sample Characteristics — schema:additionalProperty
+    ``organ``, ``tissue``, ``cell_type``) to ISA Sample Characteristics — schema:additionalProperty
     PropertyValue nodes carrying the value and, when known, the property's ontology
     IRI as ``propertyID``. Returns an empty list when none are present (D5: a field
     that is absent is never fabricated).
@@ -1468,20 +1489,25 @@ def _attach_contact_point(crate: ROCrate, node: Any, entity: Entity) -> None:
     node.append_to("contactPoint", contact)
 
 
-def _cell_line_term(crate: ROCrate) -> ContextEntity:
-    """The shared, resolvable 'cell line' DefinedTerm for CellLineSample.sampleType."""
-    return crate.add(
+def _source_term(crate: ROCrate, kind: str) -> tuple[str, ContextEntity]:
+    """A test-system source's discriminator and its shared, resolvable sampleType
+    DefinedTerm — one node per kind, referenced by every source of that kind."""
+    additional_type, curie, name, iuclid, term_set = _SOURCE_KINDS.get(
+        kind, _SOURCE_KINDS["cell line"]
+    )
+    term = crate.add(
         ContextEntity(
             crate,
-            CELL_LINE_TERM_ID,
+            iri(curie),
             properties={
                 "@type": "DefinedTerm",
-                "name": "cell line",
-                "termCode": ["NCIT:C16403", "IUCLID:108174"],
-                "inDefinedTermSet": {"@id": "http://purl.obolibrary.org/obo/ncit.owl"},
+                "name": name,
+                "termCode": [curie, iuclid],
+                "inDefinedTermSet": {"@id": term_set},
             },
         )
     )
+    return additional_type, term
 
 
 def _cell_culture_term(crate: ROCrate) -> ContextEntity:
@@ -1699,7 +1725,6 @@ def _add_leaves(
         )
 
     # Samples / CellLineSamples auto-add themselves (AutoAddContextEntity).
-    cell_term: list[Any] = [None]
     lineage: list[tuple[Entity, Any]] = []
     for s in state.list_entities("Sample"):
         node = _idx_add(
@@ -1715,8 +1740,7 @@ def _add_leaves(
         lineage.append((s, node))
 
     for cl in state.list_entities("CellLineSample"):
-        if cell_term[0] is None:
-            cell_term[0] = _cell_line_term(crate)
+        additional_type, sample_type = _source_term(crate, str(cl.fields.get("source_kind")))
         characteristics = _cell_line_characteristics(crate, cl)
         _idx_add(
             idx,
@@ -1725,10 +1749,11 @@ def _add_leaves(
                 crate,
                 identifier=_mint_id(cl),
                 name=str(cl.fields.get("name", "")),
-                sample_type=cell_term[0],
+                sample_type=sample_type,
                 accession=cl.fields.get("accession"),
                 additionalProperty=characteristics or None,
                 properties=_scalar_props(cl, skip=("name", "accession")) or None,
+                additional_type=additional_type,
             ),
         )
 

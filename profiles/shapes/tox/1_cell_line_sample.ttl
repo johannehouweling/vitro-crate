@@ -1,6 +1,7 @@
-# CellLineSample — the cell-based test system (biological model module).
-# A bioschemas:Sample discriminated by additionalType "CellLine", carrying a
-# sampleType DefinedTerm and a Cellosaurus identifier.
+# CellLineSample — the test-system source (biological model module).
+# A bioschemas:Sample discriminated by additionalType "CellLine" or "PrimaryCell",
+# carrying a sampleType DefinedTerm. A cell line carries a Cellosaurus identifier;
+# primary cells have none (Cellosaurus FAQ Q19) and state species and cell type.
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
@@ -30,16 +31,38 @@ tox:FindCellLineSamples a sh:NodeShape, validator:HiddenShape ;
         ] ;
     ] .
 
+# Inference: type a Sample as tox:PrimaryCellSample when additionalType == "PrimaryCell".
+tox:FindPrimaryCellSamples a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify primary-cell samples within the RO-Crate" ;
+    sh:description "A Sample with additionalType 'PrimaryCell' is a test-system source of primary cells." ;
+    sh:targetClass bioschemas:Sample ;
+    sh:order 10 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:PrimaryCellSample ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path schema:additionalType ;
+                sh:hasValue "PrimaryCell" ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+    ] .
+
 tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
-    sh:name "CellLineSample MUST have a sampleType" ;
-    sh:description "The cell-based test system MUST be categorised via sampleType" ;
+    sh:name "A test-system source Sample MUST have a sampleType" ;
+    sh:description "The test-system source (cell line or primary cells) MUST be categorised via sampleType" ;
     sh:targetClass tox:CellLineSample ;
+    sh:targetClass tox:PrimaryCellSample ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:sampleType ;
         sh:minCount 1 ;
         sh:class schema:DefinedTerm ;
-        sh:message "Cell-line Sample MUST have a schema:sampleType (a DefinedTerm) categorising the test system" ;
+        sh:message "Test-system source Sample MUST have a schema:sampleType (a DefinedTerm) categorising the test system" ;
         sh:severity sh:Violation ;
     ] .
 
@@ -52,5 +75,27 @@ tox:CellLineSampleShouldHaveIdentifier a sh:NodeShape ;
         sh:path schema:identifier ;
         sh:minCount 1 ;
         sh:message "Cell-line Sample SHOULD have a schema:identifier resolving to a Cellosaurus accession (CVCL_...)" ;
+        sh:severity sh:Warning ;
+    ] .
+
+tox:PrimaryCellSampleShouldDescribeSource a sh:NodeShape ;
+    sh:name "PrimaryCellSample SHOULD state its species and cell type" ;
+    sh:description "Primary cells have no Cellosaurus record, so the source is described by the species and the cell type it was isolated as" ;
+    sh:targetClass tox:PrimaryCellSample ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:taxonomicRange ;
+        sh:minCount 1 ;
+        sh:message "Primary-cell Sample SHOULD state the species its cells come from (schema:taxonomicRange)" ;
+        sh:severity sh:Warning ;
+    ] ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:additionalProperty ;
+        sh:qualifiedValueShape [
+            sh:property [ sh:path schema:propertyID ; sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0000324> ]
+        ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Primary-cell Sample SHOULD state its cell type as a characteristic (schema:additionalProperty with propertyID EFO:0000324)" ;
         sh:severity sh:Warning ;
     ] .
