@@ -3006,8 +3006,8 @@ def _linked_nodes(process_node: Any, *keys: str) -> list[Any]:
 
 def _prepared_samples(cultures: list[Any]) -> list[Any]:
     """Where an assay's preparation ended (#785): the cultured Samples none of its
-    cultures consumed. An intermediate is neither exposed nor measured; a per-line
-    split (#678) ends once per line."""
+    cultures consumed. The build widens a step onto these, never onto an
+    intermediate; a per-line split (#678) ends once per line."""
     fed = {n.id for c in cultures for n in _linked_nodes(c, "input", "object")}
     return [
         n
@@ -3127,11 +3127,10 @@ def _widen_to_every_cultured_line(
     #678 only made "the cultured material" plural, and a line an assay cultured
     but measured with nothing would have no reason to be in the assay at all.
 
-    Bounded by the same subset test :func:`_chain_processes` uses: a readout
-    naming anything but where this assay's preparation ended is stating
-    something the build did not derive, and knows better than we do (D5). An
-    assay that exposed material is left alone entirely — there the cultured
-    samples are the exposure's to consume.
+    Bounded by a subset test: a readout naming anything but where this assay's
+    preparation ended is stating something the build did not derive, and knows
+    better than we do (D5). An assay that exposed material is left alone
+    entirely — there the cultured samples are the exposure's to consume.
     """
     if exposed or not cultured:
         return
@@ -3160,7 +3159,7 @@ def _floor_readout_objects(crate: ROCrate, built: list[tuple[Any, str, Any]]) ->
 
     Runs AFTER the chaining pass, never at construction time. A placeholder
     minted while the process is built makes the readout's consumed set non-empty
-    and not a subset of the cultured samples -- exactly the condition
+    and outside the culture and what the exposure consumed -- the condition
     :func:`_chain_processes` reads as "this readout knows better than we do". So
     an early floor DISPLACES the exposed Sample it exists to stand in for, brings
     back the star graph #650 removed, and leaves that sample consumed by nothing
@@ -3450,8 +3449,8 @@ def _build_process(
 ) -> Any:
     """Build ONE process node.
 
-    Three keyword arguments exist so :func:`_add_processes` can split a culture
-    without this function having to see its neighbours (#678):
+    Three keyword arguments carry what :func:`_add_processes` knows across nodes:
+    how a culture splits (#678) and which cultures an Exposure's assay ran (#785):
 
     ``cell_lines``
         The line(s) this CellCulture grows, overriding what the draft names. A
@@ -3585,7 +3584,7 @@ def _build_process(
         # sample instead — the graph drew a star with the culture at its centre.
         # A drafter-supplied Sample is the exposed sample and is kept; anything
         # else it declared is kept alongside, never substituted.
-        # ONE exposed Sample per cultured Sample consumed (#678). Emitting a
+        # ONE exposed Sample per Sample consumed (#678). Emitting a
         # single one for an exposure that took several materials would move the
         # co-culture merge down a hop rather than remove it: the reader would see
         # two lines go in and one material come out.

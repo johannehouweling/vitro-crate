@@ -765,9 +765,10 @@ class TestTheChainFlowsThroughTheExposure:
     profile asks for the raw data.
 
     Corrections are targeted, not blanket. A readout is redirected only when it
-    consumes the culture *and* an exposure intervened; a readout in an assay with
-    no exposure at all is measuring the culture and is left alone — the
-    characterisation runs in a real deposit do exactly that.
+    consumes the culture or what the exposure consumed, *and* an exposure
+    intervened; a readout in an assay with no exposure at all is measuring the
+    culture and is left alone — the characterisation runs in a real deposit do
+    exactly that.
     """
 
     @staticmethod

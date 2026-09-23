@@ -117,10 +117,10 @@ class TestEndpointReadoutInputFloor:
     def test_the_floor_never_displaces_the_exposed_sample(self):
         """The placeholder is a fallback, not a competitor (#650, #678).
 
-        `_chain_processes` skips a readout whose consumed set is not a subset of
-        the cultured samples — one naming its own material knows better than we
-        do. A floor applied while the process is BUILT makes that set the
-        placeholder, so the rescue skips the readout and it measures a
+        `_chain_processes` skips a readout whose consumed set lies outside the
+        culture and what the exposure consumed — one naming its own material
+        knows better than we do. A floor applied while the process is BUILT makes
+        that set the placeholder, so the rescue skips the readout and it measures a
         synthesized node instead of the sample the exposure produced. The star
         graph #650 removed comes straight back, and nothing consumes the exposed
         sample at all.
@@ -205,9 +205,9 @@ class TestEndpointReadoutInputFloor:
         The claim the floor already makes when the input is EMPTY — "a
         characterisation run measures the cultured material" — is the same claim
         here; #678 simply made "the cultured material" plural. Widening it is
-        therefore not a new assertion, and it is bounded by the subset test
-        `_chain_processes` uses: a readout naming anything that is NOT cultured
-        material still knows better than we do.
+        therefore not a new assertion, and it is bounded by a subset test: a
+        readout naming anything but where the assay's preparation ended still
+        knows better than we do.
         """
         from builder.tools.builder import assemble_crate
         from builder.tools.composites import scaffold_isa_backbone
