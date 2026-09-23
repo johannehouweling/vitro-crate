@@ -118,19 +118,20 @@ def parse_crate_slots(slot_str: str | None) -> list[tuple[str, str]]:
 # we only need node typing + property presence.
 # ---------------------------------------------------------------------------
 
-# crate_slot EntityType -> (accepted @type local-names, required additionalType|None).
+# crate_slot EntityType -> (accepted @type local-names, accepted additionalTypes|None).
 # ISA backbone Datasets share @type "Dataset" and are told apart by additionalType;
-# the LabProcess subtypes and the cell line likewise carry an additionalType string.
-_SLOT_TYPE_MATCH: dict[str, tuple[frozenset[str], str | None]] = {
-    "Investigation": (frozenset({"Dataset"}), "Investigation"),
-    "Study": (frozenset({"Dataset"}), "Study"),
-    "Assay": (frozenset({"Dataset"}), "Assay"),
+# the LabProcess subtypes and the test-system source likewise carry an additionalType
+# string — a source is a cell line or primary cells.
+_SLOT_TYPE_MATCH: dict[str, tuple[frozenset[str], frozenset[str] | None]] = {
+    "Investigation": (frozenset({"Dataset"}), frozenset({"Investigation"})),
+    "Study": (frozenset({"Dataset"}), frozenset({"Study"})),
+    "Assay": (frozenset({"Dataset"}), frozenset({"Assay"})),
     "MolecularEntity": (frozenset({"MolecularEntity"}), None),
-    "CellLineSample": (frozenset({"Sample"}), "CellLine"),
-    "LabProcessCellCulture": (frozenset({"LabProcess"}), "CellCulture"),
-    "LabProcessExposure": (frozenset({"LabProcess"}), "Exposure"),
-    "LabProcessEndpointReadout": (frozenset({"LabProcess"}), "EndpointReadout"),
-    "LabProcessDataAnalysis": (frozenset({"LabProcess"}), "DataAnalysis"),
+    "CellLineSample": (frozenset({"Sample"}), frozenset({"CellLine", "PrimaryCell"})),
+    "LabProcessCellCulture": (frozenset({"LabProcess"}), frozenset({"CellCulture"})),
+    "LabProcessExposure": (frozenset({"LabProcess"}), frozenset({"Exposure"})),
+    "LabProcessEndpointReadout": (frozenset({"LabProcess"}), frozenset({"EndpointReadout"})),
+    "LabProcessDataAnalysis": (frozenset({"LabProcess"}), frozenset({"DataAnalysis"})),
     "LabProtocol": (frozenset({"LabProtocol"}), None),
     "File": (frozenset({"File", "MediaObject"}), None),
 }
@@ -228,7 +229,7 @@ def _node_matches_slot_type(node: dict[str, Any], entity_type: str) -> bool:
     bases, add = rule
     if not (bases & _type_localnames(node)):
         return False
-    return add is None or _additional_type_of(node) == add
+    return add is None or _additional_type_of(node) in add
 
 
 def _iter_property_values(node: dict[str, Any], key: str) -> list[Any]:

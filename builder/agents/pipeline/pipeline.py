@@ -1982,10 +1982,12 @@ def _materialize_plan(
         # TPO-overexpressing rat thyroid follicular cells" can never clear the
         # exact-match gate, because Cellosaurus knows the line as "FRTL-5".
         catalog_name = str((cell_line or {}).get("catalog_name") or "").strip()
+        # Primary cells skip Cellosaurus; species and cell type describe them instead.
+        hints = {k: v for k in ("source_kind", "species", "cell_type") if (v := cell_line.get(k))}
         try:
             # D5: only NAMES are passed; the accession comes from the lookup.
             resolved = engine.run_tool(
-                "resolve_cell_line", name=name, catalog_name=catalog_name or None
+                "resolve_cell_line", name=name, catalog_name=catalog_name or None, hints=hints
             )
             result["cell_lines"] += 1
         except Exception as exc:  # noqa: BLE001

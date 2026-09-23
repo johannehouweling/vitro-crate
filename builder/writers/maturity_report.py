@@ -2629,7 +2629,9 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
         return "", ""
     counts = inv["counts"]
     total, wired = counts["total"], counts["wired"]
-    rrid_backed = sum(1 for c in lines if c["rrid"])
+    # A primary-cell source has no RRID field to miss (Cellosaurus FAQ Q19).
+    asked = [c for c in lines if "Cellosaurus RRID" in c["fields"]]
+    unpinned = sum(1 for c in asked if not c["rrid"])
 
 
     notes = []
@@ -2642,16 +2644,17 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
             "minted generic <code>Sample</code> instead, the declared one is described in the "
             "crate and used by nothing.</span></p>"
         )
-    if total - rrid_backed:
+    if unpinned:
         notes.append(
-            f'<p class="chem-warn">{_mk("no")}<span><b>{total - rrid_backed} of {total} '
+            f'<p class="chem-warn">{_mk("no")}<span><b>{unpinned} of {len(asked)} '
             "biological samples carry no Cellosaurus RRID.</b> A name identifies a family of "
             "divergent stocks; <code>CVCL_…</code> identifies the one that was used.</span></p>"
         )
     if not notes:
         notes.append(
-            '<p class="good-note">Every biological sample is consumed by a process and '
-            "RRID-backed.</p>"
+            '<p class="good-note">Every biological sample is consumed by a process'
+            + (" and RRID-backed" if len(asked) == total else "")
+            + ".</p>"
         )
 
     ordered = sorted(
@@ -2672,7 +2675,7 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
             f"{'not linked' if c['state'] == 'unlinked' else 'no process'}</span>"
         )
         cells = "".join(
-            f"<td>{_mk('ok' if c['fields'].get(full) else 'no')}</td>"
+            f"<td>{_mk(_kind(c['fields'].get(full)))}</td>"
             for full, _short in CELLLINE_COVERAGE_FIELDS
         )
         rows.append(

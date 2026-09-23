@@ -344,11 +344,12 @@ class LabProcessDataAnalysis(LabProcess):
 
 @reader_compatible
 class CellLineSample(Sample):
-    """The cell-based test system, modelled as a Sample carrying a categorical
-    annotation via ``sampleType`` (a schema:DefinedTerm) and a cell-line identity
-    via ``identifier`` (a Cellosaurus accession). Discriminated by
-    ``additionalType`` = "CellLine" so intermediate derived Samples (cultured /
-    exposed cells) are not constrained by the CellLineSample shape.
+    """The test-system source, modelled as a Sample carrying a categorical
+    annotation via ``sampleType`` (a schema:DefinedTerm). Discriminated by
+    ``additionalType`` — "CellLine" or "PrimaryCell" — so intermediate derived
+    Samples (cultured / exposed cells) are not constrained by the source shapes.
+    Only a cell line has an ``identifier`` (a Cellosaurus accession): Cellosaurus
+    holds no record for primary cells.
 
     Part of the Tox ISA RO-Crate Profile extension.
     """
@@ -363,9 +364,10 @@ class CellLineSample(Sample):
         additionalProperty: ParameterValue | list[ParameterValue] | None = None,
         properties: dict | None = None,
         add: bool = True,
+        additional_type: str = "CellLine",  # or "PrimaryCell"
     ):
         default_properties: dict = {
-            "additionalType": "CellLine",
+            "additionalType": additional_type,
             "sampleType": sample_type,
         }
         if accession:

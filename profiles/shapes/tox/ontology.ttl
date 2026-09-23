@@ -30,6 +30,12 @@ tox:CellLineSample rdf:type owl:Class ;
     rdfs:comment "The cell-based test system (e.g., a cell line) in a toxicology study" ;
     rdfs:label "CellLineSample"@en .
 
+# Primary-cell test-system source: a bioschemas:Sample (additionalType "PrimaryCell").
+tox:PrimaryCellSample rdf:type owl:Class ;
+    rdfs:subClassOf isa-ro-crate:Sample ;
+    rdfs:comment "Cells taken directly from donor tissue as the test-system source in a toxicology study" ;
+    rdfs:label "PrimaryCellSample"@en .
+
 # Workflow processes, discriminated by additionalType on a bioschemas:LabProcess.
 tox:LabProcessCellCulture rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Process ;

@@ -29,7 +29,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 | RO-Crate | Research Object Crate — a lightweight packaging format for research data |
 | ISA | Investigation-Study-Assay — a framework for describing experimental workflows |
 | MolecularEntity | A compound or chemical substance used in an assay |
-| CellLineSample | A cell line used in an *in vitro* experiment |
+| CellLineSample | The test-system source of an *in vitro* experiment: a cell line, or primary cells taken directly from donor tissue |
 | LabProcess | A step in the experimental workflow (cell culture, exposure, endpoint readout, data analysis) |
 | SHACL | Shapes Constraint Language — used for validating RDF graphs against profiles |
 | HITL | Human-in-the-Loop — checkpoints where the agent asks the user for input |

@@ -2338,6 +2338,10 @@ def resolve_cell_line(
     ``cell_lines`` mention with it. **Always mint; the accession is enrichment.**
     There is therefore no ``ok`` key: read ``accession``/``match`` instead.
 
+    **Primary cells skip both steps.** Cellosaurus holds no record for primary
+    cells (FAQ Q19), so any name hit would be a different entity; a source whose
+    ``hints`` say ``source_kind="primary cells"`` is minted without a search.
+
     Idempotency is handled HERE, not in the drafter (which stays the plain
     ReAct-callable primitive): ``draft_cell_line_sample`` is not idempotent and
     ``state.add_entity`` silently *replaces* under ``CellLineSample:<eid>``,
@@ -2381,8 +2385,9 @@ def resolve_cell_line(
     # "Hep G2" and "Hep  G2" one entity, and is what gets searched.
     display_name = " ".join(str(name).split()) or name
 
+    primary_cells = (hints or {}).get("source_kind") == "primary cells"
     accession, match, query = _search_cell_line_accession(
-        _cell_line_candidates(display_name, catalog_name), budget
+        [] if primary_cells else _cell_line_candidates(display_name, catalog_name), budget
     )
 
     # --- step 2: the record IS the verification -----------------------------

@@ -2468,6 +2468,31 @@ class TestCellLinesPanel:
         assert "not consumed by any process" not in page
         assert "1 of 1 biological samples carry no Cellosaurus RRID." in page
 
+    def test_primary_cells_are_not_asked_for_an_rrid(self) -> None:
+        """Cellosaurus assigns no RRID to primary cells (FAQ Q19), so the RRID cell
+        is not applicable rather than missing, and no warning counts it (#788)."""
+        graph = self._graph(wire=True, rrid=True)
+        graph["@graph"] += [
+            {
+                "@id": "#t19",
+                "@type": "Sample",
+                "additionalType": "PrimaryCell",
+                "name": "tubuloids T19",
+                "sampleType": {"@id": "#pc"},
+            },
+            {"@id": "#pc", "@type": "DefinedTerm", "name": "primary cell"},
+        ]
+        page = build_maturity_html(vhps_fixture_state("S-VHPS21"), graph=graph)
+        assert "carry no Cellosaurus RRID" not in page
+        row = next(
+            r
+            for r in re.findall(r"<tr>.*?</tr>", _block(page, "cov-cell"), re.S)
+            if "tubuloids T19" in r
+        )
+        assert re.findall(r"<td>(.*?)</td>", row)[0] == (
+            '<span class="mk na" aria-label="not assessed">–</span>'
+        )
+
     def test_crate_without_cell_lines_omits_the_view(self) -> None:
         graph = {
             "@graph": [

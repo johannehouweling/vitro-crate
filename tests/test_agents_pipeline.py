@@ -2135,6 +2135,57 @@ class TestMaterializeCellLineAccessionFromThePlan:
         assert "accession" not in cells[0].fields
         assert queried == [self._DESCRIPTIVE]
 
+    def test_a_primary_cell_plan_item_is_never_looked_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Primary cells have no Cellosaurus record, so any hit names a different entity.
+
+        The stub answers EVERY name with an accession: only the plan's
+        ``source_kind`` can keep it off the Sample.
+        """
+        import builder.agents.pipeline.leaves as leaves_mod
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        import builder.tools.composites as composites_mod
+
+        self._enable_provider(monkeypatch)
+        schemas: list[dict] = []
+
+        class _Runnable:
+            def invoke(self, messages, *a, **k):
+                return {
+                    "cell_lines": [
+                        {"name": "kidney tubuloids, donor T19", "source_kind": "primary cells"}
+                    ]
+                }
+
+        class _Model:
+            def with_structured_output(self, schema, *, include_raw=False, **k):
+                schemas.append(schema)
+                return _Runnable()
+
+        monkeypatch.setattr(leaves_mod, "_build_chat_model", lambda *a, **k: _Model())
+        queried: list[str] = []
+
+        def fake_lookup_cell_line_by_name(name):
+            queried.append(str(name))
+            return {"found": True, "data": {"accession": "CVCL_0027"}, "error": None}
+
+        monkeypatch.setattr(
+            composites_mod, "lookup_cell_line_by_name", fake_lookup_cell_line_by_name
+        )
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        item = schemas[0]["properties"]["cell_lines"]["items"]["properties"]
+        assert item["source_kind"]["enum"] == ["cell line", "primary cells"]
+        assert queried == []
+        cells = self._by_type(engine, "CellLineSample")
+        assert len(cells) == 1
+        assert "accession" not in cells[0].fields
+        assert cells[0].fields["source_kind"] == "primary cells"
+
 
 class TestPublicationFromPDF:
     """Issue #245 — when a plan publication's "title" is actually a PDF FILENAME,

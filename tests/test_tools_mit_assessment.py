@@ -220,6 +220,36 @@ class TestAssessMITCoverage:
             assert isinstance(scores["total"], int)
             assert scores["completed"] <= scores["total"]
 
+    def test_a_primary_cell_source_fills_the_cell_source_slots(self, tmp_path):
+        """The ``CellLineSample:*`` slots describe the test-system source, of either kind (#788)."""
+        from builder.tools.mit_assessment import slot_matcher
+
+        def state_with(**fields) -> CrateState:
+            state = CrateState()
+            state.add_entity(
+                Entity(
+                    entity_id="cell_t19",
+                    type="CellLineSample",
+                    fields={"name": "kidney tubuloids, donor T19", **fields},
+                    _provenance=EntityProvenance(created_by="llm"),
+                )
+            )
+            return state
+
+        primary = state_with(source_kind="primary cells")
+        graph = _assembled_graph(primary, tmp_path)
+        node = next(n for n in graph if n.get("name") == "kidney tubuloids, donor T19")
+        assert node["additionalType"] == "PrimaryCell"
+
+        matched = slot_matcher(primary, graph=graph)
+        assert matched("CellLineSample", "name")
+        assert matched("CellLineSample", "sampleType")
+        # The same source published as a cell line scores the same.
+        line = state_with()
+        assert assess_mit_coverage(primary, graph=graph) == assess_mit_coverage(
+            line, graph=_assembled_graph(line, tmp_path)
+        )
+
 
 class TestUnassessedIsNotZero:
     """A coverage figure nobody measured must be reported as absent (#311).

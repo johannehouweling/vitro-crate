@@ -323,7 +323,7 @@ def _matches_slot_type(node: dict[str, Any], slot: str) -> bool:
     if additional is None or not (bases & {_local(t) for t in _node_types(node)}):
         return False
     return any(
-        _local(_ref_id(v) or str(v)) == additional for v in _values(node, "additionalType")
+        _local(_ref_id(v) or str(v)) in additional for v in _values(node, "additionalType")
     )
 
 
@@ -1957,18 +1957,20 @@ def _check_controlled_values(state: CrateState, graph: Graph = None) -> Verdict 
     unconditionally.** That is the reading under which DSM-3-C4 can fail at all, and the
     indicator is scoped ``partial`` in the workbook for exactly this reason.
 
-    **What the population is.** Every ``MolecularEntity`` and every cell-line ``Sample``
-    in the crate — not only those a condition-table column happens to point at. These are
-    the chemical and cell-line field values the crate publishes, however they got there;
-    no claim is made that a table column licensed the population.
+    **What the population is.** Every ``MolecularEntity`` and every test-system source
+    ``Sample`` (cell line or primary cells) in the crate — not only those a
+    condition-table column happens to point at. These are the chemical and cell-source
+    field values the crate publishes, however they got there; no claim is made that a
+    table column licensed the population.
 
     "are standardised" is unquantified, so it is a claim about all of them: one bound
     compound beside a cell line named only ``H4`` has not standardised its field values.
     That sentence is the threshold anchor, which is why no ratio is fitted.
 
     Two scaffolding traps avoided. ``sampleType`` is not counted: the builder writes
-    ``NCIT:C16403`` ("Cell Line") onto every cell line, which types the *field*, not the
-    *value*. Nor is a bare accession counted, only a resolvable IRI — the reason
+    ``NCIT:C16403`` ("Cell Line") onto every cell line and ``EFO:0002660`` ("primary
+    cell") onto every primary-cell source, which types the *field*, not the *value*.
+    Nor is a bare accession counted, only a resolvable IRI — the reason
     :func:`_root_pid` gives, that an accession is unique inside its registry and
     ambiguous outside it.
 

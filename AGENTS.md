@@ -133,7 +133,7 @@ Three-layer model mirroring the RO-Crate profile hierarchy:
 |-------|-------------|-----------|
 | **Packaging** | RO-Crate 1.2 base | `Dataset`, `File`, `Person`, `Organization` |
 | **Structural** | ISA hierarchy | `Investigation`, `Study`, `Assay`, `LabProcess`, `LabProtocol`, `Sample` |
-| **Domain** | Toxicology extension | `MolecularEntity`, `CellLineSample`, `LabProcessExposure`, `LabProcessEndpointReadout`, `LabProcessCellCulture`, `LabProcessDataAnalysis` |
+| **Domain** | Toxicology extension | `MolecularEntity`, `CellLineSample`, `PrimaryCellSample`, `LabProcessExposure`, `LabProcessEndpointReadout`, `LabProcessCellCulture`, `LabProcessDataAnalysis` |
 
 ### Entity Provenance
 
@@ -534,8 +534,8 @@ full-name ORCID search hit through the record endpoint before using its URL as a
 entity id, and leaves the deterministic local id in place for anything ambiguous,
 unavailable or weak.
 
-**Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample,
-LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person,
+**Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample
+(CellLine/PrimaryCell), LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person,
 Organization, Publication.
 
 #### 4.2.4 Crate Builder (`builder/tools/builder.py`)
@@ -950,7 +950,7 @@ scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=
 materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; optionally wired onto a Study
 link_assay_to_key_event(assay_id: str, event_name: str | list[str]) → {ok, assay_id, key_event_ids, matched_names, unmatched?} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event(s) it MEASURES (schema:mentions via keyEvent), each name matched INDEPENDENTLY against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING for a name matching zero or several Key Events because which Key Event an assay measures is a scientific claim (D5); links ACCUMULATE deduplicated rather than replace — removing one is `set_fields`' job (`key_event_id`/`matched_name` are kept as the first match for callers written against the one-event form)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
-resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment
+resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment; `hints.source_kind="primary cells"` skips Cellosaurus
 resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
@@ -1037,7 +1037,9 @@ first unique-exact hit wins, and the tier is reported as `match`; (2)
 that function, so a following `verify_identifier` would re-issue the same
 `lru_cache`d call, and the status is set directly (mirroring
 `_verify_compound_identifier`). A *transient* step-2 failure keeps the accession
-unverified; a *definitive* step-2 miss clears it.
+unverified; a *definitive* step-2 miss clears it. A primary-cell source
+(`hints.source_kind="primary cells"`) skips both steps: Cellosaurus holds no
+record for primary cells (FAQ Q19), so any name hit would be a different entity.
 
 **A miss is NOT a failure** — the one deliberate divergence from
 `resolve_compound`, which returns `{ok: False}` and mints nothing. A
@@ -1130,11 +1132,12 @@ subtype parameters (`assay_kit`/`substrate` for EndpointReadout,
 `_build_process` threads `units=f.get('units')` into the Exposure /
 EndpointReadout / DataAnalysis constructors so each `ParameterValue` carries its
 `unitText`, and threads the optional params into the matching subtype. A
-`CellLineSample`'s `passage` / `growth` / `organ` / `tissue` hints are promoted to
+`CellLineSample`'s `passage` / `growth` / `organ` / `tissue` / `cell_type` hints are promoted to
 ISA Sample Characteristics — `schema:additionalProperty` PropertyValue nodes
 carrying the value and, when known, the property's ontology IRI (`organ` / `tissue`
 mirror the gold crate's `Organ` / `Tissue` characteristics with the ISA-Tox
-`param/{organ,tissue}` `propertyID`; Issue #180). A `LabProcess`'s
+`param/{organ,tissue}` `propertyID`, Issue #180; `cell_type` carries EFO:0000324
+"cell type", which the primary-cell shape asks for). A `LabProcess`'s
 `additionalProperty` field is likewise resolved to its in-state PropertyValue
 reference(s) at build time (gold `#report_analysis` → `[#pv_repro_score]`) — only
 PropertyValues already present in state (or bare IRIs) are wired; a score is never
@@ -2408,9 +2411,9 @@ When `export_crate` embeds the report it passes the crate's serialized `@graph`
 **entity explorer** (below) and **Entity coverage** — one block per kind of entity, each asking the
 question that kind fails at. Can this compound be *obtained* (CAS / PubChem CID / DTXSID plus the
 structure fields)? Is this cell line *pinned down* (a Cellosaurus RRID names one stock where a name
-names a family; organ / tissue / passage are what let another lab reproduce the culture)? Does this
-citation *resolve*, and are its authors entities the crate contains? These are completeness
-verdicts, not pictures, and no diagram answers them.
+names a family — a primary-cell source has no RRID to give; organ / tissue / passage are what let
+another lab reproduce the culture)? Does this citation *resolve*, and are its authors entities the
+crate contains? These are completeness verdicts, not pictures, and no diagram answers them.
 
 The blocks carry no diagrams of their own — the explorer answers that half better and interactively
 — and they stack like every other section. The block names and their order are the owner's, reviewed
@@ -2733,9 +2736,11 @@ quota — **not** scientific accuracy.
 Every ISA-Tox specialization is expressed as `@type: <bare base token>` +
 `additionalType: <discriminator string>` — **not** a JSON-LD `@type` array:
 
-- A cell-line sample is `@type: "Sample"` (`bioschemas:Sample`) + `additionalType:
-  "CellLine"` + a `sampleType` DefinedTerm (`profiles/shapes/tox/1_cell_line_sample.ttl`,
-  isa_tox.md §Sample - Cell-based Test System).
+- A test-system source is `@type: "Sample"` (`bioschemas:Sample`) + `additionalType:
+  "CellLine"|"PrimaryCell"` + a `sampleType` DefinedTerm (NCIT:C16403 or EFO:0002660;
+  `profiles/shapes/tox/1_cell_line_sample.ttl`, isa_tox.md §Sample - Cell-based Test
+  System, §Sample - Primary Cells). Both are one `CellLineSample` state type, told apart
+  by `source_kind` as `LabProcess` is by `process_type`.
 - LabProcess steps are `@type: "LabProcess"` + `additionalType:
   "CellCulture"|"Exposure"|"EndpointReadout"|"DataAnalysis"`; ISA backbone nodes are
   `@type: "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`.

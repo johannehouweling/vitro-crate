@@ -389,6 +389,32 @@ class TestDsmBlockers:
             assert DSM_CHECKS[ind["check"]](state, None) is False
 
 
+def test_controlled_values_keeps_a_primary_cell_source_in_its_population() -> None:
+    """DSM-3-C4 judges every test-system source, not only cell lines (#788).
+
+    A primary-cell Sample has no Cellosaurus IRI to bind to. Dropping it from the
+    population would let one PubChem-bound compound carry the indicator alone.
+    """
+    from builder.tools.fair_assessment import dsm_verdicts
+    from builder.tools.mit_assessment import graph_nodes, scoring_graph
+
+    state = CrateState()
+    for entity_id, type_, fields in (
+        ("chem_tac", "MolecularEntity", {"name": "Tacrolimus", "pubchem_cid": "445643"}),
+        ("cell_t19", "CellLineSample", {"name": "tubuloids T19", "source_kind": "primary cells"}),
+    ):
+        state.add_entity(
+            Entity(entity_id, type_, fields, _provenance=EntityProvenance(created_by="llm"))
+        )
+    graph = scoring_graph(state)
+    source = next(n for n in graph_nodes(graph) if n.get("name") == "tubuloids T19")
+    assert source["additionalType"] == "PrimaryCell"
+
+    verdict = dsm_verdicts(state, graph=graph)["DSM-3-C4"]
+    assert verdict.value is False
+    assert "tubuloids T19" in verdict.evidence
+
+
 class TestTheAgentAndTheReportScoreTheSameCrate:
     """One crate, one FAIR number — whoever asks.
 

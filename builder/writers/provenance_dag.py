@@ -93,7 +93,7 @@ _LAYER_NAMES: dict[int, str] = {
 }
 
 _DOMAIN_ADDTYPES = frozenset(
-    {"CellLine", "CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
+    {"CellLine", "PrimaryCell", "CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
 )
 _STRUCT_ADDTYPES = frozenset(
     {
@@ -1900,7 +1900,7 @@ def build_chemical_inventory(
 # culture rather than merely recognise it.
 # ---------------------------------------------------------------------------
 
-_CELLLINE_TYPES = frozenset({"CellLine", "CellLineSample"})
+_CELLLINE_TYPES = frozenset({"CellLine", "PrimaryCell", "CellLineSample"})
 _CELL_LINE_TERM_HINT = "cell line"
 
 # Cellosaurus accessions, with or without the RRID: prefix (RRID:CVCL_0214).
@@ -1943,7 +1943,7 @@ def _is_cellline(node: dict[str, Any], nodes: dict[str, Any]) -> bool:
     """True for a cell-line entity.
 
     Accepts the canonical ISA-Tox shape (a ``Sample`` with
-    ``additionalType: CellLine``), a bare ``CellLine`` type, and a ``Sample``
+    ``additionalType: CellLine`` or ``PrimaryCell``), a bare ``CellLine`` type, and a ``Sample``
     whose ``sampleType`` resolves to the shared "cell line" ``DefinedTerm`` —
     the last so a crate that types its line only by term still appears.
     """
@@ -2013,7 +2013,8 @@ def build_cellline_inventory(
     ``input``/``cell_line``, or the cultured ``Sample`` that ``derivesFrom`` it —
     and whether it carries a Cellosaurus RRID, an ontology-backed ``sampleType``,
     and the organ / tissue / passage characteristics another lab needs to
-    reproduce the culture.
+    reproduce the culture. A ``PrimaryCell`` source has no RRID field at all:
+    Cellosaurus assigns none to primary cells (FAQ Q19), so its absence is not a gap.
 
     Pure and cheap: one pass over the serialized ``@graph``, no validation and no
     network. Crate-controlled text is HTML-escaped in ``label`` (#169).
@@ -2043,6 +2044,8 @@ def build_cellline_inventory(
             "Cellosaurus RRID": rrid is not None,
             "Typed as a cell line": typed,
         }
+        if _additional_type(node) == "PrimaryCell":
+            del fields["Cellosaurus RRID"]
         fields.update(_cellline_characteristics(node, nodes))
         route = resolve(lid)
         lines.append(

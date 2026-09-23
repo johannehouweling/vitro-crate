@@ -272,6 +272,25 @@ class TestResolveCellLine:
         assert entity.fields["name"] == "Nonesuch primary cells"
 
     @responses.activate
+    def test_a_primary_cell_source_never_queries_cellosaurus(self):
+        """Primary cells have no Cellosaurus record (FAQ Q19), so a name hit is another entity.
+
+        The recorded HepG2 search and record are routed and would commit
+        CVCL_0027 for this name; a primary-cell source must not ask at all.
+        """
+        _route_hepg2()
+        state = CrateState()
+
+        result = resolve_cell_line(state, "HepG2", hints={"source_kind": "primary cells"})
+
+        assert len(responses.calls) == 0
+        assert result["accession"] == ""
+        assert result["match"] == "none"
+        entity = _entity(state, result["entity_id"])
+        assert "accession" not in entity.fields
+        assert entity.fields["source_kind"] == "primary cells"
+
+    @responses.activate
     def test_transient_outage_keeps_a_name_only_sample(self):
         """An outage is not a miss, and not a failure either: mint, no accession."""
         for field in ("id", "sy"):
