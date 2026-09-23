@@ -72,7 +72,6 @@ dataset --processSequence--> Process
 Process --"result"---> DataFile
 Process --"result"--> BioSample
 Process --"object"--> BioSample
-Process --"object"--> Mol
 Process --"object"---> DataFile
 Process --executesLabProtocol--> Protocol
 Process --parameterValue---> prop
@@ -84,6 +83,7 @@ BioSample --additionalProperty--> prop
 Protocol --purpose---> ont
 Protocol --labEquipment---> ont
 Protocol --reagent---> ont
+Protocol --reagent--> Mol
 
 ```
 
@@ -101,8 +101,8 @@ Protocol --reagent---> ont
 > - each `parameter` is a `PropertyValue` **node** with a deterministic `@id`, a
 >   `propertyID` IRI and optional `unitText` — never an inline literal (the
 >   LabProcess shapes use `sh:class schema:PropertyValue`).
-> - each `Sample`'s `derivesFrom` links the source `ChemicalSubstance` /
->   `BioChemEntity` contextual entity; the MUST shape enforces only `minCount 1`.
+> - a derived `Sample`'s `derivesFrom` links the Sample it was made from; no shape
+>   requires it (the tox shapes only bound its count on cultured material, #678).
 >
 > The four LabProcess shapes are **selected by `additionalType`** (`CellCulture`
 > / `Exposure` / `EndpointReadout` / `DataAnalysis`): a generic `LabProcess` with no
@@ -273,14 +273,15 @@ for this step:
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
 ([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent exposing the cell-based test system to
 the chemical(s). It captures the experimental design: it takes the cultured cell [Sample](isa.md#sample)
-as its `object`, emits the exposed Sample(s) as its `result`, and follows — via `executesLabProtocol` — a normalised
-condition table (CSVW) in which each row records a single well (cell line, compound, concentration, exposure duration).
+as its `object`, follows a run-specific condition table (CSVW) via `executesLabProtocol` in which each row records a
+single well (cell line, compound, concentration, exposure duration), and emits the exposed cell
+[Sample](isa.md#sample)(s) as its `result`.
 
 > **Where the compound goes.** The [MolecularEntity](#molecularentity---chemical) compound is **not** a process
 > `object`: the inherited ISA [LabProcess](isa.md#labprocess) shape restricts `schema:object` (and `schema:result`)
-> to `File`/`Sample`/`BioSample`, so a `MolecularEntity` there fails validation. The compound is instead connected
-> **through the condition table** — the table's compound column resolves (CSVW `valueUrl`) to the `MolecularEntity`
-> `@id`, and the compound is also listed at a glance on the [Study](#) via `schema:mentions`.
+> to `File`/`Sample`/`BioSample`, so a `MolecularEntity` there fails validation. The compound is a `reagent` of the
+> run-specific condition table, which the Exposure follows via `executesLabProtocol`. The procedural SOPs name no
+> compound, so the assay stays executable with other chemicals: a re-run needs a new condition table and the same SOPs.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -314,9 +315,9 @@ Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
 |additionalType|MUST|Text|MUST be `"EndpointReadout"`. Discriminator identifying this LabProcess as a measurement readout.|
 |name|MUST|Text|The name of the process, e.g. "Endpoint Readout".|
+|object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Measurement parameter(s); see expected values below. At least one.|
-|object|SHOULD|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The input entities being measured.|
 |executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
@@ -369,8 +370,6 @@ for this step (drawn from OHT 201's *Data & Analysis* module):
 
 ## Example ro-crate-metadata.json
 
-A worked example crate is available at
-[`examples/export/S-VHPS16_rocrate/ro-crate-metadata.json`](../../examples/export/S-VHPS16_rocrate/ro-crate-metadata.json).
-Its LabProcess entities carry the `CellCulture` / `Exposure` / `EndpointReadout`
-`additionalType` discriminators described above, and it validates green across
-all three passes (base RO-Crate 1.1 → ISA → ISA-Tox) at REQUIRED severity.
+A worked example crate is planned but not yet provided. A crate built by the reference builder carries the
+`CellCulture` / `Exposure` / `EndpointReadout` / `DataAnalysis` `additionalType` discriminators described above,
+and is validated in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).
