@@ -3,8 +3,8 @@
 The paper's core value proposition is that a receiving lab can trace how an
 output was produced:
 
-    Sample →[CellCulture]→ Sample →[Exposure]→ condition_table
-           →[EndpointReadout]→ raw_measurements →[DataAnalysis]→ figures
+    Sample →[CellCulture]→ Sample →[Exposure]→ Sample
+           →[EndpointReadout]→ raw →[DataAnalysis]→ figures
 
 The crate mapping resolves a process's ``object``/``result``/``input``/``output``
 references, but those reference keys live behind the schema-less ``hints`` param,

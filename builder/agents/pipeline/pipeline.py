@@ -1769,9 +1769,9 @@ def _materialize_plan(
       collected ids are wired deterministically via ``set_fields`` (never
       hand-rolled JSON-LD) with the canonical ISA-Tox reference fields: every
       resolved ``MolecularEntity`` → the **Exposure** LabProcess via ``chemicals``
-      (ISA forbids a MolecularEntity as a process object, so the build connects the
-      compound THROUGH the Exposure's CSVW condition table — ``schema:about`` →
-      MolecularEntity + the compound column ``valueUrl``), the resolved
+      (ISA forbids a MolecularEntity as a process object, so the build makes each
+      compound a ``reagent`` of the run-specific CSVW condition table the Exposure
+      executes), the resolved
       ``CellLineSample`` → the **CellCulture** LabProcess via ``cell_line`` (its
       consumed input, replacing the synthesized generic ``..._input``), and BOTH
       onto the scaffolded Study via ``schema:mentions`` (``chemicals`` /
@@ -2009,17 +2009,14 @@ def _materialize_plan(
     # canonical ISA-Tox reference fields (NEVER hand-rolled JSON-LD):
     #   * each MolecularEntity → the Exposure LabProcess via `chemicals`. ISA
     #     forbids a MolecularEntity as a process object (objects MUST be
-    #     File/Sample/BioSample), so the build connects the compound THROUGH the
-    #     Exposure's CSVW condition table (schema:about → MolecularEntity), with the
-    #     compound column's valueUrl resolving to its id (_crate_mapping
-    #     ._build_process / _synth_condition_table).
+    #     File/Sample/BioSample), so the build makes it a `reagent` of the
+    #     condition table the Exposure executes (_crate_mapping._synth_condition_table).
     #   * the CellLineSample → the CellCulture LabProcess via `cell_line` (its
     #     consumed input), replacing the synthesized generic `..._input` placeholder.
     #   * both also surface on the Study via schema:mentions (`chemicals` /
     #     `cell_lines`→biologicalModels) so every resolved entity is reachable at a
-    #     glance even when (e.g. a ChEBI-only compound) it is not the condition
-    #     table's first valueUrl column. Idempotent: `set_fields` overwrites the ref
-    #     field with the same deterministic ids, so re-running mints no duplicates.
+    #     glance. Idempotent: `set_fields` overwrites the ref field with the same
+    #     deterministic ids, so re-running mints no duplicates.
     chain_by_type = {str(s.get("process_type") or ""): s for s in chain_steps_summary}
     if compound_ids:
         exposure_step = chain_by_type.get("Exposure")
@@ -2066,8 +2063,7 @@ def _materialize_plan(
             _set_ref_field(engine, str(culture_id), "cell_line", cell_line_ids[0])
 
     # Surface both on the scaffolded Study via schema:mentions so every resolved
-    # entity is reachable from the backbone (no orphan), regardless of which
-    # condition-table column resolves to which id.
+    # entity is reachable from the backbone (no orphan).
     study_mention_id = _first_entity_id(engine, "Study")
     if study_mention_id:
         if compound_ids:

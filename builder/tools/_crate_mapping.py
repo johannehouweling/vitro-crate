@@ -2908,19 +2908,18 @@ def _synth_condition_table(
     *,
     materialize_payload: bool = True,
 ) -> File:
-    """The Exposure's result: the CSVW condition table (the per-well design table).
+    """The CSVW condition table the Exposure follows: the run's per-well design table.
 
-    Modelled as a ``File`` (the CSV) that is also a ``csvw:Table`` — a bare
-    csvw:Table is rejected by the base ISA shape, which requires a process result
-    to be a File/Sample/BioSample. A header-only placeholder CSV is materialised
-    so the File is valid in-payload, and the table is described by a typed CSVW
+    Modelled as a ``File`` (the in-payload CSV) that is also a ``csvw:Table`` and a
+    ``LabProtocol``: the Exposure reaches it via ``executesLabProtocol``, and the
+    compounds are its ``reagent``s, since a MolecularEntity cannot be a process
+    object under the ISA shape. A header-only placeholder CSV is materialised so
+    the File is valid in-payload, and the table is described by a typed CSVW
     schema (``tableSchema`` + ``conformsTo`` → a ``csvw:Schema`` whose columns
     carry datatype/propertyUrl, with the cell-line/compound columns resolving to
-    their entity ids via ``valueUrl``; #94). Per-row CSV population (intake of the
-    actual well values) remains future work. The table also links (schema:about)
-    the cell line(s) and compound(s) it concerns, so the compound is connected to
-    the Exposure THROUGH its result (a MolecularEntity cannot be a process object
-    under the ISA shape).
+    their entity ids via ``valueUrl``; #94). ``populate_condition_table`` writes
+    the per-well rows. The table also lists the cell line(s) and compound(s) it
+    concerns under ``schema:about``.
     """
     rel = _condition_table_rel(exp_pid)
     # Only touch disk when materialising payload for an on-disk export. The
@@ -2987,7 +2986,7 @@ def _synth_condition_table(
         table.append_to("about", ent)
     # The compounds are this protocol's REAGENTS. `schema:object` cannot hold
     # them — the bundled ISA process shape restricts it to File/Sample/BioSample
-    # at Violation severity — and Bioschemas LabProcess has no other input slot.
+    # at Violation severity.
     # `reagent` is a LabProtocol property whose published range names
     # schema:MolecularEntity outright, so a compound attaches on its primary type
     # rather than riding on a supertype (#650).
@@ -3565,13 +3564,9 @@ def _build_process(
         # The Exposure takes the cultured cell Sample(s) as object and emits the
         # EXPOSED Sample as its result; the condition table is what the run
         # FOLLOWS, attached via executesLabProtocol, not what it produces (#650,
-        # 113ea1c). ISA forbids a MolecularEntity as a
-        # process object (objects MUST be File/Sample/BioSample — bundled
-        # isa-ro-crate shape), so the compound is NOT in `object`; it is connected
-        # THROUGH the condition table (table --about--> MolecularEntity) and, at a
-        # glance, on the Study via schema:mentions. Per-well CSVW population
-        # (tableSchema columns + CSV intake) is planned — see the wizard's
-        # intake/condition_table.py.
+        # 113ea1c). ISA forbids a MolecularEntity as a process object (objects
+        # MUST be File/Sample/BioSample — bundled isa-ro-crate shape), so the
+        # compounds are the condition table's `reagent`s (_synth_condition_table).
         # A draft naming a culture's input or output, or no Sample, is widened to
         # where the preparation ended (#785), which reaches every line of a split
         # (#678); one naming another Sample knows better (#650).
@@ -3582,12 +3577,9 @@ def _build_process(
         }
         cells = ends if ends and {n.id for n in named if _is_sample_node(n)} <= chain else named
         chems = _resolve_many(idx, f.get("chemicals"))
-        # APPENDED, never substituted (#531). The table is
-        # the compound's only route to the process (a MolecularEntity cannot be
-        # the object), so letting a drafter-declared `result` stand in for it
-        # severed that route silently: the crate kept its compounds and lost
-        # every link to them, and the declared file — never synthesized, so
-        # never materialised — left the crate describing a file it lacks.
+        # APPENDED to any protocol the drafter named, never substituted (#531):
+        # the table is where the compounds are named, so dropping it would leave
+        # the crate with its compounds and no link to any of them.
         table = _synth_condition_table(
             crate,
             output_dir,

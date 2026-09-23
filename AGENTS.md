@@ -1301,9 +1301,11 @@ the material flow still passes downstream via the step's inputs.
 
 The compounds do not ride on that output. They are **reagents of the per-well
 condition table**, which the build attaches as a protocol the exposure *executes* —
-the plate layout a procedural SOP leaves out — not as something it produces. That is
-the only route ISA permits: `schema:object` is restricted to File/Sample/BioSample at
-Violation severity, and Bioschemas `LabProcess` has no other input slot.
+the plate layout a procedural SOP leaves out — not as something it produces.
+`schema:object` is restricted to File/Sample/BioSample at Violation severity, so a
+compound cannot be the Exposure's input. The SOPs name no compound, so they stay
+reusable with other chemicals; only the run-specific table states which well got
+which compound at which dose.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
@@ -1342,7 +1344,7 @@ the #175 auto-include fallback (inclusion) with agent-driven placement
 `derives_from` = sample lineage), a strict subset of the crate mapping's
 `_REF_FIELDS` (asserted by test, so the edge vocabulary and the resolver cannot
 drift). It is the explicit verb the agent uses to wire the
-Sample →[CellCulture]→ Sample →[Exposure]→ table →[EndpointReadout]→ raw
+Sample →[CellCulture]→ Sample →[Exposure]→ Sample →[EndpointReadout]→ raw
 →[DataAnalysis]→ figures chain (those reference keys are otherwise hidden behind
 the schema-less `hints` param, so a weak model never sets them). `check_provenance`
 is a **report-only** connectivity lint (no auto-chaining — branching assays make a
@@ -3290,22 +3292,18 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   collected ids deterministically through `set_fields` (never hand-rolled JSON-LD)
   using the canonical ISA-Tox reference fields: each resolved `MolecularEntity` →
   the **Exposure** LabProcess via `chemicals` (ISA forbids a MolecularEntity as a
-  process object — objects MUST be File/Sample/BioSample — so the build connects
-  the compound THROUGH the Exposure's CSVW condition table, `schema:about` →
-  MolecularEntity + the `compound` column's `valueUrl`; `_crate_mapping
-  ._build_process`/`_synth_condition_table`); the resolved `CellLineSample` → the
+  process object — objects MUST be File/Sample/BioSample — so the build makes the
+  compound a `reagent` of the run-specific CSVW condition table the Exposure
+  executes via `executesLabProtocol`; `_crate_mapping._synth_condition_table`);
+  the resolved `CellLineSample` → the
   **CellCulture** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
   scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
   `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
   compounds alike — is reachable from the backbone at a glance (orphan count → 0).
   Idempotent: `set_fields` writes the same deterministic ids, so re-running mints
-  no duplicates. **Condition-table link now fires (#285).** `draft_process_chain`
-  no longer pre-empts the Exposure's build-time output with a generic placeholder
-  File (see §5), so the `chemicals` set here actually build into the Exposure's
-  CSVW condition table (`table --about--> MolecularEntity`): the compounds attach
-  as the *true conditions of the exposure process*, and the Study `mentions` edge
-  is a redundant backstop (still load-bearing for a compound the table cannot reach,
-  e.g. one resolved with no Exposure in the chain) rather than the primary link.
+  no duplicates. The condition table is the primary link, since the compounds are
+  the conditions of the exposure. The Study `mentions` edge is a backstop for a
+  compound the table cannot reach (one resolved with no Exposure in the chain).
   **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
   and stop, so the crate listed a pathway's key events without ever saying which one
   the assay measures. Each `aops[]` item now also carries `measured_event_name` — a

@@ -71,16 +71,15 @@ class LabProcessExposure(LabProcess):
     """Exposure step (additionalType "Exposure").
 
     object  = the cultured cell ``Sample``(s) being exposed.
-    result  = the exposed ``Sample``(s) the step produces.
+    result  = the exposed cell ``Sample``(s) the step produces.
     executesLabProtocol
-            = the procedural SOP and the CSVW condition table (a ``File`` that
-              is also a ``csvw:Table``) recording per well the cell line /
-              compound / concentration / duration — the layout the run FOLLOWS,
-              not what it emits (profiles/shapes/tox/8_condition_table_csvw.ttl).
-              The exposed compound is NOT a process object — the base ISA shape
-              allows only File/Sample/BioSample, so the compound is connected
-              THROUGH the condition table (and shown at a glance on the Study
-              via schema:mentions), never via schema:object.
+            = the procedural SOP (if any) and the run-specific CSVW condition
+              table (``File`` + ``csvw:Table`` + ``LabProtocol``) recording per
+              well the cell line / compound / concentration / duration — the
+              layout the run FOLLOWS, not what it emits
+              (profiles/shapes/tox/8_condition_table_csvw.ttl). The compounds
+              are that table's ``reagent``s, never ``schema:object`` (the base
+              ISA shape allows only File/Sample/BioSample there).
     """
 
     def __init__(

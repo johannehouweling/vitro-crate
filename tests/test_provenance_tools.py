@@ -1,7 +1,7 @@
 """Tests for the LabProcess derivation-chain tools (Issue #88).
 
 draft_file / link / check_provenance let the agent build and lint the
-Sample →[CellCulture]→ Sample →[Exposure]→ table →[EndpointReadout]→ raw
+Sample →[CellCulture]→ Sample →[Exposure]→ Sample →[EndpointReadout]→ raw
 →[DataAnalysis]→ figures provenance chain explicitly, rather than relying on
 build-time synthesis that a weak model never triggers.
 """
