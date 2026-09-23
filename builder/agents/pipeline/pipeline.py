@@ -1761,7 +1761,9 @@ def _materialize_plan(
     * each ``cell_lines[]`` → :func:`resolve_cell_line` (mints the
       ``CellLineSample`` and looks its Cellosaurus accession up from the plan's
       NAME plus optional short ``catalog_name`` — D5). Unlike ``resolve_compound``
-      a miss still mints: a name-only cell line is a valid ISA Sample.
+      a miss still mints: a name-only cell line is a valid ISA Sample. The item's
+      ``source_kind``/``taxonomicRange``/``cell_type`` ride along as hints, and a
+      primary-cell item is never looked up.
     * **entity→provenance wiring (#273).** Resolving a compound / cell line MINTS
       the entity but leaves it a graph ORPHAN unless something references it, so the
       collected ids are wired deterministically via ``set_fields`` (never
@@ -1983,7 +1985,9 @@ def _materialize_plan(
         # exact-match gate, because Cellosaurus knows the line as "FRTL-5".
         catalog_name = str((cell_line or {}).get("catalog_name") or "").strip()
         # Primary cells skip Cellosaurus; species and cell type describe them instead.
-        hints = {k: v for k in ("source_kind", "species", "cell_type") if (v := cell_line.get(k))}
+        hints = {
+            k: v for k in ("source_kind", "taxonomicRange", "cell_type") if (v := cell_line.get(k))
+        }
         try:
             # D5: only NAMES are passed; the accession comes from the lookup.
             resolved = engine.run_tool(

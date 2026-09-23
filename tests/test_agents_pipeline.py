@@ -2141,11 +2141,14 @@ class TestMaterializeCellLineAccessionFromThePlan:
         """Primary cells have no Cellosaurus record, so any hit names a different entity.
 
         The stub answers EVERY name with an accession: only the plan's
-        ``source_kind`` can keep it off the Sample.
+        ``source_kind`` can keep it off the Sample. The species and cell type the
+        plan item carries describe the source instead, and the species fills the
+        MIT "Organism" slot (``CellLineSample:taxonomicRange``).
         """
         import builder.agents.pipeline.leaves as leaves_mod
         import builder.agents.pipeline.pipeline as pipeline_mod
         import builder.tools.composites as composites_mod
+        from builder.tools.mit_assessment import _assemble_graph, slot_matcher
 
         self._enable_provider(monkeypatch)
         schemas: list[dict] = []
@@ -2154,7 +2157,12 @@ class TestMaterializeCellLineAccessionFromThePlan:
             def invoke(self, messages, *a, **k):
                 return {
                     "cell_lines": [
-                        {"name": "kidney tubuloids, donor T19", "source_kind": "primary cells"}
+                        {
+                            "name": "kidney tubuloids, donor T19",
+                            "source_kind": "primary cells",
+                            "taxonomicRange": "Homo sapiens",
+                            "cell_type": "epithelial cell",
+                        }
                     ]
                 }
 
@@ -2180,11 +2188,15 @@ class TestMaterializeCellLineAccessionFromThePlan:
 
         item = schemas[0]["properties"]["cell_lines"]["items"]["properties"]
         assert item["source_kind"]["enum"] == ["cell line", "primary cells"]
+        assert {"taxonomicRange", "cell_type"} <= set(item)
         assert queried == []
         cells = self._by_type(engine, "CellLineSample")
         assert len(cells) == 1
         assert "accession" not in cells[0].fields
         assert cells[0].fields["source_kind"] == "primary cells"
+        assert cells[0].fields["cell_type"] == "epithelial cell"
+        graph = _assemble_graph(engine.state)
+        assert slot_matcher(engine.state, graph=graph)("CellLineSample", "taxonomicRange")
 
 
 class TestPublicationFromPDF:

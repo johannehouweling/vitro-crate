@@ -124,12 +124,20 @@ def test_primary_cells_are_asked_for_species_and_cell_type_not_a_cellosaurus_id(
 
     described = _build(
         tmp_path_factory,
-        species="Homo sapiens",
+        taxonomicRange="Homo sapiens",
         cell_type="epithelial cell of proximal tubule",
     )
-    node_id = _node(described, "kidney tubuloids, donor T19")["@id"]
-    messages = _messages_on(described, node_id)
+    node = _node(described, "kidney tubuloids, donor T19")
+    messages = _messages_on(described, node["@id"])
     assert not any("species" in m or "cell type" in m for m in messages), messages
+    # source_kind and cell_type are consumed structurally: the cell type is the one
+    # characteristic, and neither field comes back as a stray PropertyValue.
+    refs = node["additionalProperty"]
+    ids = {r["@id"] for r in (refs if isinstance(refs, list) else [refs])}
+    props = [n for n in described["@graph"] if n["@id"] in ids]
+    assert [p.get("propertyID") for p in props] == [
+        {"@id": "http://www.ebi.ac.uk/efo/EFO_0000324"}
+    ], props
 
 
 def test_a_primary_cell_source_without_sample_type_violates(doc):
