@@ -1232,10 +1232,10 @@ field, never the `entity_id`, so referrers (which point at `entity_id`) are neve
 orphaned. It returns a REPORT, not a bare boolean: `cascade=True` is right for a
 stray reference and quietly destructive for a parent link — clearing an Assay's
 id off its processes detaches every experiment in the crate, and a parentless
-process violates no shape, so the crate still passes all three profiles with zero
-REQUIRED issues. `detached` and `discarded_fields` name what came loose and what
-was thrown away, so the caller can re-point the children instead of finding the
-hole at export.
+process violates no shape: only the ISA reachability check (§11) reports it, one
+REQUIRED finding per entity on the next verdict. `detached` and
+`discarded_fields` name what came loose and what was thrown away, so the caller
+can re-point the children in the call that detached them.
 
 ### Derivation Chain Tools
 ```
