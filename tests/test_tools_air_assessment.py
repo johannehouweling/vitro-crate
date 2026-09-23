@@ -25,6 +25,9 @@ from builder.tools.air_assessment import (
     assess_air_readiness,
 )
 from builder.tools.assessment_graph import Verdict
+from builder.tools.drafters import draft_assay, draft_investigation, draft_process, draft_study
+from builder.tools.management import set_fields
+from builder.tools.provenance import draft_file, link
 
 
 def _graph(*nodes: dict) -> list[dict]:
@@ -167,21 +170,34 @@ class TestTheChecksMeasureWhatTheCriterionAsks:
     @pytest.mark.parametrize(
         "step, protocol",
         [
-            ({"@type": "CreateAction", "instrument": {"@id": "#sw"}}, None),
             ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#sop"}},
              {"@id": "#sop", "@type": "LabProtocol", "computationalTool": {"@id": "#sw"}}),
             ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#sw"}}, None),
         ],
-        ids=["instrument", "computationalTool", "script_protocol"],
+        ids=["computationalTool", "script_protocol"],
     )
     def test_software_a_step_uses_counts(self, step, protocol):
-        """The three ways a step names its software: RO-Crate's ``instrument``, the
-        protocol's ``computationalTool``, or a protocol that is itself the script."""
+        """Besides RO-Crate's ``instrument`` (above), a step names its software through
+        its protocol's ``computationalTool``, or a protocol that is itself the script."""
         software = {"@id": "#sw", "@type": ["File", "SoftwareSourceCode", "LabProtocol"],
                     "codeRepository": "https://github.com/example/pipeline"}
         graph = _graph({"@id": "#step", "result": {"@id": "out.csv"}, **step},
                        software, *([protocol] if protocol else []))
         assert air_verdicts(CrateState(), None, graph)["1.c"].value is True
+
+    def test_the_script_a_step_consumes_counts(self):
+        """How the builder wires an analysis script: ``draft_file`` types it
+        ``[File, SoftwareSourceCode]`` and ``link`` makes it an input of the process."""
+        state = CrateState()
+        study = draft_study(state, draft_investigation(state, {"name": "I"}).entity_id, {})
+        assay = draft_assay(state, study.entity_id, {"name": "A"})
+        step = draft_process(state, assay.entity_id, "DataAnalysis", {"name": "Analysis"})
+        script = draft_file(state, "analysis.py", additional_types=["SoftwareSourceCode"])
+        set_fields(state, script.entity_id, {"url": "https://github.com/example/pipeline"})
+        link(state, step.entity_id, "object", script.entity_id)
+        report = _assess_air_readiness_tool(state)
+        verdict = next(r for r in report.criterion_results if r["id"] == "1.c")
+        assert verdict["passed"] is True, verdict["evidence"]
 
     def test_the_crates_own_build_record_is_not_analysis_software(self):
         """An empty crate still carries vitro-crate's build record, a github-hosted
@@ -195,7 +211,7 @@ class TestTheChecksMeasureWhatTheCriterionAsks:
         report = _assess_air_readiness_tool(CrateState())
         verdict = next(r for r in report.criterion_results if r["id"] == "1.b")
         assert verdict["passed"] is False
-        assert verdict["evidence"].startswith("0 process steps")
+        assert verdict["evidence"].startswith("0 data transformation steps")
 
 
 class TestSharedQuestionsShareTheirImplementation:
