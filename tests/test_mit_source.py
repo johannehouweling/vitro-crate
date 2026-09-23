@@ -8,8 +8,8 @@ re-vendoring could change the checklist's size, its module split or its
 notice (#714). #313 tracks replacing the copy with the package's loader; this pins
 the copy meanwhile, and the numbers below are what that swap has to reproduce.
 
-The per-module table is the finding, not the total: **Analysis and Statistics is 7
-scorable of 41**. Its bar on the maturity report is drawn over a sixth of the
+The per-module table is the finding, not the total: **Analysis and Statistics is 8
+scorable of 41**. Its bar on the maturity report is drawn over a fifth of the
 module the checklist defines, next to five bars drawn over nearly all of theirs.
 """
 
@@ -31,7 +31,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 MIT_YAML = REPO / "mit" / "invitro_tox.yaml"
 
 # The vendored bytes. Change this only with the counts below, in the same commit.
-MIT_YAML_MD5 = "e7d649b1792e979ab1fb0ce99a8b4aa3"
+MIT_YAML_MD5 = "4c048dfa550093df602f75582a28e86a"
 
 # guidance document -> (parameters we can score, parameters the document flags).
 # Every one of these bars is drawn over the left number under a label naming the right.
@@ -39,7 +39,7 @@ DOCUMENT_SHAPE = {
     "oecd_gd211": (33, 42),
     "toxtemp": (34, 41),
     "oecd_gd34": (64, 88),
-    "oecd_gd417": (81, 98),
+    "oecd_gd417": (82, 98),
     "oecd_oht201": (48, 55),
     "lincs": (40, 40),
     "nature": (7, 14),
@@ -52,7 +52,7 @@ MODULE_SHAPE = {
     "Biological Model Information": (53, 53),
     "Exposure Information": (21, 22),
     "Endpoint Read Out Information": (57, 58),
-    "Analysis and Statistics": (7, 41),
+    "Analysis and Statistics": (8, 41),
 }
 
 
@@ -72,16 +72,16 @@ def test_the_checklist_is_220_parameters_in_six_modules() -> None:
     assert len(published) == 220
 
 
-def test_44_parameters_carry_no_crate_slot_and_leave_every_denominator() -> None:
+def test_43_parameters_carry_no_crate_slot_and_leave_every_denominator() -> None:
     """Not a defect of the checklist — a limit of this tool's mapping. It has to be
-    stated, because the page prints a percentage of the 176 under a heading naming
+    stated, because the page prints a percentage of the 177 under a heading naming
     the 220."""
     data = load_mit_yaml()
     assert data is not None
     published = [p for m in data["modules"] for p in unique_module_params(m)]
     scorable = list(iter_scorable_params(data))
-    assert len(scorable) == 176
-    assert len(published) - len(scorable) == 44
+    assert len(scorable) == 177
+    assert len(published) - len(scorable) == 43
 
 
 def test_the_module_split_is_uneven_and_analysis_is_the_outlier() -> None:
@@ -113,7 +113,7 @@ def test_every_standards_flag_is_a_boolean() -> None:
 
 
 class TestTheReportSaysWhatItLeftOut:
-    """A percentage of 176 printed under a heading that names the 220.
+    """A percentage of 177 printed under a heading that names the 220.
 
     The skip is honest and documented at the traversal (`iter_scorable_params`),
     but it stopped there: `MITReport` carried only what was scored, so the page
@@ -145,7 +145,7 @@ class TestTheReportSaysWhatItLeftOut:
         from builder.writers.maturity_report import _render_mit_section
 
         html = _render_mit_section(self._report())
-        assert "176" in html and "220" in html, "both denominators on the page"
+        assert "177" in html and "220" in html, "both denominators on the page"
         assert "41" in html, "the module whose bar is mostly unmeasurable"
 
 

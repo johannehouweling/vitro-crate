@@ -287,6 +287,20 @@ class TestTheAssayProtocolReachesItsStep:
             f"a readout protocol must not be claimed by the analysis: {analysis}"
         )
 
+    def test_a_deposited_script_goes_to_the_analysis_not_the_readout(self, tmp_path):
+        """#786: a script is analysis because of what it is, whatever it is called."""
+        state = self._state(
+            docs=("4.1 Deiodinase activity assay.docx", "plot.py"),
+            steps=(("proc_read", "EndpointReadout"), ("proc_ana", "DataAnalysis")),
+        )
+        _, by_id = _build(state, tmp_path)
+        assert _ids(by_id["#LabProcess_proc_ana"].get("executesLabProtocol")) == [
+            f"{self.ASSAY_DIR}/plot.py"
+        ]
+        assert not any(
+            "plot.py" in e for e in _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        )
+
     def test_an_analysis_with_no_document_of_its_own_executes_none(self, tmp_path):
         """DataAnalysis comes up empty on the real deposit, and that is correct.
 

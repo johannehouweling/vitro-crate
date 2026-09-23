@@ -102,8 +102,8 @@ Protocol --reagent---> ont
 > - each `Sample`'s `derivesFrom` links the source `ChemicalSubstance` /
 >   `BioChemEntity` contextual entity; the MUST shape enforces only `minCount 1`.
 >
-> The three LabProcess shapes are **selected by `additionalType`** (`CellCulture`
-> / `Exposure` / `EndpointReadout`): a generic `LabProcess` with no
+> The four LabProcess shapes are **selected by `additionalType`** (`CellCulture`
+> / `Exposure` / `EndpointReadout` / `DataAnalysis`): a generic `LabProcess` with no
 > `additionalType` is targeted by no tox shape and is checked only by the base +
 > ISA layers. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
 > is reported but does not fail the CLI exit code (which tracks the base pass).
@@ -315,7 +315,7 @@ Statistics* module of the Minimal Information Table.
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](isa.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Analysis parameter(s); see expected values below. At least one.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
+|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol(s) this step executes. At least one SHOULD be the deposited analysis script: a File co-typed `SoftwareSourceCode` and `LabProtocol`. An analysis done by hand in a spreadsheet or GUI (e.g. Excel, GraphPad Prism) deposits no re-runnable step, and its absence is reported as a warning.|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended

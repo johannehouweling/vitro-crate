@@ -305,7 +305,7 @@ _METADATA_PROSE = (
 _ANALYSIS_PROJECT_ROOT = "graphpadprismfile"
 
 # Filename.
-_SCRIPT_SUFFIXES = frozenset({".py", ".r", ".sh", ".ipynb", ".rmd", ".m", ".do", ".sql", ".jl"})
+SCRIPT_SUFFIXES = frozenset({".py", ".r", ".sh", ".ipynb", ".rmd", ".m", ".do", ".sql", ".jl"})
 _ANALYSIS_PROJECT_SUFFIXES = frozenset({".prism", ".pzfx", ".pzf"})
 _PUBLICATION_NAME = ("et al", "doi", "pmid", "preprint", "manuscript", "supplementary")
 _METADATA_NAME = (
@@ -415,7 +415,7 @@ def _prose_class(text: str) -> tuple[str, str] | None:
 
 def _filename_class(stem: str, suffix: str) -> tuple[str, str] | None:
     """A file's class from its own name, or ``None`` when the name says nothing."""
-    if suffix in _SCRIPT_SUFFIXES:
+    if suffix in SCRIPT_SUFFIXES:
         return CLASS_PROTOCOL, "an analysis script is how the work was done"
     if suffix in _ANALYSIS_PROJECT_SUFFIXES:
         return CLASS_PROCESSED_DATA, f"{suffix} is a fitted-curve analysis project"

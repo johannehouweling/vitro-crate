@@ -1572,7 +1572,7 @@ class TestMitModuleColours:
             assert abs(float(fill.group(4)) - sc["completed"] / sc["total"] * 100) < 0.6, name
             # The bar is drawn over what could be scored. Where the checklist defines
             # more for this module, the accessible name says so — otherwise a bar over
-            # a sixth of its module reads exactly like one over all of another (#714).
+            # a fifth of its module reads exactly like one over all of another (#714).
             published = mit.published_total_for(name)
             if published > sc["total"]:
                 assert f"of the checklist&#x27;s {published} for this module" in fill.group(3), (
@@ -1671,7 +1671,7 @@ class TestMitModuleColours:
 
         Two sentences, not one. The bars cannot explain the parameters they are
         *not* drawn over: the second sentence is what a shortfall means, and
-        without it "7 of 41 mapped" on a row is a number with no referent.
+        without it "8 of 41 mapped" on a row is a number with no referent.
         """
         from builder.tools.mit_assessment import MIT_INDICATORS_URL
 
@@ -1851,7 +1851,7 @@ class TestTheMitCardSaysWhatItCouldNotScore:
     def test_the_card_says_why_those_parameters_are_outside_the_denominator(
         self, tmp_path: Path
     ) -> None:
-        """The number alone is not the answer: "44 of 220 have no crate slot" states
+        """The number alone is not the answer: "43 of 220 have no crate slot" states
         a fact a reader cannot act on without knowing what a crate slot is."""
         _mit, page = TestMitModuleColours._scored(tmp_path)
         section = TestMitModuleColours._mit_section(page)

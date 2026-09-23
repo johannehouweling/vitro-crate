@@ -864,10 +864,10 @@ class MITReport:
         published_total: How many parameters the checklist itself defines, against
             the ``total`` that was scored. They differ because a parameter with no
             ``crate_slot`` names nothing a crate field could hold, so it is outside
-            every denominator here (44 of 220 — see ``iter_scorable_params``). The
+            every denominator here (43 of 220 — see ``iter_scorable_params``). The
             page prints both; reporting only ours would restate the instrument.
         published_module_totals: The same figure per module, which is where it
-            matters: one module is scored over a sixth of what it defines.
+            matters: one module is scored over a fifth of what it defines.
         published_standard_totals: And per guidance document — how many parameters
             that document flags, against the ``standard_scores`` total we could
             score. Every document but LINCS is short, by 7 to 24 parameters.
