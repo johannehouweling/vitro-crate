@@ -933,3 +933,137 @@ class TestTheChainFlowsThroughTheExposure:
         assert any("declared" in i for i in consumed), (
             f"a File the drafter named is the right kind and must be kept: {consumed}"
         )
+
+
+class TestTheExposureConsumesWhereThePreparationEnded:
+    """Issue #785 — the Exposure consumes where its assay's preparation chain
+    ended, and keeps material its step named outside that chain.
+
+    Real studies prepare the test system in more than one step (culture, then
+    transfection, differentiation or sorting). The Exposure used to consume every
+    cultured Sample of its assay and overwrite the object its step named, so a
+    two-step preparation claimed its parent culture was exposed, and a transfected
+    Sample the step named was left a dead end while the exposed cells derived from
+    the untransfected culture. A second CellCulture stands in for the later
+    preparation step: it is the only repeatable one the drafter emits.
+    """
+
+    _TWO_CULTURES = [
+        {"process_type": "CellCulture", "hints": {"name": "Seed", "culture_medium": "DMEM"}},
+        {
+            "process_type": "CellCulture",
+            "hints": {"name": "Transfect", "culture_medium": "Opti-MEM"},
+        },
+        {"process_type": "Exposure", "hints": {"name": "Dose", "duration": "24 hours"}},
+        {
+            "process_type": "EndpointReadout",
+            "hints": {"name": "Read", "detection_instrument": "Plate reader"},
+        },
+    ]
+
+    @staticmethod
+    def _built(state: CrateState) -> dict[str, dict]:
+        from builder.tools.builder import assemble_crate
+
+        crate = assemble_crate(
+            state, output_dir=None, materialize_payload=False, include_all_scanned=False
+        )
+        return {n["@id"]: n for n in crate.metadata.generate()["@graph"]}
+
+    @staticmethod
+    def _step(by_id: dict[str, dict], name: str) -> dict:
+        return next(
+            n for n in by_id.values() if "LabProcess" in _types(n) and n.get("name") == name
+        )
+
+    @staticmethod
+    def _out_ids(node: dict) -> set[str]:
+        return _node_ref_ids(node.get("output")) | _node_ref_ids(node.get("result"))
+
+    @staticmethod
+    def _in_ids(node: dict) -> set[str]:
+        return _node_ref_ids(node.get("input")) | _node_ref_ids(node.get("object"))
+
+    def test_a_culture_a_later_culture_consumed_is_not_exposed(self) -> None:
+        state, assay_id = _scaffold()
+        draft_process_chain(state, assay_id, chain=self._TWO_CULTURES)
+        by_id = self._built(state)
+
+        seeded = self._out_ids(self._step(by_id, "Seed"))
+        transfected = self._out_ids(self._step(by_id, "Transfect"))
+        consumed = self._in_ids(self._step(by_id, "Dose"))
+        assert consumed == transfected, (
+            "the exposure consumes where the preparation ended, never the culture a "
+            f"later step consumed; consumes {consumed}, seeded {seeded}, "
+            f"transfected {transfected}"
+        )
+
+    def test_the_exposed_sample_derives_from_the_last_preparation_step(self) -> None:
+        state, assay_id = _scaffold()
+        draft_process_chain(state, assay_id, chain=self._TWO_CULTURES)
+        by_id = self._built(state)
+
+        transfected = self._out_ids(self._step(by_id, "Transfect"))
+        exposed = [
+            by_id[i]
+            for i in self._out_ids(self._step(by_id, "Dose"))
+            if "Sample" in _types(by_id[i])
+        ]
+        lineage = [_node_ref_ids(n.get("derivesFrom")) for n in exposed]
+        assert exposed and all(ids == transfected for ids in lineage), (
+            f"every exposed Sample derives from the transfected one ({transfected}); "
+            f"got {lineage}"
+        )
+
+    def test_an_exposure_object_the_drafter_named_is_kept(self) -> None:
+        from builder.tools.drafters import draft_sample
+
+        state, assay_id = _scaffold()
+        seeded = draft_sample(state, {"name": "Seeded cells"})
+        named = draft_sample(
+            state, {"name": "Transfected cells", "derives_from": seeded.entity_id}
+        )
+        seed, _, dose, read = self._TWO_CULTURES
+        draft_process_chain(
+            state,
+            assay_id,
+            chain=[
+                {**seed, "result": seeded.entity_id},
+                {**dose, "object": named.entity_id},
+                read,
+            ],
+        )
+        by_id = self._built(state)
+
+        transfected = {i for i, n in by_id.items() if n.get("name") == "Transfected cells"}
+        exposure = self._step(by_id, "Dose")
+        exposed = {i for i in self._out_ids(exposure) if "Sample" in _types(by_id[i])}
+        assert self._in_ids(exposure) == transfected, (
+            "an object the step named outside the preparation chain wins; "
+            f"consumes {self._in_ids(exposure)}, named {transfected}"
+        )
+        assert exposed and all(
+            _node_ref_ids(by_id[i].get("derivesFrom")) == transfected for i in exposed
+        ), f"the exposed Sample derives from what was exposed: {exposed}"
+        assert self._in_ids(self._step(by_id, "Read")) == exposed, (
+            "the readout measures the exposed Sample, not the material the exposure "
+            f"consumed; consumes {self._in_ids(self._step(by_id, 'Read'))}"
+        )
+
+    def test_a_characterisation_readout_measures_where_the_preparation_ended(
+        self,
+    ) -> None:
+        state, assay_id = _scaffold()
+        draft_process_chain(
+            state,
+            assay_id,
+            chain=[s for s in self._TWO_CULTURES if s["process_type"] != "Exposure"],
+        )
+        by_id = self._built(state)
+
+        consumed = self._in_ids(self._step(by_id, "Read"))
+        transfected = self._out_ids(self._step(by_id, "Transfect"))
+        assert consumed == transfected, (
+            "with no exposure the readout measures where the preparation ended, not "
+            f"the culture a later step consumed; consumes {consumed}"
+        )

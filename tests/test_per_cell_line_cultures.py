@@ -140,7 +140,7 @@ class TestExposureDoesNotRelocateTheMerge:
         )
         return state
 
-    def test_exposure_consumes_every_cultured_sample_in_its_assay(self, tmp_path):
+    def test_exposure_consumes_every_line_its_assay_cultured(self, tmp_path):
         graph, _ = _build(self._state(), tmp_path)
         cultured = {
             out
@@ -150,7 +150,7 @@ class TestExposureDoesNotRelocateTheMerge:
         exposure = _processes(graph, "Exposure")[0]
         consumed = set(_ids(exposure.get("input")))
         assert cultured and cultured <= consumed, (
-            "the exposure must consume every cultured sample of its assay; "
+            "the exposure must consume every line its assay cultured; "
             f"cultured={sorted(cultured)} consumed={sorted(consumed)}"
         )
 

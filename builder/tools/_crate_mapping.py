@@ -3012,6 +3012,19 @@ def _linked_nodes(process_node: Any, *keys: str) -> list[Any]:
     return out
 
 
+def _prepared_samples(cultures: list[Any]) -> list[Any]:
+    """Where an assay's preparation ended (#785): the cultured Samples none of its
+    cultures consumed. An intermediate is neither exposed nor measured; a per-line
+    split (#678) ends once per line."""
+    fed = {n.id for c in cultures for n in _linked_nodes(c, "input", "object")}
+    return [
+        n
+        for c in cultures
+        for n in _linked_nodes(c, "output", "result")
+        if _is_sample_node(n) and n.id not in fed
+    ]
+
+
 def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
     """Make each step consume what the step before it produced (#650).
 
@@ -3024,11 +3037,11 @@ def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
     Two corrections, both deliberately narrow, applied per assay so a four-assay
     crate does not thread one assay's exposure into another's readout:
 
-    * **A readout that consumes the culture while an exposure intervened** is
-      redirected to the exposed sample. A readout naming anything else is left
-      alone, and so is one in an assay with **no** exposure at all — a
-      characterisation run measures the culture, and that is the truth rather
-      than the defect.
+    * **A readout that consumes the culture, or what the exposure consumed, while
+      an exposure intervened** is redirected to the exposed sample. A readout
+      naming anything else is left alone, and so is one in an assay with **no**
+      exposure at all — a characterisation run measures the culture, and that is
+      the truth rather than the defect.
     * **A Sample in an analysis's object** is the wrong KIND for the slot, which
       the profile describes as the raw/condition data being analysed, so it is
       replaced by the files the readout produced. A File the drafter named is the
@@ -3066,14 +3079,18 @@ def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
             for n in _linked_nodes(proc, "output", "result")
             if _is_sample_node(n)
         ]
+        upstream = cultured_ids | {
+            n.id for p in by_type.get("Exposure", []) for n in _linked_nodes(p, "input", "object")
+        }
         for readout in by_type.get("EndpointReadout", []):
             if not exposed:
                 continue
             consumed = _linked_nodes(readout, "input", "object")
             consumed_ids = {getattr(n, "id", None) for n in consumed}
-            # Only a readout hanging off the culture — or off nothing — is the
-            # defect. One naming its own material knows better than we do.
-            if consumed_ids and not consumed_ids <= cultured_ids:
+            # Only a readout hanging off the culture or what the exposure consumed —
+            # or off nothing — is the defect. One naming its own material knows
+            # better than we do.
+            if consumed_ids and not consumed_ids <= upstream:
                 continue
             _set_refs(readout, "input", exposed)
 
@@ -3103,7 +3120,7 @@ def _widen_to_every_cultured_line(
     *,
     exposed: bool,
 ) -> None:
-    """Let a characterisation readout measure every line its assay cultured.
+    """Let a characterisation readout measure where every line's preparation ended.
 
     With no Exposure in the assay, :func:`_chain_processes` returns before its
     own "hanging off the culture" rule can fire, and the caller skips any readout
@@ -3119,7 +3136,7 @@ def _widen_to_every_cultured_line(
     but measured with nothing would have no reason to be in the assay at all.
 
     Bounded by the same subset test :func:`_chain_processes` uses: a readout
-    naming anything that is NOT cultured material of this assay is stating
+    naming anything but where this assay's preparation ended is stating
     something the build did not derive, and knows better than we do (D5). An
     assay that exposed material is left alone entirely — there the cultured
     samples are the exposure's to consume.
@@ -3168,12 +3185,7 @@ def _floor_readout_objects(crate: ROCrate, built: list[tuple[Any, str, Any]]) ->
         groups.setdefault(key, {}).setdefault(ptype, []).append(node)
 
     for by_type in groups.values():
-        cultured = [
-            n
-            for proc in by_type.get("CellCulture", [])
-            for n in _linked_nodes(proc, "output", "result")
-            if _is_sample_node(n)
-        ]
+        cultured = _prepared_samples(by_type.get("CellCulture", []))
         cultured_ids = {getattr(n, "id", None) for n in cultured}
         # Whether anything in this assay exposed material. Where something did,
         # the readout consumes what the exposure produced and the cultured
@@ -3214,12 +3226,12 @@ def _add_processes(
     # built in isolation — it cannot see its neighbours — so making each step
     # consume what the previous one produced has to happen once every step exists.
     built: list[tuple[Any, str, Any]] = []
-    # What each assay grew, filled as the cultures are built and read when its
-    # exposure is (#678). An exposure consumes every cultured Sample of its own
-    # assay, and after the per-line split there is one per line where the draft
-    # named only one — so the cultures have to exist first. Ordering the pass is
-    # enough; nothing else here depends on the draft's own order.
-    cultured_by_assay: dict[Any, list[Any]] = {}
+    # The cultures each assay ran, filled as they are built and read when its
+    # exposure is (#678). An exposure consumes where its assay's preparation chain
+    # ended, and after the per-line split that is one Sample per line where the
+    # draft named only one — so the cultures have to exist first. Ordering the pass
+    # is enough; nothing else here depends on the draft's own order.
+    cultures_by_assay: dict[Any, list[Any]] = {}
     # protocol id -> [(assay_id, assay node, protocol node)], one row per process
     # that executes it. Placement waits for all of them; see `_place_protocols`.
     protocol_use: dict[Any, list[tuple[Any, Any, Any]]] = {}
@@ -3321,15 +3333,11 @@ def _add_processes(
                     idx,
                     output_dir,
                     materialize_payload=materialize_payload,
-                    consumed_cells=(
-                        cultured_by_assay.get(assay_key) if ptype == "Exposure" else None
-                    ),
+                    cultures=cultures_by_assay.get(assay_key),
                 )
             ]
         if ptype == "CellCulture":
-            cultured_by_assay.setdefault(assay_key, []).extend(
-                n for node in nodes for n in _linked_nodes(node, "output", "result")
-            )
+            cultures_by_assay.setdefault(assay_key, []).extend(nodes)
         for node in nodes:
             _wire_process_node(
                 state,
@@ -3446,7 +3454,7 @@ def _build_process(
     materialize_payload: bool = True,
     cell_lines: list[Any] | None = None,
     keep_drafted_result: bool = True,
-    consumed_cells: list[Any] | None = None,
+    cultures: list[Any] | None = None,
 ) -> Any:
     """Build ONE process node.
 
@@ -3460,9 +3468,9 @@ def _build_process(
         Whether the drafter's output Sample is this node's cultured sample. Only
         the first of a split may claim it; the rest synthesize their own, so no
         drafted entity is discarded and none is claimed twice.
-    ``consumed_cells``
-        The cultured Samples an Exposure consumes, resolved across its assay
-        rather than from the draft, which names only one of several.
+    ``cultures``
+        The CellCultures of an Exposure's assay. Where the draft names their
+        material or nothing, the Exposure consumes where they ended.
     """
     # input/object/samples are interchangeable aliases for the consumed inputs,
     # result/output for the produced outputs (see PROVENANCE_RELATIONS and the
@@ -3540,9 +3548,15 @@ def _build_process(
         # glance, on the Study via schema:mentions. Per-well CSVW population
         # (tableSchema columns + CSV intake) is planned — see the wizard's
         # intake/condition_table.py.
-        # The draft names one cultured sample; after the split its assay has one
-        # per cell line, and the exposure consumed all of them (#678).
-        cells = consumed_cells if consumed_cells else (samples or obj)
+        # A draft naming a culture's input or output, or nothing, is widened to
+        # where the preparation ended (#785), which reaches every line of a split
+        # (#678); one naming other material knows better (#650).
+        cultures, named = cultures or [], samples or obj
+        ends = _prepared_samples(cultures)
+        chain = {
+            n.id for c in cultures for n in _linked_nodes(c, "input", "object", "output", "result")
+        }
+        cells = ends if ends and {n.id for n in named} <= chain else named
         chems = _resolve_many(idx, f.get("chemicals"))
         # APPENDED, never substituted (#531). The table is
         # the compound's only route to the process (a MolecularEntity cannot be
