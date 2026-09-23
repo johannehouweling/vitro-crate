@@ -366,7 +366,9 @@ def fix_required_issues(
     remaining_keys = {_issue_key(i) for i in after.get("issues", [])}
 
     fixed: list[dict[str, Any]] = []
-    still_open: list[dict[str, Any]] = list(deferred)
+    # A deferred issue another repair cleared (a Sample wired as a process input
+    # is no longer detached) is not remaining: re-validation decides that too.
+    still_open = [d for d in deferred if _issue_key(d["issue"]) in remaining_keys]
     for key, record in planned.items():
         if key in remaining_keys:
             # We attempted a repair but the issue persists — surface it honestly.
