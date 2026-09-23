@@ -632,6 +632,26 @@ def _context_terms() -> frozenset[str]:
     return frozenset(key for block in blocks if isinstance(block, dict) for key in block)
 
 
+@lru_cache(maxsize=1)
+def _identifier_terms() -> tuple[str, ...]:
+    """Every context term that expands to ``schema:identifier`` (``accession``, ``dsstoxId``, …).
+
+    The Study and Assay emitters skip them all: their ISA shapes cap
+    ``schema:identifier`` at one (``sh:maxCount 1``; the Investigation shape does
+    not), and the minted :func:`_isa_identifier` is that one. A second one fails
+    the upstream message "MUST have a non-empty identifier of type string", which
+    reads as *missing* while the cause is *two*.
+    """
+    from profiles.context import ISA_TOX_CONTEXT
+
+    return tuple(
+        term
+        for block in ISA_TOX_CONTEXT
+        for term, iri in block.items()
+        if iri == "http://schema.org/identifier"
+    )
+
+
 def _preserved_name(field: str) -> str:
     """A field key said the way a person would read it: ``work_package`` -> "work package"."""
     return field.replace("_", " ").strip() or field
@@ -2065,7 +2085,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         props = {
             "@type": "Dataset",
             "additionalType": "Study",
-            **_scalar_props(st, skip=_AGENT_REFERENCE_FIELDS),
+            **_scalar_props(st, skip=(*_AGENT_REFERENCE_FIELDS, *_identifier_terms())),
         }
         props["identifier"] = _isa_identifier(st, root_ident, "study")
         node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
@@ -2077,7 +2097,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         props = {
             "@type": "Dataset",
             "additionalType": "Assay",
-            **_scalar_props(asy, skip=_AGENT_REFERENCE_FIELDS),
+            **_scalar_props(asy, skip=(*_AGENT_REFERENCE_FIELDS, *_identifier_terms())),
         }
         parent = _resolve_one(idx, asy.fields.get("study_id")) or root
         props["identifier"] = _isa_identifier(asy, parent.get("identifier") or root_ident, "assay")
