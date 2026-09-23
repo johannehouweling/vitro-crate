@@ -2127,7 +2127,11 @@ discount the entity by id, so an unstated licence never reads as filled — see 
   `AssayMustBeReferencedFromInvestigation`).
 - Mints **distinct hierarchical identifiers** per level via `_isa_identifier`
   (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). The `@id` (the path) is the true unique
-  key; the `identifier` *property* is the ISA descriptor and must not collide across levels.
+  key; the `identifier` *property* is the ISA descriptor and must not collide across levels. It is
+  also a Study's or Assay's **only** `schema:identifier`: a drafted field the context expands to
+  `schema:identifier` (`accession`, `dsstoxId`, … — `_identifier_terms`) is not emitted on either,
+  because their ISA shapes cap the property at one (`sh:maxCount 1`); the deposit's own identifier
+  is the root's `identifier` (`CrateMetadata`'s DOI, else its accession).
 - Attaches each **result `File` to its producing Assay's `hasPart`** (de-duped via `_append_unique`)
   **in addition to** the root's reference, never instead of it (#532) — raw/processed data are the
   data of an assay, and RO-Crate lets a data entity be `hasPart` of more than one `Dataset`. The
