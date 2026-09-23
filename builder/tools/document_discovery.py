@@ -415,8 +415,6 @@ def _prose_class(text: str) -> tuple[str, str] | None:
 
 def _filename_class(stem: str, suffix: str) -> tuple[str, str] | None:
     """A file's class from its own name, or ``None`` when the name says nothing."""
-    if suffix in SCRIPT_SUFFIXES:
-        return CLASS_PROTOCOL, "an analysis script is how the work was done"
     if suffix in _ANALYSIS_PROJECT_SUFFIXES:
         return CLASS_PROCESSED_DATA, f"{suffix} is a fitted-curve analysis project"
     text = _normalise(stem)
@@ -462,6 +460,9 @@ def _directory_class(relative_path: str) -> tuple[str, str] | None:
 def classify_file(filename: str, preview: str, relative_path: str = "") -> tuple[str, str]:
     """``(class, reason)`` for one file — content first, then name, then folder.
 
+    A script is the exception: its extension decides first, because its text is
+    code, not prose (#786).
+
     Args:
         filename: The file's base name; its suffix decides which content rules
             apply and what the fallback is.
@@ -475,6 +476,8 @@ def classify_file(filename: str, preview: str, relative_path: str = "") -> tuple
         One of :data:`FILE_CLASSES`, and the signal that decided it.
     """
     suffix = Path(filename).suffix.lower()
+    if suffix in SCRIPT_SUFFIXES:
+        return CLASS_PROTOCOL, "an analysis script is how the work was done"
     text = _normalise(preview)
     if text:
         if _ANALYSIS_PROJECT_ROOT in text:

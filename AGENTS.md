@@ -404,7 +404,9 @@ states the design that was intended, not a value that was measured.
 The order is **content → filename → path**, and it is load-bearing in both
 directions: letting the extension outrank the content files an instrument
 printout under `raw data/` as a protocol because it is a `.pdf`, and letting the
-path outrank the filename files `assay1_rawdata/README.txt` as a measurement.
+path outrank the filename files `assay1_rawdata/README.txt` as a measurement. A
+script (`SCRIPT_SUFFIXES`) is the one exception: its extension decides before its
+content, because its text is code, not prose (#786).
 Within the filename step, *what a file is* outranks *which tier it would be* — a
 paper titled "Normalization of Data for Viability…" is a publication, not
 processed data. Terms are matched at a word boundary and open at the end, so one
