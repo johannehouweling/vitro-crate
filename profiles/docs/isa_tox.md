@@ -315,7 +315,7 @@ Statistics* module of the Minimal Information Table.
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](isa.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Analysis parameter(s); see expected values below. At least one.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol(s) this step executes. At least one SHOULD be the deposited analysis script: a File co-typed `SoftwareSourceCode` and `LabProtocol`. An analysis done by hand in a spreadsheet or GUI (e.g. Excel, GraphPad Prism) deposits no re-runnable step, and its absence is reported as a warning.|
+|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol(s) this step executes; at least one SHOULD be the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`).|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended

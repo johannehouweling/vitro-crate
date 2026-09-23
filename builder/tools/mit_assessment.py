@@ -407,7 +407,7 @@ def _score_modules(
     # What the checklist defines, beside what could be scored. The gap is the
     # parameters carrying no `crate_slot`, and it is not spread evenly: it is the
     # difference between a module's bar meaning "most of this module" and meaning
-    # "the sixth of it we can see". A module with no scorable parameter still has no
+    # "the fifth of it we can see". A module with no scorable parameter still has no
     # row, so it is keyed here only when it is keyed above.
     published_module_totals = {
         name: len(unique_module_params(module))

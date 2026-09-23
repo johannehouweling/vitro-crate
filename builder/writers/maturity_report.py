@@ -1538,7 +1538,7 @@ def _render_mit_section(mit: MITReport) -> str:
         # The bar is drawn over what could be scored; where that is less than the
         # module the checklist defines, its accessible name says so. Two modules'
         # bars are otherwise indistinguishable when one covers 98% of its module
-        # and the other 17%.
+        # and the other 20%.
         published = mit.published_total_for(name)
         scoped = ""
         if published > sc.get("total", 0):
