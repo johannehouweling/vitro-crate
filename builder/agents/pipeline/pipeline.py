@@ -1546,9 +1546,9 @@ def _populate_condition_table_from_deposit(engine: AgentEngine, exposure_id: str
 
     Deterministic and conservative:
 
-    * exactly ONE candidate among the exposure's own assay tables is written —
-      several and the spine records why and does nothing rather than guess which
-      plate map is the design table;
+    * exactly ONE candidate is written, searched among the exposure's own assay
+      files when that assay holds any (#669) — several and the spine records why
+      and does nothing rather than guess which plate map is the design table;
     * reading is fail-closed to ``approved_scan_roots``
       (:func:`_design_table_candidates`);
     * the write goes through ``engine.run_tool("populate_condition_table", ...)``,
@@ -1881,8 +1881,8 @@ def _materialize_plan(
         "people": 0,
         "publications": 0,
         "publications_deferred": [],
-        # #408: whether the plan's condition_table file reached the Exposure's CSV,
-        # and when it did not, why — never a silent skip.
+        # #408: whether a design table reached each Exposure's CSV, and when it
+        # did not, why — never a silent skip.
         "condition_table": {"populated": False, "reason": "not attempted"},
     }
 
@@ -2042,9 +2042,9 @@ def _materialize_plan(
         logger.warning("File description pass failed (non-fatal): %s", exc)
         result["described_files"] = 0
 
-    # --- condition table (#408): the plan already classified one file as the
-    # per-well design table; write it into the Exposure's typed CSVW table rather
-    # than leaving the header-only placeholder beside an untyped payload File.
+    # --- condition table (#408, #594): the scanned table whose rows fit the
+    # schema is the per-well design table; write it into the Exposure's typed CSVW
+    # table rather than leaving the header-only placeholder beside an untyped File.
     # Runs regardless of `compound_ids` — a plate map is worth populating even when
     # no compound resolved. ---
     # Every exposure, each scoped to its own assay (#669). `chain_by_type` keys a

@@ -3619,18 +3619,18 @@ class TestPlanChainParameterOverlay:
 
 
 class TestConditionTableFromPlan:
-    """#408 (b) — the plan's ``condition_table`` role must reach the populator.
+    """#408 (b), #594 — the deposit's design table must reach the populator.
 
-    ``extract_plan`` classifies every plan file into
+    ``extract_plan`` used to classify every plan file into
     ``["raw", "processed", "condition_table", "other"]`` and the pipeline threw the
     answer away: ``_attach_scanned_files`` re-derived a role from the filename,
     with a rule that could only ever return raw or processed. So
     ``condition_table`` was unreachable by construction and every exported table
     shipped header-only while the per-well payload sat one directory away.
 
-    This plan role is the one vocabulary #591 did not absorb — a plate map
-    classifies as ``metadata``, so singling it out has to become the same
-    content-first question (#594).
+    The plan role is gone (#594): the spine asks each scanned table's rows through
+    ``condition_table_fit``, so a plate map the plan never names, or names with the
+    wrong role, is still found.
     """
 
     _PLATE = "plate_map.csv"

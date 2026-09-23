@@ -846,8 +846,8 @@ class TestValueUrlDropsOnMultivaluedColumn:
 class TestPlateMapIntakeByFormat:
     """``populate_condition_table`` dispatches on the file's format (#422).
 
-    The spine classifies a plan file as ``condition_table`` by ROLE, not by
-    extension, so the real deposit's ``.xlsx`` plate map reached a UTF-8
+    The spine picks the design table by its rows, not its extension, so the
+    real deposit's ``.xlsx`` plate map reached a UTF-8
     ``csv.DictReader`` and raised ``UnicodeDecodeError`` on the first ZIP byte.
     The spine swallowed that into a ``reason:`` string and the crate shipped a
     header-only table with nothing said about why.

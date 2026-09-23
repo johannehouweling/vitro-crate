@@ -643,9 +643,9 @@ def reference_cell_allowlist(state: CrateState, entity_type: str) -> list[str]:
 
 # --- plate-map intake (#422) ------------------------------------------------
 # `populate_condition_table` accepted any string path and opened it as UTF-8
-# text. The pipeline classifies a plan file as `condition_table` by ROLE, not by
-# extension, so the real deposit's `.xlsx` plate map hit `csv.DictReader` and
-# raised UnicodeDecodeError on the first ZIP byte. Dispatch on the suffix so a
+# text. The pipeline picks the design table by its rows, not its extension, so
+# the real deposit's `.xlsx` plate map hit `csv.DictReader` and raised
+# UnicodeDecodeError on the first ZIP byte. Dispatch on the suffix so a
 # binary never reaches a text decode, and refuse formats there is no reader for
 # rather than failing in a way that reads like "the plate map was unusable".
 
