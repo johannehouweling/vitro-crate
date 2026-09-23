@@ -196,7 +196,7 @@ _SAMPLE_PRODUCERS = frozenset({"CellCulture"})
 # Subtypes whose build-time output fallback is the *semantically-correct* output
 # entity, so synthesizing a generic placeholder here would PRE-EMPT it (#285).
 # The Exposure's build fallback is the **exposed Sample** — the cells after
-# treatment, deriving from the cultured sample it consumed (#650). A generic
+# treatment, deriving from the sample it consumed (#650). A generic
 # result File drafted here would populate ``result`` and pre-empt it, leaving the
 # crate with no exposed-sample entity at all and every downstream step hanging off
 # the culture instead: the star this fixed.
