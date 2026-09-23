@@ -3692,7 +3692,12 @@ def _build_process(
             units=f.get("units"),
         )
 
-    # Generic LabProcess (no domain discriminator).
+    # Generic LabProcess (no domain discriminator). Its Sample results derive from
+    # its Sample inputs where the drafter left the lineage empty, as a culture's do.
+    for out in result:
+        if _is_sample_node(out) and not _child_ids(out, "derivesFrom"):
+            for src in filter(_is_sample_node, obj or samples):
+                _append_unique(out, "derivesFrom", src)
     return LabProcess(
         crate,
         identifier=pid,

@@ -1067,3 +1067,28 @@ class TestTheExposureConsumesWhereThePreparationEnded:
             "with no exposure the readout measures where the preparation ended, not "
             f"the culture a later step consumed; consumes {consumed}"
         )
+
+    def test_a_generic_steps_sample_result_derives_from_its_input(self) -> None:
+        """A step retyped away from the four ISA-Tox types is built as a plain
+        LabProcess; its result still records what it was made from."""
+        from builder.tools.drafters import draft_sample
+        from builder.tools.management import set_fields
+
+        state, assay_id = _scaffold()
+        made = draft_sample(state, {"name": "Transfected cells"})
+        seed, transfect, dose, _ = self._TWO_CULTURES
+        ids = draft_process_chain(
+            state, assay_id, chain=[seed, {**transfect, "result": made.entity_id}, dose]
+        )["process_ids"]
+        set_fields(state, ids[1], {"process_type": "Transfection"})
+        by_id = self._built(state)
+
+        transfected = next(i for i, n in by_id.items() if n.get("name") == "Transfected cells")
+        seeded = self._out_ids(self._step(by_id, "Seed"))
+        lineage = _node_ref_ids(by_id[transfected].get("derivesFrom"))
+        assert lineage == seeded, (
+            f"the generic step's Sample derives from its input {seeded}; got {lineage}"
+        )
+        assert self._in_ids(self._step(by_id, "Dose")) == {transfected}, (
+            "the exposure consumes the generic step's Sample it was drafted on"
+        )
