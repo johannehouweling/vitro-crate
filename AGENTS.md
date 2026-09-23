@@ -3007,18 +3007,14 @@ re-implementation. Its parts:
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
   Chain Tools).
-- **Plan file roles** — the extraction leaf classifies each plan file
-  (`raw`/`processed`/`condition_table`/`other`) and the spine **consumes** that
-  classification: the single `condition_table` entry is written into the Exposure's
-  typed CSV via `populate_condition_table` (#408). A role the spine cannot act on is
-  a bug, not a spare field — the plan is not paid for in drafter tokens to be
-  discarded. Plan-named files resolve through `_scanned_path_for_name`: matched by
-  **basename** (the leaf only ever sees `f.filename`, never `f.path`) and fail-closed
-  to `approved_scan_roots`, since plan paths are LLM free text. An unusable single
-  candidate — no path, outside the roots, unreadable, or read-but-unmappable — falls
-  back to the propose-from-entities path (#422), so it never yields less table
-  content than having no candidate at all; only the several-candidates ambiguity
-  refuses without fallback, because choosing among real plate maps is a human call.
+- **Design table** — for each Exposure the spine writes the one scanned table of its
+  own assay whose rows fit the canonical schema (`data_content.condition_table_fit`,
+  §4.2.2) into the Exposure's typed CSV via `populate_condition_table` (#408, #594),
+  reading fail-closed to `approved_scan_roots`. No fitting table, or one the write
+  refuses, falls back to the propose-from-entities path (#422, #438), so a candidate
+  never yields less table content than having none; only the several-candidates
+  ambiguity refuses without fallback, because choosing among real plate maps is a
+  human call.
 - **The spine** — `run_pipeline` (`builder/agents/pipeline/pipeline.py`, §14.5), the
   code-driven orchestrator and the default `main.py --interactive` build (via
   `run_interactive_build`, §14.6.1); also selectable in the eval harness
