@@ -2818,8 +2818,7 @@ def _build_csvw_schema(
     nested objects to be referenceable entities, not inline dicts) carrying its
     ``datatype`` and ``propertyUrl``. Columns named in ``value_urls`` additionally
     get a ``valueUrl`` resolving to an in-crate entity id (emitted as an ``{@id}``
-    reference). Shared by the condition table and the raw-measurements table so
-    both are typed the same way (Issue #180, Lane D).
+    reference). Used by the condition table (Issue #94, #180).
     """
     value_urls = value_urls or {}
     schema = crate.add(
