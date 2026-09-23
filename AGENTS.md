@@ -1287,7 +1287,7 @@ crate that reports no problem, because the stub satisfied the shape.
 **The Exposure is the deliberate exception (#285, #650):** it is
 NOT given a generic placeholder result here, because its build-time fallback is the
 *semantically-correct* output — the **exposed Sample**, the cells after treatment,
-deriving from the cultured sample it consumed. Synthesizing a generic result File
+deriving from the sample it consumed. Synthesizing a generic result File
 would populate `result` and pre-empt it, leaving the crate with no exposed-sample
 entity at all and every downstream step hanging off the culture instead. So the
 Exposure step is left output-less in state and the build emits the exposed sample;
@@ -1305,9 +1305,11 @@ CellCulture's output `Sample`; the Exposure's output is the build's exposed
 `Sample`. A CellCulture grows **one** cell line: a step naming several is built as
 one culture per line, each executing that line's own protocol and producing its
 own cultured `Sample`, so no `Sample` derives from more than one line and none
-stands for a mixture the lab never made. The Exposure consumes every cultured
-`Sample` of its assay and emits **one exposed `Sample` per cultured one**, so the
-split is not undone a hop later. A co-culture is the explicit exception — asserted
+stands for a mixture the lab never made. The Exposure consumes where its assay's
+preparation ended — every cultured `Sample` no later culture consumed, never an
+intermediate one — unless its step names material outside that chain, which it
+keeps. It emits **one exposed `Sample` per `Sample` consumed**, so the split is
+not undone a hop later. A co-culture is the explicit exception — asserted
 by the step, typed `NCIT:C93168` on the material it yields, and never inferred
 from a step that merely names several lines. **Skips (and reports under
 `skipped`):** a data producer nothing in the deposit evidences. **Reports rather than fills:** a data producer that IS
