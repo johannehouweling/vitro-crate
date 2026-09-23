@@ -559,9 +559,13 @@ class TestBuildCellLineInventory:
         crate.metadata.extra_contexts = ISA_TOX_CONTEXT
         populate_crate(state, crate, tmp_path, materialize_payload=False)
 
-        lines = build_cellline_inventory(crate.metadata.generate())["celllines"]
+        doc = crate.metadata.generate()
+        lines = build_cellline_inventory(doc)["celllines"]
         assert [c["name"] for c in lines] == ["tubuloids T19"]
         assert "Cellosaurus RRID" not in lines[0]["fields"]
+        # An ISA-Tox specialization, drawn in the ISA-Tox layer as a cell line is.
+        nodes = build_crate_graph(doc, all_edges=True)["nodes"]
+        assert next(n for n in nodes if n["name"] == "tubuloids T19")["layer"] == 3
 
 
 class TestAffiliationReachability:
