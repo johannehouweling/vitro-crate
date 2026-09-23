@@ -1445,7 +1445,7 @@ which doses *this* experiment expected — worth declaring before a row lands.
 The condition table emits `propertyUrl`/`valueUrl` as `{@id}` references
 (not bare strings): RO-Crate 1.2's base profile flags an IRI value used as a
 string when that IRI is also a described entity (e.g. the cell-line `NCIT_C16403`,
-which a `CellLineSample` materialises as a `cell line` `DefinedTerm`).
+which a cell-line `CellLineSample` materialises as a `cell line` `DefinedTerm`).
 
 `build_and_validate` is the agent's primary build/fix loop: it assembles the
 crate from `CrateState` **in memory** and validates the generated JSON-LD

@@ -351,7 +351,7 @@ class CellLineSample(Sample):
     annotation via ``sampleType`` (a schema:DefinedTerm). Discriminated by
     ``additionalType`` — "CellLine" or "PrimaryCell" — so intermediate derived
     Samples (cultured / exposed cells) are not constrained by the source shapes.
-    Only a cell line has an ``identifier`` (a Cellosaurus accession): Cellosaurus
+    Only a cell line's ``identifier`` is a Cellosaurus accession: Cellosaurus
     holds no record for primary cells.
 
     Part of the Tox ISA RO-Crate Profile extension.
