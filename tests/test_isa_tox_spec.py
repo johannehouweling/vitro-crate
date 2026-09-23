@@ -27,7 +27,7 @@ _ROW_RE = re.compile(r"^\|(object|result)\|(MUST|SHOULD|MAY)\|", re.M)
 def _required_at_violation(shapes: Graph, subtype: str, path: str) -> bool:
     return any(
         (prop, SH.path, _SCHEMA[path]) in shapes
-        and (prop, SH.severity, SH.Violation) in shapes
+        and shapes.value(prop, SH.severity, default=SH.Violation) == SH.Violation
         and int(str(shapes.value(prop, SH.minCount) or 0)) >= 1
         for shape in shapes.subjects(SH.targetClass, _TOX[f"LabProcess{subtype}"])
         for prop in shapes.objects(shape, SH.property)

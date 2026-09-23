@@ -767,8 +767,7 @@ def test_renders_from_real_assembled_crate(tmp_path) -> None:
     graph = crate.metadata.generate()
     out = render_explorer_section(graph)
     assert 'id="entity-explorer"' in out
-    # The Exposure process and its synthesized condition-table result appear,
-    # with a result edge between them.
+    # The Exposure process and the synthesized condition table it executes appear.
     assert "Exposure" in out
     assert "Condition table" in out
     assert "result" in out
