@@ -588,7 +588,8 @@ def remove_entity(state: CrateState, entity_id: str, cascade: bool = False) -> d
 
     It still removes — refusing would block the legitimate cleanup this tool
     exists for — but it now says what came loose and what was discarded, so the
-    caller can re-point the children instead of discovering the hole at export.
+    caller can re-point the children instead of discovering the hole in the next
+    verdict.
 
     The builder rebuilds the crate from state on every iteration, so a dangling
     reference left in state surfaces as a dangling ``{"@id": ...}`` in the built

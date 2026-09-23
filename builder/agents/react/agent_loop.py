@@ -2909,8 +2909,8 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
         # the parent reference to keep the graph free of dangling ids — so
         # removing four Assays and re-creating them left thirteen processes
         # pointing at nothing and four empty Assays, and the crate still reported
-        # zero REQUIRED issues. Every check reads what IS attached; nothing was
-        # looking at what came loose.
+        # zero REQUIRED issues. The reachability finding names each one (#738); this
+        # names the field that re-attaches it.
         assay_ids = {a.entity_id for a in assays}
         detached = [
             p.entity_id
