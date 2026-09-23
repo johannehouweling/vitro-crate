@@ -412,7 +412,12 @@ def test_controlled_values_keeps_a_primary_cell_source_in_its_population() -> No
 
     verdict = dsm_verdicts(state, graph=graph)["DSM-3-C4"]
     assert verdict.value is False
+    assert "0 of 1 cell-source field values" in verdict.evidence
     assert "tubuloids T19" in verdict.evidence
+
+    # The list spelling of the discriminator keeps the source in the population too.
+    source["additionalType"] = ["PrimaryCell"]
+    assert "tubuloids T19" in dsm_verdicts(state, graph=graph)["DSM-3-C4"].evidence
 
 
 class TestTheAgentAndTheReportScoreTheSameCrate:

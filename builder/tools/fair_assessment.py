@@ -1953,7 +1953,7 @@ def _check_controlled_values(state: CrateState, graph: Graph = None) -> Verdict 
     "nothing done" are the same evidence, and reading the second as the first is the
     whole of #670. So a crate carrying no value of a kind the domain has a terminology
     for fails, with that stated as the reason. **Consequence, by design: a crate from a
-    domain with no chemical and no cell-line values fails this indicator
+    domain with no chemical and no cell-source values fails this indicator
     unconditionally.** That is the reading under which DSM-3-C4 can fail at all, and the
     indicator is scoped ``partial`` in the workbook for exactly this reason.
 
@@ -1983,7 +1983,7 @@ def _check_controlled_values(state: CrateState, graph: Graph = None) -> Verdict 
     **What a True verdict is and is not evidence of.** Measured over the corpus, 578 of
     582 ``MolecularEntity`` nodes already carry a PubChem compound IRI as their ``@id``
     while only 89 of 134 cell lines are bound. The compound limb is a near-constant of the
-    assembler; a True verdict here is almost entirely a statement about cell lines. The
+    assembler; a True verdict here is almost entirely a statement about cell sources. The
     evidence string reports the two limbs separately so a reader is not misled about which
     one was tested. A ``Sample`` that simply omits ``additionalType``, or spells it "Cell
     Line", still leaves the population — inherent to typing by a D16 string.
@@ -2009,7 +2009,7 @@ def _check_controlled_values(state: CrateState, graph: Graph = None) -> Verdict 
     if not subjects:
         return Verdict(
             False,
-            "no chemical or cell-line field value in the crate for a domain terminology "
+            "no chemical or cell-source field value in the crate for a domain terminology "
             "to standardise",
         )
     chem = [n for n in subjects if "MolecularEntity" in _node_types(n)]
@@ -2019,7 +2019,7 @@ def _check_controlled_values(state: CrateState, graph: Graph = None) -> Verdict 
         not unbound,
         f"{len(chem) - len([n for n in chem if not bound(n)])} of {len(chem)} chemical "
         f"and {len(lines) - len([n for n in lines if not bound(n)])} of {len(lines)} "
-        "cell-line field values resolve to a domain terminology"
+        "cell-source field values resolve to a domain terminology"
         + (f"; named only in free text: {', '.join(unbound[:3])}" if unbound else ""),
     )
 
