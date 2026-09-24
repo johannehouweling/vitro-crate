@@ -73,7 +73,7 @@ All state lives in a serializable `CrateState` dataclass. It tracks: session met
 ### Entity Model: Three Layers
 1. **Packaging layer** — RO-Crate 1.1 base (Dataset, File, Person, Organization)
 2. **Structural layer** — ISA hierarchy (Investigation, Study, Assay, LabProcess, LabProtocol, Sample)
-3. **Domain layer** — Toxicology extension (MolecularEntity, CellLineSample, LabProcessExposure, EndpointReadout, CellCulture, DataAnalysis)
+3. **Domain layer** — Toxicology extension (MolecularEntity, CellLineSample, LabProcessExposure, EndpointReadout, TestSystemPreparation, DataAnalysis)
 
 ### Anti-Hallucination
 All identifiers are verified against their source. The agent never fabricates. Verification failures clear the field and trigger alternative strategies or ask the user. Leaving a field empty is acceptable (affects MIT/FAIR scores but doesn't block crate assembly).
@@ -113,7 +113,7 @@ The following already exists in the codebase and will be used directly:
 - `profiles/context.py` — Complete JSON-LD context for the ISA-Tox terms
 - `profiles/validator.py` — Three-pass SHACL validation wrapping `rocrate_validator`
 - `profiles/models/isa.py` — LabProcess, LabProtocol, ParameterValue, Sample, File entity classes
-- `profiles/models/tox.py` — LabProcessExposure, EndpointReadout, CellCulture, DataAnalysis, CellLineSample
+- `profiles/models/tox.py` — LabProcessExposure, EndpointReadout, TestSystemPreparation, DataAnalysis, CellLineSample
 - `profiles/shapes/tox/*.ttl` — ISA-Tox RO-Crate SHACL shapes; the ISA pass uses `rocrate_validator`'s bundled `isa-ro-crate` profile. `profiles/docs/isa.md` and `profiles/docs/isa_tox.md` — the ISA and ISA-Tox RO-Crate profile specs.
 - `lookups/` — PubChem, Cellosaurus, AOP-Wiki, BAO, ORCID, ROR, Crossref, IUCLID clients
 - `mit/invitro_tox.yaml` — Complete MIT YAML (~3900 lines) with `crate_slot` mappings
