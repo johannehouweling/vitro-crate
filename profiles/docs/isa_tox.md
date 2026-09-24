@@ -12,7 +12,7 @@
     * [MolecularEntity - Chemical](#molecularentity---chemical)
     * [Sample - Cell-based Test System](#sample---cell-based-test-system)
     * [Sample - Primary Cells](#sample---primary-cells)
-    * [LabProcess - Cell Culture](#labprocess---cell-culture)
+    * [LabProcess - Test System Preparation](#labprocess---test-system-preparation)
     * [LabProcess - Exposure](#labprocess---exposure)
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
     * [LabProcess - Data Analysis](#labprocess---data-analysis)
@@ -37,7 +37,7 @@ The extension is additive and reuse-first: each concept is expressed through the
 [bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity) instances; the cell-based test system's source is a
 [Sample](isa.md#sample) carrying `sampleType`, either a cell line with a Cellosaurus `identifier` or primary cells
 described by species and cell type; and the experimental workflow is a chain of
-[LabProcess](isa.md#labprocess) steps discriminated as `CellCulture`, `Exposure`, `EndpointReadout`, and `DataAnalysis`.
+[LabProcess](isa.md#labprocess) steps discriminated as `TestSystemPreparation`, `Exposure`, `EndpointReadout`, and `DataAnalysis`.
 No new RDF types are introduced, and no change to the base RO-Crate specification or the ISA profile is required.
 
 Requirement levels use [RFC 2119](https://tools.ietf.org/html/rfc2119) keywords, as recommended by the RO-Crate 1.2
@@ -104,7 +104,7 @@ Protocol --reagent--> Mol
 > - a derived `Sample`'s `derivesFrom` links the Sample it was made from; only cultured
 >   material is constrained: at most one cell line, or two or more for a co-culture (#678).
 >
-> The four LabProcess shapes are **selected by `additionalType`** (`CellCulture`
+> The four LabProcess shapes are **selected by `additionalType`** (`TestSystemPreparation`
 > / `Exposure` / `EndpointReadout` / `DataAnalysis`): a generic `LabProcess` with no
 > `additionalType` is targeted by no tox shape and is checked only by the base +
 > ISA layers. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
@@ -243,19 +243,20 @@ Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, n
 - A donor pool is **one** `PrimaryCell` Sample carrying the number of donors.
 - Donors cultured separately are one Sample each.
 
-### LabProcess - Cell Culture
+### LabProcess - Test System Preparation
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
-([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent maintenance of the biological model in
-culture.
+([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent preparation of the biological model
+from its source cells, such as its maintenance in culture. `"CellCulture"` is a deprecated alias, read as a
+`TestSystemPreparation` whose preparation type is culture.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
-|additionalType|MUST|Text|MUST be `"CellCulture"`. Discriminator identifying this LabProcess as a cell-culture step.|
+|additionalType|MUST|Text|MUST be `"TestSystemPreparation"`. Discriminator identifying this LabProcess as a test-system preparation step.|
 |name|MUST|Text|The name of the process, e.g. "Cell Culture".|
-|object|MUST|[bioschemas.org/Sample](isa.md#sample)|The input cell-line sample(s). At least one.|
+|object|MUST|[bioschemas.org/Sample](isa.md#sample)|The input source sample(s): a cell line or primary cells. At least one.|
 |result|MUST|[bioschemas.org/Sample](isa.md#sample)|The output (cultured) sample(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Process parameter(s); see expected values below. At least one.|
 |executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
@@ -371,5 +372,5 @@ for this step (drawn from OHT 201's *Data & Analysis* module):
 ## Example ro-crate-metadata.json
 
 A worked example crate is planned but not yet provided. A crate built by the reference builder carries the
-`CellCulture` / `Exposure` / `EndpointReadout` / `DataAnalysis` `additionalType` discriminators described above,
+`TestSystemPreparation` / `Exposure` / `EndpointReadout` / `DataAnalysis` `additionalType` discriminators described above,
 and is validated in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).

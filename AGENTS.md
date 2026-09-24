@@ -133,7 +133,7 @@ Three-layer model mirroring the RO-Crate profile hierarchy:
 |-------|-------------|-----------|
 | **Packaging** | RO-Crate 1.2 base | `Dataset`, `File`, `Person`, `Organization` |
 | **Structural** | ISA hierarchy | `Investigation`, `Study`, `Assay`, `LabProcess`, `LabProtocol`, `Sample` |
-| **Domain** | Toxicology extension | `MolecularEntity`, `CellLineSample`, `PrimaryCellSample`, `LabProcessExposure`, `LabProcessEndpointReadout`, `LabProcessCellCulture`, `LabProcessDataAnalysis` |
+| **Domain** | Toxicology extension | `MolecularEntity`, `CellLineSample`, `PrimaryCellSample`, `LabProcessExposure`, `LabProcessEndpointReadout`, `LabProcessTestSystemPreparation`, `LabProcessDataAnalysis` |
 
 ### Entity Provenance
 
@@ -537,7 +537,7 @@ entity id, and leaves the deterministic local id in place for anything ambiguous
 unavailable or weak.
 
 **Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample
-(CellLine/PrimaryCell), LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis), Person,
+(CellLine/PrimaryCell), LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis), Person,
 Organization, Publication.
 
 #### 4.2.4 Crate Builder (`builder/tools/builder.py`)
@@ -1049,7 +1049,7 @@ both steps and keeps no accession: Cellosaurus holds no record for primary cells
 `CellLineSample` with only a name is a valid ISA Sample and is what the arm
 produced before this composite, so returning `{ok: False}` would delete the cell
 line from every crate whose line is not catalogued, taking the
-`CellCulture.cell_line` input and the Study's `cell_lines` mention with it.
+`TestSystemPreparation.cell_line` input and the Study's `cell_lines` mention with it.
 **Always mint; the accession is enrichment** — hence no `ok` key: read
 `accession` / `match`. `name` stays the name **as the source documents word it**;
 the Cellosaurus label goes to `alternateName`. The plan's short `catalog_name`
@@ -1236,7 +1236,7 @@ hole at export.
 
 ### Derivation Chain Tools
 ```
-draft_process_chain(assay_id: str, chain: [{process_type, hints?, object?, result?}], validate_after=None) → {assay_id, process_ids, steps, synthesized, skipped?}  # composite: create + wire the whole CellCulture→Exposure→EndpointReadout→DataAnalysis chain in one idempotent call; EndpointReadout/DataAnalysis have NO build-time output fallback, so each step is wired to the output the deposit actually holds — a data producer with no deposited file keeps no `result` and the tox Violation reports the gap; only a CellCulture's `Sample` is synthesized
+draft_process_chain(assay_id: str, chain: [{process_type, hints?, object?, result?}], validate_after=None) → {assay_id, process_ids, steps, synthesized, skipped?}  # composite: create + wire the whole TestSystemPreparation→Exposure→EndpointReadout→DataAnalysis chain in one idempotent call; EndpointReadout/DataAnalysis have NO build-time output fallback, so each step is wired to the output the deposit actually holds — a data producer with no deposited file keeps no `result` and the tox Violation reports the gap; only a TestSystemPreparation's `Sample` is synthesized
 link(from_id: str, relation: str, to_id: str) → {from_id, relation, to_id}
 attach_files(to: str, name_contains=None, mime_contains=None, paths=None, role=None) → {attached, file_ids, to}
 check_provenance() → {ok, issues:[{entity_id, property, message, fix, severity, profile}]}
@@ -1261,7 +1261,7 @@ no file of that class is the step left **without a result**, so the tox Violatio
 fires and the gap is reported (#592). Nothing is
 manufactured to make the shape pass: an empty stand-in bought a green profile at
 the cost of a 0-byte CSV a consumer reads as data, with nothing telling the
-depositor what was missing. A material producer (CellCulture) still gets a
+depositor what was missing. A material producer (TestSystemPreparation) still gets a
 `Sample` via `draft_sample` — that is modelled material, not a stand-in for a
 file nobody deposited.
 
@@ -1309,12 +1309,12 @@ which compound at which dose.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
-CellCulture's output `Sample`; the Exposure's output is the build's exposed
-`Sample`. A CellCulture grows **one** cell line: a step naming several is built as
-one culture per line, each executing that line's own protocol and producing its
+TestSystemPreparation's output `Sample`; the Exposure's output is the build's exposed
+`Sample`. A TestSystemPreparation grows **one** cell line: a step naming several is built as
+one step per line, each executing that line's own protocol and producing its
 own cultured `Sample`, so no `Sample` derives from more than one line and none
 stands for a mixture the lab never made. The Exposure consumes where its assay's
-preparation ended — every cultured `Sample` no later culture consumed, never an
+preparation ended — every cultured `Sample` no later preparation step consumed, never an
 intermediate one — unless its step names material outside that chain, which it
 keeps. It emits **one exposed `Sample` per `Sample` consumed**, so the split is
 not undone a hop later. A co-culture is the explicit exception — asserted
@@ -1344,14 +1344,14 @@ the #175 auto-include fallback (inclusion) with agent-driven placement
 `derives_from` = sample lineage), a strict subset of the crate mapping's
 `_REF_FIELDS` (asserted by test, so the edge vocabulary and the resolver cannot
 drift). It is the explicit verb the agent uses to wire the
-Sample →[CellCulture]→ Sample →[Exposure]→ Sample →[EndpointReadout]→ raw
+Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample →[EndpointReadout]→ raw
 →[DataAnalysis]→ figures chain (those reference keys are otherwise hidden behind
 the schema-less `hints` param, so a weak model never sets them). `check_provenance`
 is a **report-only** connectivity lint (no auto-chaining — branching assays make a
 fixed process order wrong): it flags EndpointReadout/DataAnalysis processes with no
 output (the build has no fallback for those), File entities produced by no
 process, and broken derivation-chain continuity — a process consuming a `Sample`
-that no process produces and that is not a CellCulture seed (#140; the guards
+that no process produces and that is not a TestSystemPreparation seed (#140; the guards
 that keep primary-cell, data-only and multi-assay crates from being false-flagged
 live in the `check_provenance` docstring). Issues come back in the same routable
 shape as `build_and_validate` (#87).
@@ -2507,7 +2507,7 @@ one and the other puts its own away; below the breakpoint there is no window to 
 panel stays beside the canvas.
 
 **The assay lanes are a section of their own (#686).** One assay drawn as the chain it is — cell
-line, culture, cultured sample, exposure, exposed sample, readout, raw files, analysis, processed
+line, preparation, cultured sample, exposure, exposed sample, readout, raw files, analysis, processed
 files — one lane at a time, chosen from a chip per assay. As many chips as the crate has assays;
 they are minted from the ISA inventory rather than declared, because every other view is a question
 about the crate and an assay lane is named for an entity only this crate has. A crate with no assay
@@ -2641,7 +2641,7 @@ interrupted by what is not material. A lane splits the two directions instead: *
 material chain, vertical is what qualifies a step.** Rank is decided by what a node **is** in the
 ISA-Tox chain, never by a layered pass: a step by its `additionalType`, a material by the step whose
 `result` produced it, and a material nothing produced by the step that consumes it. So a rank is a
-COLUMN — two CellCultures stack and cannot coincide — and a missing step is an **empty column**, not
+COLUMN — two preparation steps stack and cannot coincide — and a missing step is an **empty column**, not
 a declined graph, which is the finding a maturity report exists to show. `derivesFrom` is excluded
 from the ranking edges though it is material: a cultured sample derives from the line its culture
 consumed, so the edge points back up the chain.
@@ -2754,8 +2754,10 @@ Every ISA-Tox specialization is expressed as `@type: <bare base token>` +
   System, §Sample - Primary Cells). Both are one `CellLineSample` state type, told apart
   by `source_kind` as `LabProcess` is by `process_type`.
 - LabProcess steps are `@type: "LabProcess"` + `additionalType:
-  "CellCulture"|"Exposure"|"EndpointReadout"|"DataAnalysis"`; ISA backbone nodes are
-  `@type: "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`.
+  "TestSystemPreparation"|"Exposure"|"EndpointReadout"|"DataAnalysis"`; ISA backbone nodes are
+  `@type: "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`. `"CellCulture"` is
+  the deprecated alias of `"TestSystemPreparation"`: the tox rule reads it, and a resumed
+  session is migrated on load.
 
 The specialized `tox:` class is **inferred by the validator**, not asserted in the crate:
 each tox shape carries a SHACL `TripleRule` that adds `rdf:type tox:CellLineSample` (etc.)
@@ -2984,7 +2986,7 @@ are both code-fixable (document for callers):
    `PubMedID`→`OBI_0001617`). `draft_property_value` defaults the IRI by name and
    `@id`-wraps it — a bare string literal is a Violation.
 2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
-   (unlike CellCulture/Exposure); a process with no explicit output fires a Violation.
+   (unlike TestSystemPreparation/Exposure); a process with no explicit output fires a Violation.
    `draft_process_chain` closes it from the DEPOSIT (raw files → the readout,
    processed → the analysis), and `attach_files` completes any step still unwired.
    When the deposit holds no such file the Violation is **left to fire** (#592):
@@ -3293,7 +3295,7 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   compound a `reagent` of the run-specific CSVW condition table the Exposure
   executes via `executesLabProtocol`; `_crate_mapping._synth_condition_table`);
   the resolved `CellLineSample` → the
-  **CellCulture** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
+  **TestSystemPreparation** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
   scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
   `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
   compounds alike — is reachable from the backbone at a glance (orphan count → 0).

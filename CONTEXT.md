@@ -30,7 +30,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 | ISA | Investigation-Study-Assay — a framework for describing experimental workflows |
 | MolecularEntity | A compound or chemical substance used in an assay |
 | CellLineSample | The test-system source of an *in vitro* experiment: a cell line, or primary cells taken directly from donor tissue |
-| LabProcess | A step in the experimental workflow (cell culture, exposure, endpoint readout, data analysis) |
+| LabProcess | A step in the experimental workflow (test system preparation (e.g. culture, differentiation), exposure, endpoint readout, data analysis) |
 | SHACL | Shapes Constraint Language — used for validating RDF graphs against profiles |
 | HITL | Human-in-the-Loop — checkpoints where the agent asks the user for input |
 | AOP | Adverse Outcome Pathway — a structured representation of toxicological processes |
