@@ -345,7 +345,7 @@ class TestUnknownEntityType:
 # `extract_plan` is the *whole-document* sibling of `draft_entity_fields`: one
 # bounded structured-output call on the drafter tier that reads scanned research
 # docs and proposes a CANDIDATE PLAN (study, compounds, cell lines, the
-# CellCulture→Exposure→EndpointReadout→DataAnalysis process chain, AOPs, people,
+# TestSystemPreparation→Exposure→EndpointReadout→DataAnalysis process chain, AOPs, people,
 # publications, files, free-text notes). It proposes WHAT EXISTS by name; it must
 # never fabricate identifiers (D5) — real CAS/CID/InChIKey/Cellosaurus/ORCID/DOI
 # come later from deterministic lookups, not from this leaf.
@@ -418,7 +418,7 @@ class TestExtractPlanShape:
                 ],
                 "cell_lines": [{"name": "MDCK"}],
                 "process_chain": [
-                    {"process_type": "CellCulture", "name": "Culture"},
+                    {"process_type": "TestSystemPreparation", "name": "Culture"},
                     {"process_type": "Exposure", "name": "Expose"},
                     {"process_type": "EndpointReadout", "name": "Readout"},
                     {"process_type": "DataAnalysis", "name": "Analyse"},
@@ -442,7 +442,7 @@ class TestExtractPlanShape:
         assert {c["name"] for c in plan["compounds"]} == {"Acetaminophen", "DMSO"}
         assert plan["cell_lines"][0]["name"] == "MDCK"
         assert [p["process_type"] for p in plan["process_chain"]] == [
-            "CellCulture",
+            "TestSystemPreparation",
             "Exposure",
             "EndpointReadout",
             "DataAnalysis",

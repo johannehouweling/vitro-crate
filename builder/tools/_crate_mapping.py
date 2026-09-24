@@ -37,10 +37,10 @@ from profiles.models.isa import CharacteristicValue, LabProcess, Sample, param_i
 from profiles.models.tox import (
     _PLACEHOLDER_VALUES,
     CellLineSample,
-    LabProcessCellCulture,
     LabProcessDataAnalysis,
     LabProcessEndpointReadout,
     LabProcessExposure,
+    LabProcessTestSystemPreparation,
 )
 from profiles.ontology_iris import iri
 
@@ -64,7 +64,7 @@ _SOURCE_KINDS: dict[str, tuple[str, str, str, str, str]] = {
         "http://www.ebi.ac.uk/efo/efo.owl",
     ),
 }
-# The material a CellCulture produces and an Exposure passes on: OBI's "cell
+# The material a TestSystemPreparation produces and an Exposure passes on: OBI's "cell
 # culture" is "a material entity comprised of cultured cells and the media in
 # which they are being propagated or stored" — exactly what both are. Exposure
 # changes a sample's STATE, not its kind, so both carry this one type and no
@@ -241,7 +241,7 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
         scalar_fields={
             "name": _NAME,
             "description": _DESC,
-            "culture_medium": "CellCulture: the culture medium used.",
+            "culture_medium": "TestSystemPreparation: the culture medium used.",
             "duration": "Exposure: exposure duration.",
             "cell_seeding_density": "Exposure: cell seeding density.",
             "microplate": "Exposure: microplate format.",
@@ -264,7 +264,7 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
         ref_fields={
             "object": "Input entity the process consumes (alias: input).",
             "samples": "Sample id(s) the process takes as input.",
-            "cell_line": "CellCulture: the cell-line Sample id consumed.",
+            "cell_line": "TestSystemPreparation: the cell-line Sample id consumed.",
             "result": "Output entity the process produces (alias: output).",
             "chemicals": "Exposure: MolecularEntity id(s) the cells are exposed to.",
             "labprotocol": "LabProtocol id this process follows.",
@@ -646,7 +646,7 @@ def _says_nothing(value: Any) -> bool:
     Without this the rescue undid `_pv`: a value `_pv` refuses for saying nothing
     was re-attached here under schema:additionalProperty — the predicate
     `profiles/context.py` also maps `parameter` onto, and the one
-    tox:CellCultureRequirements counts — so a process whose only stated parameter
+    tox:TestSystemPreparationRequirements counts — so a process whose only stated parameter
     was "not recorded" satisfied a MUST that exists to prompt someone to go and
     fill it in (D5). #677 closed the route through constructor-consumed fields;
     `work_package` on a process, and any dropped field on a File, still carried
@@ -2094,7 +2094,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
 # A culture protocol has to be about CULTURING, not merely a protocol that happens
 # to name a cell line. "4.1 Deiodinase activity assay protocol SK-N-AS" is
 # classified as a protocol and names the line, yet describes the readout —
-# executing it as the CellCulture's protocol would assert it explains how that
+# executing it as the TestSystemPreparation's protocol would assert it explains how that
 # line was grown, which nobody checked (#650).
 _CULTURE_PROTOCOL_CUE = re.compile(r"cell\s*culture|culturing|culture\s+protocol")
 # Analysis is cued, never assumed. A document reaches DataAnalysis only by being
@@ -2119,14 +2119,14 @@ _INTENDED_USE: dict[str, str] = {
 # culture document naming an assay would otherwise read as that assay's readout
 # procedure.
 _STEP_PROTOCOL_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("CellCulture", _CULTURE_PROTOCOL_CUE),
+    ("TestSystemPreparation", _CULTURE_PROTOCOL_CUE),
     ("DataAnalysis", _ANALYSIS_PROTOCOL_CUE),
 )
 _DEFAULT_PROTOCOL_STEP = "EndpointReadout"
 
 
 def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> list[Any]:
-    """The cell line(s) a CellCulture grows, or [] when none can be resolved.
+    """The cell line(s) a TestSystemPreparation grows, or [] when none can be resolved.
 
     Reads the whole ``cell_line`` list, falling back to the sample/object aliases
     and finally to a line named in the process title. Shared by the branch that
@@ -3091,7 +3091,7 @@ def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
     cultured_ids = {
         getattr(n, "id", None)
         for _assay, ptype, node in built
-        if ptype == "CellCulture"
+        if ptype == "TestSystemPreparation"
         for n in _linked_nodes(node, "output", "result")
     }
 
@@ -3207,7 +3207,7 @@ def _floor_readout_objects(crate: ROCrate, built: list[tuple[Any, str, Any]]) ->
         groups.setdefault(key, {}).setdefault(ptype, []).append(node)
 
     for by_type in groups.values():
-        cultured = _prepared_samples(by_type.get("CellCulture", []))
+        cultured = _prepared_samples(by_type.get("TestSystemPreparation", []))
         cultured_ids = {getattr(n, "id", None) for n in cultured}
         # Whether anything in this assay exposed material. Where something did,
         # the readout consumes what the exposure produced and the cultured
@@ -3261,7 +3261,8 @@ def _add_processes(
         state.list_entities("LabProcess"),
         key=lambda p: (
             0
-            if (p.fields.get("process_type") or p.fields.get("additionalType")) == "CellCulture"
+            if (p.fields.get("process_type") or p.fields.get("additionalType"))
+            == "TestSystemPreparation"
             else 1
         ),
     )
@@ -3284,7 +3285,7 @@ def _add_processes(
         # warning is a SHOULD, so honesty costs a recommendation; the stub cost
         # the truth (#650).
         protocol = _resolve_one(idx, _first_of(f, _PROTOCOL_ALIASES))
-        if protocol is None and ptype == "CellCulture":
+        if protocol is None and ptype == "TestSystemPreparation":
             # Culturing is study-level, so protocols are keyed on the CELL LINE
             # rather than the assay — every assay growing SK-N-AS follows the one
             # SK-N-AS procedure, and the deposit ships one document per line. A
@@ -3310,9 +3311,9 @@ def _add_processes(
             if assay_protocols:
                 protocol = assay_protocols
         assay_key = f.get("assay_id")
-        lines = _culture_cell_lines(f, idx, name) if ptype == "CellCulture" else []
-        if ptype == "CellCulture" and len(lines) > 1 and not f.get("co_culture"):
-            # ONE CellCulture per cell line (#678). A draft naming several lines
+        lines = _culture_cell_lines(f, idx, name) if ptype == "TestSystemPreparation" else []
+        if ptype == "TestSystemPreparation" and len(lines) > 1 and not f.get("co_culture"):
+            # ONE TestSystemPreparation per cell line (#678). A draft naming several lines
             # is several culturing activities: the deposit ships one culture
             # protocol PER LINE, and a single step emitting one Sample from N
             # lines asserts a co-culture that never happened. Only an explicit
@@ -3358,7 +3359,7 @@ def _add_processes(
                     cultures=cultures_by_assay.get(assay_key),
                 )
             ]
-        if ptype == "CellCulture":
+        if ptype == "TestSystemPreparation":
             cultures_by_assay.setdefault(assay_key, []).extend(nodes)
         for node in nodes:
             _wire_process_node(
@@ -3484,14 +3485,14 @@ def _build_process(
     how a culture splits (#678) and which cultures an Exposure's assay ran (#785):
 
     ``cell_lines``
-        The line(s) this CellCulture grows, overriding what the draft names. A
+        The line(s) this TestSystemPreparation grows, overriding what the draft names. A
         culture of several lines is built once per line, each call receiving one.
     ``keep_drafted_result``
         Whether the drafter's output Sample is this node's cultured sample. Only
         the first of a split may claim it; the rest synthesize their own, so no
         drafted entity is discarded and none is claimed twice.
     ``cultures``
-        The CellCultures of an Exposure's assay. Where the draft names no Sample
+        The TestSystemPreparations of an Exposure's assay. Where the draft names no Sample
         but their material, the Exposure consumes where they ended.
     """
     # input/object/samples are interchangeable aliases for the consumed inputs,
@@ -3503,8 +3504,8 @@ def _build_process(
     obj = _resolve_many(idx, f.get("object")) or _resolve_many(idx, f.get("input"))
     result = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
 
-    if ptype == "CellCulture":
-        # CellCulture MUST take a cell-line Sample as object; synthesize a
+    if ptype == "TestSystemPreparation":
+        # TestSystemPreparation MUST take a cell-line Sample as object; synthesize a
         # placeholder input Sample if none was referenced/resolved.
         # EVERY named line, not just the head of the list (#650). `cell_line` is
         # a list field — S-VHPS22 cultured SK-N-AS *and* H4 for thyroid hormone
@@ -3543,7 +3544,7 @@ def _build_process(
                 cell_line,
                 sample_type=_cell_culture_term(crate),
             )
-        return LabProcessCellCulture(
+        return LabProcessTestSystemPreparation(
             crate,
             identifier=pid,
             name=name,

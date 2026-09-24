@@ -1020,7 +1020,7 @@ def propose_condition_rows(state: Any, exposure_id: str) -> dict[str, Any]:
     the human has confirmed.
 
     Fills, without asking, what is already an entity in the crate: one row per
-    compound wired to the Exposure, the cell line consumed by the CellCulture,
+    compound wired to the Exposure, the cell line consumed by the TestSystemPreparation,
     the parent Assay's name, and the Exposure's duration when it carries one.
     Leaves a cell BLANK whenever the crate does not state its value.
 
@@ -1058,10 +1058,10 @@ def propose_condition_rows(state: Any, exposure_id: str) -> dict[str, Any]:
             ),
         }
 
-    # Cell line: whatever the CellCulture consumed, else the single declared one.
+    # Cell line: whatever the TestSystemPreparation consumed, else the single declared one.
     cell_line_name: str | None = None
     for proc in state.list_entities("LabProcess"):
-        if str(proc.fields.get("process_type") or "") != "CellCulture":
+        if str(proc.fields.get("process_type") or "") != "TestSystemPreparation":
             continue
         target = state.get_entity(_ref_id(proc.fields.get("cell_line")) or "")
         if target is not None:

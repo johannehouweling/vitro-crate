@@ -239,7 +239,7 @@ class LabProcessEndpointReadout(LabProcess):
 
 
 @reader_compatible
-class LabProcessCellCulture(LabProcess):
+class LabProcessTestSystemPreparation(LabProcess):
     def __init__(
         self,
         crate: ROCrate,
@@ -253,7 +253,7 @@ class LabProcessCellCulture(LabProcess):
         add: bool = True,
     ):
         merged_properties = {
-            "additionalType": "CellCulture",
+            "additionalType": "TestSystemPreparation",
             "parameter": _pvs(
                 _pv(
                     crate,
@@ -283,7 +283,7 @@ class LabProcessDataAnalysis(LabProcess):
     processed-data File(s) as ``result`` along the derivation graph.
 
     Part of the Tox ISA RO-Crate Profile extension (the 4th LabProcess
-    discriminator, alongside CellCulture, Exposure, and EndpointReadout).
+    discriminator, alongside TestSystemPreparation, Exposure, and EndpointReadout).
     Parameter keys for which no authoritative ontology IRI is asserted are
     emitted without a propertyID rather than carrying a fabricated one. A
     parameter that was not stated is not published at all — no placeholder,

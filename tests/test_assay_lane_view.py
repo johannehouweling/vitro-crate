@@ -164,7 +164,7 @@ class TestAStepIsPlacedByWhatItIs:
     """Rank comes from the ISA-Tox chain, not from a layered pass.
 
     This is what makes the two defects above unreachable rather than fixed: two
-    CellCultures cannot land in one cell because the rank holds a column, and a
+    preparation steps cannot land in one cell because the rank holds a column, and a
     missing Exposure leaves a column empty rather than splitting the graph.
     """
 

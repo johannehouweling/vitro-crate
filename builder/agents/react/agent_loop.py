@@ -2801,7 +2801,7 @@ _PROCESS_PARAMETERS: dict[str, tuple[tuple[str, ...], ...]] = {
         ("computational_tool", "software"),
         ("data_calculation_and_statistics", "data_processing"),
     ),
-    "CellCulture": (("culture_medium",),),
+    "TestSystemPreparation": (("culture_medium",),),
 }
 
 
@@ -2936,7 +2936,7 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
             items.append(
                 f"{len(empty)} Assay entities have no process chain "
                 f"({', '.join(empty[:3])}{'…' if len(empty) > 3 else ''}) — an assay "
-                "with no CellCulture/Exposure/EndpointReadout/DataAnalysis records "
+                "with no TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis records "
                 "no experiment"
             )
 
@@ -2996,7 +2996,7 @@ def open_items(state: CrateState, *, actionable_only: bool = False) -> list[str]
         # never cultured it, and the reference check above cannot see that. The
         # material a process consumed belongs in that process's inputs.
         for etype, process_type, field in (
-            ("CellLineSample", "CellCulture", "cell_line"),
+            ("CellLineSample", "TestSystemPreparation", "cell_line"),
             ("MolecularEntity", "Exposure", "chemicals"),
         ):
             unused = [

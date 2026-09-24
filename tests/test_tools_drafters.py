@@ -275,7 +275,7 @@ class TestEntityAddedToState:
         inv = draft_investigation(state, {"name": "Inv"})
         study = draft_study(state, inv.entity_id, {"name": "Study"})
         assay = draft_assay(state, study.entity_id, {"name": "Assay"})
-        entity = draft_process(state, assay.entity_id, "CellCulture", {})
+        entity = draft_process(state, assay.entity_id, "TestSystemPreparation", {})
 
         retrieved = state.get_entity(entity.entity_id)
         assert retrieved is entity
@@ -535,7 +535,7 @@ class TestDraftersDoNotLeakReservedKeys:
             draft_assay(state, study.entity_id, {"name": "Assay", **reserved}),
             draft_molecular_entity(state, "Caffeine", dict(reserved)),
             draft_cell_line_sample(state, "HepG2", dict(reserved)),
-            draft_process(state, study.entity_id, "CellCulture", dict(reserved)),
+            draft_process(state, study.entity_id, "TestSystemPreparation", dict(reserved)),
             draft_defined_term(state, "apoptosis", {"term_code": "GO:0006915", **reserved}),
             draft_property_value(state, "pH", {"value": "7", **reserved}),
             draft_person(state, "Ada Lovelace", dict(reserved)),

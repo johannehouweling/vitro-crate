@@ -14,7 +14,7 @@ the three claims that make the deterministic pipeline the §14 default arm:
    ``arbitrary-tox-folder`` corpus ``min_entities`` floor (imported from
    :mod:`eval.corpus` so the bar can't silently drift) and carries the expected
    entity *types* — a MolecularEntity, a CellLine Sample, and the four-step
-   CellCulture → Exposure → EndpointReadout → DataAnalysis LabProcess chain.
+   TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis LabProcess chain.
 3. **Determinism (the headline claim) — NON-BLOCKING.** Run twice from fresh state
    with the SAME stubbed leaf outputs, the stable @graph hash
    (:func:`eval.metrics.crate_graph_hash`, the exact signal the A/B harness uses)
@@ -133,7 +133,7 @@ def _titled_state() -> CrateState:
 
 # A realistic candidate plan for a COMPLETE in-vitro tox study: a study, a
 # test + a control compound, a cell line, the full four-step
-# CellCulture → Exposure → EndpointReadout → DataAnalysis chain, an AOP, a
+# TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis chain, an AOP, a
 # person, a publication (deferred, title-only), and a couple of files. This is
 # the shape the real ``extract_plan`` leaf returns (names only — D5: no
 # identifiers; the composites resolve those from the stubbed lookups).
@@ -161,7 +161,7 @@ _PLAN: dict[str, Any] = {
     ],
     "process_chain": [
         {
-            "process_type": "CellCulture",
+            "process_type": "TestSystemPreparation",
             "name": "FRTL-5 cell culture",
             "parameters": {
                 "culture_medium": (
@@ -461,7 +461,7 @@ class TestPipelineE2EConformanceAndFidelity:
         """Fidelity: the expected domain entity types are all materialized.
 
         MolecularEntity (test + control compound), a CellLine Sample, and the four
-        LabProcess steps of the CellCulture → Exposure → EndpointReadout →
+        LabProcess steps of the TestSystemPreparation → Exposure → EndpointReadout →
         DataAnalysis chain — the structure a *complete* in-vitro tox study needs.
         """
         from builder.agents.pipeline.pipeline import run_pipeline
@@ -501,7 +501,7 @@ class TestPipelineE2EConformanceAndFidelity:
         # The full four-step LabProcess derivation chain.
         procs = state.list_entities("LabProcess")
         assert {p.fields.get("process_type") for p in procs} == {
-            "CellCulture",
+            "TestSystemPreparation",
             "Exposure",
             "EndpointReadout",
             "DataAnalysis",

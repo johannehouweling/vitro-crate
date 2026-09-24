@@ -56,13 +56,13 @@ def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str,
         return None, {}
 
 
-VALID_PROCESS_TYPES = frozenset(
-    {
-        "CellCulture",
-        "Exposure",
-        "EndpointReadout",
-        "DataAnalysis",
-    }
+# The four ISA-Tox LabProcess discriminators, in the order the derivation chain
+# runs: a supplied chain may be any subset of them and is wired in this order.
+VALID_PROCESS_TYPES: tuple[str, ...] = (
+    "TestSystemPreparation",
+    "Exposure",
+    "EndpointReadout",
+    "DataAnalysis",
 )
 
 # A PropertyValue named "DOI"/"PubMedID" is SHACL-duck-typed by the tox profile
@@ -368,7 +368,7 @@ def draft_process(state: CrateState, assay_id: str, process_type: str, hints: di
     Args:
         state: The crate state to add the entity to.
         assay_id: The entity_id of the parent Assay.
-        process_type: One of CellCulture, Exposure, EndpointReadout, DataAnalysis.
+        process_type: One of TestSystemPreparation, Exposure, EndpointReadout, DataAnalysis.
         hints: Dictionary of field values to pre-populate.
 
     Returns:

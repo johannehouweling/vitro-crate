@@ -255,3 +255,95 @@ class TestDiscoveredDocumentsSurviveTheRename:
         """``documents`` is free-form JSON on disk; a non-dict entry must not raise."""
         restored = StateSerializer.from_dict({"documents": ["not a dict", None]})
         assert restored.documents == ["not a dict", None]
+
+
+class TestAPre785SessionResumesItsCultureAsAPreparationStep:
+    """Every session saved before #785 names its culture step ``CellCulture``.
+
+    ``--resume``, ``--graph`` and ``--dashboard`` reassemble those sessions, and
+    every reader keys on ``TestSystemPreparation``: left as it was, the step would
+    build as a plain LabProcess with no cell-line input and no cultured Sample,
+    and validate and score differently from the session it came from.
+    """
+
+    @staticmethod
+    def _state() -> CrateState:
+        state = CrateState(session_id="pre-785")
+        for entity_id, type_, fields in (
+            ("assay_1", "Assay", {"name": "Deiodinase Assay"}),
+            ("cell_a", "CellLineSample", {"name": "SK-N-AS", "accession": "CVCL_1700"}),
+            (
+                "proc_cult",
+                "LabProcess",
+                {
+                    "name": "Culture SK-N-AS",
+                    "process_type": "TestSystemPreparation",
+                    "assay_id": "assay_1",
+                    "cell_line": ["cell_a"],
+                    "culture_medium": "CT medium",
+                },
+            ),
+        ):
+            state.add_entity(Entity(entity_id=entity_id, type=type_, fields=fields))
+        return state
+
+    @staticmethod
+    def _tox_issues(state: CrateState) -> list[tuple[str | None, str]]:
+        import warnings
+
+        from builder.tools.builder import assemble_crate
+        from profiles.validator import validate_crate_dict
+
+        crate = assemble_crate(
+            state, output_dir=None, materialize_payload=False, include_all_scanned=False
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            (result,) = validate_crate_dict(crate.metadata.generate(), profile="tox")
+        return sorted((i.property, i.message) for i in result.issues)
+
+    def test_a_pre_785_session_resumes_with_its_culture_as_a_preparation_step(
+        self, tmp_path, monkeypatch
+    ):
+        from builder.tools import session as sess_mod
+        from builder.tools.mit_assessment import (
+            _assemble_graph,
+            assess_mit_coverage,
+            slot_matcher,
+        )
+
+        monkeypatch.setattr(sess_mod, "SESSION_DIR", tmp_path)
+        fresh = self._state()
+        # What save_session wrote for every session before #785.
+        saved = fresh.to_json().replace('"TestSystemPreparation"', '"CellCulture"')
+        assert '"process_type": "CellCulture"' in saved
+        (tmp_path / fresh.session_id).mkdir()
+        (tmp_path / fresh.session_id / "crate_state.json").write_text(saved)
+
+        resumed = sess_mod.load_session(fresh.session_id)
+
+        assert resumed is not None
+        step = resumed.get_entity("proc_cult")
+        assert step is not None and step.fields["process_type"] == "TestSystemPreparation"
+        assert assess_mit_coverage(resumed) == assess_mit_coverage(fresh)
+        # Guard the guard: two reports that both miss the culture slots are equal too.
+        graph = {"@graph": _assemble_graph(resumed)}
+        assert slot_matcher(resumed, graph=graph)("LabProcessCellCulture", "param")
+        assert self._tox_issues(resumed) == self._tox_issues(fresh)
+
+    def test_the_old_literal_under_additional_type_is_migrated_too(self):
+        """The crate mapping reads a step with no ``process_type`` by its
+        ``additionalType``, so a step saved under that key resumes the same way."""
+        from builder.tools.mit_assessment import _assemble_graph, slot_matcher
+
+        saved = self._state().to_json().replace(
+            '"process_type": "TestSystemPreparation"', '"additionalType": "CellCulture"'
+        )
+        assert '"additionalType": "CellCulture"' in saved
+
+        resumed = StateSerializer.from_json(saved)
+
+        step = resumed.get_entity("proc_cult")
+        assert step is not None and step.fields["additionalType"] == "TestSystemPreparation"
+        graph = {"@graph": _assemble_graph(resumed)}
+        assert slot_matcher(resumed, graph=graph)("LabProcessCellCulture", "param")

@@ -30,7 +30,7 @@ Document evidence (discovered during initialization):
 
 Entity drafting:
 - scaffold_isa_backbone: Create a linked Investigation+Study+Assay backbone in one call (idempotent) — the fastest path to a BASE-passing crate
-- draft_process_chain: Create and wire a whole LabProcess derivation chain (CellCulture->Exposure->EndpointReadout->DataAnalysis, any subset) in one idempotent call — gives EndpointReadout/DataAnalysis the outputs they require by reading them from the deposit (raw files are the readout's result, processed files the analysis's); a step whose output was never deposited is left unwired so validation reports it (never invent a file to silence that), and a step nothing in the deposit evidences at all is skipped, with the reason returned to you
+- draft_process_chain: Create and wire a whole LabProcess derivation chain (TestSystemPreparation->Exposure->EndpointReadout->DataAnalysis, any subset) in one idempotent call — gives EndpointReadout/DataAnalysis the outputs they require by reading them from the deposit (raw files are the readout's result, processed files the analysis's); a step whose output was never deposited is left unwired so validation reports it (never invent a file to silence that), and a step nothing in the deposit evidences at all is skipped, with the reason returned to you
 - materialize_aop_subgraph: Turn one AOP-Wiki id into the full subgraph (AdverseOutcomePathway + KeyEvents + KeyEventRelationships, cross-linked) and optionally wire it onto a Study
 - link_assay_to_key_event: Link an Assay to the AOP Key Event it measures, by the event's name (refuses to guess when the name is ambiguous)
 - resolve_compound: Resolve a chemical name to a verified MolecularEntity in one call (lookup_compound -> draft_molecular_entity -> verify_identifier), carrying the looked-up CAS + PubChem CID; idempotent and never keeps an unverified identifier (D5)
@@ -41,7 +41,7 @@ Entity drafting:
 - draft_assay: Create an Assay entity
 - draft_molecular_entity: Create a MolecularEntity for a compound
 - draft_cell_line_sample: Create a CellLineSample
-- draft_process: Create a LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis)
+- draft_process: Create a LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis)
 - draft_protocol: Create a LabProtocol entity
 - draft_sample: Create a Sample entity
 - draft_person: Create a Person entity
@@ -214,7 +214,7 @@ If the user has already answered this once, the answer is in the state brief:
 record it, do not ask again.
 
 ### Once BASE Passes
-- Add the ISA structural layer: LabProcesses, Samples, data Files linked to Assays. Wire the derivation chain explicitly — create data files with `draft_file`, connect each process to what it consumes and produces with `link` (e.g. `link(process, 'result', file)`), and run `check_provenance` to confirm no process output dangles and no file is orphaned (Sample → CellCulture → Exposure → EndpointReadout → DataAnalysis).
+- Add the ISA structural layer: LabProcesses, Samples, data Files linked to Assays. Wire the derivation chain explicitly — create data files with `draft_file`, connect each process to what it consumes and produces with `link` (e.g. `link(process, 'result', file)`), and run `check_provenance` to confirm no process output dangles and no file is orphaned (Sample → TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis).
 - Then the TOX domain layer: MolecularEntity lookups, Cellosaurus queries, AOP refs, BAO terms
 - Then MIT/FAIR scores as improvement suggestions (recommendations, not gates)
 

@@ -1,8 +1,8 @@
 """Every tox process shape that declares `schema:object sh:minCount 1` must be
 satisfiable by the build alone (2026-08-25 tox model/shape audit).
 
-The shapes at profiles/shapes/tox/2_lab_process_cell_culture.ttl:34,
-3_lab_process_exposure.ttl:41 and 4_lab_process_endpoint_readout.ttl:64 all
+The shapes at profiles/shapes/tox/2_lab_process_test_system_preparation.ttl:45,
+3_lab_process_exposure.ttl:39 and 4_lab_process_endpoint_readout.ttl:65 all
 declare a REQUIRED schema:object. A build that can emit a process with none of
 them produces a crate that fails the profile the tool asserts end to end.
 
@@ -154,7 +154,7 @@ class TestEndpointReadoutInputFloor:
             state,
             ids["assay_id"],
             chain=[
-                {"process_type": "CellCulture", "hints": {"name": "Seed"}},
+                {"process_type": "TestSystemPreparation", "hints": {"name": "Seed"}},
                 {"process_type": "Exposure", "hints": {"name": "Dose", "duration": "24 h"}},
                 {
                     "process_type": "EndpointReadout",
@@ -244,7 +244,7 @@ class TestEndpointReadoutInputFloor:
                 entity_id="proc_culture",
                 type="LabProcess",
                 fields={
-                    "process_type": "CellCulture",
+                    "process_type": "TestSystemPreparation",
                     "name": "Culture cells",
                     "cell_line": ["cell_a", "cell_b"],
                     "culture_medium": "DMEM + 10% FBS",
@@ -278,7 +278,7 @@ class TestEndpointReadoutInputFloor:
             items = value if isinstance(value, list) else [value]
             return {i.get("@id") for i in items if isinstance(i, dict)}
 
-        cultures = [n for n in graph if n.get("additionalType") == "CellCulture"]
+        cultures = [n for n in graph if n.get("additionalType") == "TestSystemPreparation"]
         assert len(cultures) == 2, "the per-line split (#678) did not fire"
         produced = set()
         for culture in cultures:
@@ -339,7 +339,7 @@ class TestEndpointReadoutInputFloor:
                 entity_id="proc_culture",
                 type="LabProcess",
                 fields={
-                    "process_type": "CellCulture",
+                    "process_type": "TestSystemPreparation",
                     "name": "Culture cells",
                     "cell_line": ["cell_a"],
                     "culture_medium": "DMEM + 10% FBS",
@@ -385,7 +385,10 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
     """
 
     _SHAPES_DECLARING_REQUIRED_OBJECT = {
-        "CellCulture": ("2_lab_process_cell_culture.ttl", "LabProcessCellCulture"),
+        "TestSystemPreparation": (
+            "2_lab_process_test_system_preparation.ttl",
+            "LabProcessTestSystemPreparation",
+        ),
         "Exposure": ("3_lab_process_exposure.ttl", "LabProcessExposure"),
         "EndpointReadout": (
             "4_lab_process_endpoint_readout.ttl",
@@ -442,7 +445,7 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
         from builder.tools.repair import _INPUT_REQUIRED_TYPES
 
         unfloored = {}
-        for ptype in ("CellCulture", "Exposure", "EndpointReadout"):
+        for ptype in ("TestSystemPreparation", "Exposure", "EndpointReadout"):
             assert ptype not in _INPUT_REQUIRED_TYPES
             state = _state_with("proc", {"process_type": ptype, "name": f"{ptype} step"})
             issues = _tox_issues(state, "http://schema.org/object")
@@ -460,7 +463,7 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
     `_preserve_unowned_fields` filtered only empties, so a field it rescued
     re-attached a placeholder under schema:additionalProperty — the predicate the
     shape counts, since `profiles/context.py` maps `parameter` there too. A
-    CellCulture whose only stated parameter was "not recorded" satisfied the MUST.
+    TestSystemPreparation whose only stated parameter was "not recorded" satisfied the MUST.
 
     #677 closed this for fields a process constructor consumes, `culture_medium`
     among them, which is why the medium case below passes unaided and stands as a
@@ -473,7 +476,7 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
         state = CrateState()
         state.metadata.title = "Placeholder probe"
         fields = {
-            "process_type": "CellCulture",
+            "process_type": "TestSystemPreparation",
             "name": "Culture step",
             "culture_medium": medium,
         }
@@ -496,7 +499,7 @@ class TestPlaceholderRescueDoesNotDefeatTheD5Loop:
         issues = _tox_issues(state, "http://schema.org/additionalProperty")
 
         assert issues, (
-            "A CellCulture whose only parameter is 'unknown' passed the "
+            "A TestSystemPreparation whose only parameter is 'unknown' passed the "
             "additionalProperty MUST — the placeholder was re-published"
         )
 
@@ -551,7 +554,7 @@ class TestCultureMediumIsNotFabricated:
     injected the fabrication when the leaf found nothing.
 
     With the default gone `_pv` receives None and declines, which makes the
-    missing `_pvs` wrap on LabProcessCellCulture load-bearing: it is the one
+    missing `_pvs` wrap on LabProcessTestSystemPreparation load-bearing: it is the one
     subtype that built its parameter list as a bare list, so the declined
     parameter survived as a literal null.
     """
@@ -564,7 +567,7 @@ class TestCultureMediumIsNotFabricated:
             Entity(
                 entity_id="proc_cc",
                 type="LabProcess",
-                fields={"process_type": "CellCulture", "name": "Culture", **fields},
+                fields={"process_type": "TestSystemPreparation", "name": "Culture", **fields},
                 _provenance=EntityProvenance(created_by="llm"),
             )
         )
@@ -593,7 +596,7 @@ class TestCultureMediumIsNotFabricated:
             self._culture_state({}), "http://schema.org/additionalProperty"
         )
 
-        assert issues, "A CellCulture stating no parameter at all passed the MUST"
+        assert issues, "A TestSystemPreparation stating no parameter at all passed the MUST"
 
     def test_a_stated_medium_is_published_with_its_ontology_term(self):
         """Guards the over-correction: a real value keeps its BAO term."""
@@ -608,7 +611,7 @@ class TestCultureMediumIsNotFabricated:
         assert "BAO_0000114" in str(media[0].get("propertyID"))
 
     def test_the_parameter_list_never_contains_a_null(self):
-        """LabProcessCellCulture is the one subtype that skipped `_pvs`.
+        """LabProcessTestSystemPreparation is the one subtype that skipped `_pvs`.
 
         Cosmetic while the fabricated default masked it - JSON-LD drops nulls -
         and reachable on the ordinary no-medium path once the default is gone.
@@ -616,7 +619,7 @@ class TestCultureMediumIsNotFabricated:
         node = next(
             e
             for e in self._build({}).get_entities()
-            if e.properties().get("additionalType") == "CellCulture"
+            if e.properties().get("additionalType") == "TestSystemPreparation"
         )
 
         assert None not in (node.properties().get("parameter") or [])

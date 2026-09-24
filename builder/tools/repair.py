@@ -106,11 +106,11 @@ _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
 
 # Domain process types a REPAIR must wire an input for. NOT the same set as the
 # types whose shape requires one: four shapes declare `schema:object` minCount 1
-# at Violation severity — tox:CellCultureRequirements, tox:ExposureRequirements,
+# at Violation severity — tox:TestSystemPreparationRequirements, tox:ExposureRequirements,
 # tox:EndpointReadoutConsumesExposedMaterial and tox:DataAnalysisRequirements.
 #
 # The other three are excluded because the BUILD already floors them: each
-# supplies a named input when nothing resolves — the CellCulture and Exposure
+# supplies a named input when nothing resolves — the TestSystemPreparation and Exposure
 # branches of `_build_process`, and `_floor_readout_objects` after the chaining
 # pass — so the violation this rule repairs cannot reach validation for them.
 #

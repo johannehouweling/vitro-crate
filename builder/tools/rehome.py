@@ -121,7 +121,7 @@ def _target_for(
     ]
     if wanted_step is not None:
         # Select BY step rather than taking the first process and checking it
-        # afterwards: the chain is CellCulture -> Exposure -> EndpointReadout ->
+        # afterwards: the chain is TestSystemPreparation -> Exposure -> EndpointReadout ->
         # DataAnalysis, so "the first one" is almost never the one that consumes
         # an EndpointReadout field, and checking after selecting would reject the
         # move on a chain that has a perfectly good home for it.

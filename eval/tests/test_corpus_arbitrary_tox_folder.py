@@ -94,7 +94,7 @@ class TestArbitraryToxFolderCaseRegistered:
         assert q.get("CellLineSample", 0) >= 1
         assert q.get("MolecularEntity", 0) >= 1
         assert q.get("LabProtocol", 0) >= 1
-        # The full derivation chain is four LabProcess steps (CellCulture ->
+        # The full derivation chain is four LabProcess steps (TestSystemPreparation ->
         # Exposure -> EndpointReadout -> DataAnalysis).
         assert q.get("LabProcess", 0) >= 4
         # Raw + processed data files attached.

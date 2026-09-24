@@ -3,7 +3,7 @@
 The paper's core value proposition is that a receiving lab can trace how an
 output was produced::
 
-    Sample →[CellCulture]→ Sample →[Exposure]→ Sample
+    Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample
            →[EndpointReadout]→ raw →[DataAnalysis]→ figures
 
 This writer reads a serialized metadata document — the ``@graph`` from
@@ -72,7 +72,9 @@ _ADDTYPE_KEYS: tuple[str, ...] = (
 )
 
 # The four domain LabProcess discriminators (ISA-Tox profile).
-_PROCESS_DISCRIMINATORS = frozenset({"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"})
+_PROCESS_DISCRIMINATORS = frozenset(
+    {"TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +94,7 @@ _LAYER_NAMES: dict[int, str] = {
     3: "ISA-Tox RO-Crate",
 }
 
-_DOMAIN_ADDTYPES = frozenset(
-    {"CellLine", "PrimaryCell", "CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
-)
+_DOMAIN_ADDTYPES = _PROCESS_DISCRIMINATORS | {"CellLine", "PrimaryCell"}
 _STRUCT_ADDTYPES = frozenset(
     {
         "Investigation",
@@ -293,7 +293,9 @@ def _additional_type(node: dict[str, Any]) -> str | None:
     value = _first(node, _ADDTYPE_KEYS)
     if isinstance(value, dict):
         value = value.get("@id")
-    return _short(value) if isinstance(value, str) else None
+    short = _short(value) if isinstance(value, str) else None
+    # The deprecated alias a crate exported before #785 names its preparation step by.
+    return "TestSystemPreparation" if short == "CellCulture" else short
 
 
 def _is_process(node: dict[str, Any]) -> bool:
@@ -650,7 +652,7 @@ def _route_hop_ids(process: str | None, via: str | None) -> list[str]:
 
     Two hops for the indirect route a compound takes (``process --result-->
     table --about--> compound``); one when a process references the member
-    itself (a ``CellCulture`` consuming its cell line) — drawing that process in
+    itself (a ``TestSystemPreparation`` consuming its cell line) — drawing that process in
     both columns with a ``result`` edge between them would depict a step the
     crate does not contain; none when nothing links the member at all.
 
@@ -1891,7 +1893,7 @@ def build_chemical_inventory(
 # Cell lines (#85) — the biological test system, and whether it is pinned down.
 #
 # A cell line is the other half of "what was tested", and it fails the same two
-# ways a compound does. It is *unreachable* when the CellCulture consumes a
+# ways a compound does. It is *unreachable* when the TestSystemPreparation consumes a
 # freshly minted generic Sample instead of the declared CellLineSample — the line
 # is then described in the crate and used by nothing, exactly the shape the
 # compound view exposes. And it is *unidentified* when it carries a name but no
@@ -1928,7 +1930,7 @@ CELLLINE_COVERAGE_FIELDS: tuple[tuple[str, str], ...] = (
 ) + tuple((label, label) for label, _keys in _CELLLINE_CHARACTERISTICS)
 
 # How something can point at a cell line. ``input`` is canonical and first: the
-# CellCulture consumes the line (``_INPUT_KEYS`` already covers the ``cell_line``
+# TestSystemPreparation consumes the line (``_INPUT_KEYS`` already covers the ``cell_line``
 # alias). ``derivesFrom`` catches the cultured Sample that descends from it, and
 # ``mentions`` the Study-level ``cell_lines``/``biologicalModels`` alias.
 _CELLLINE_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
@@ -2009,7 +2011,7 @@ def build_cellline_inventory(
     """Model the crate's cell lines: their route into the experiment + their identity.
 
     Resolves, for every cell-line entity, how it is reachable from a
-    ``LabProcess`` — canonically the ``CellCulture`` that consumes it as
+    ``LabProcess`` — canonically the ``TestSystemPreparation`` that consumes it as
     ``input``/``cell_line``, or the cultured ``Sample`` that ``derivesFrom`` it —
     and whether it carries a Cellosaurus RRID, an ontology-backed ``sampleType``,
     and the organ / tissue / passage characteristics another lab needs to
@@ -2792,7 +2794,7 @@ def _node_class_for_brief(brief: dict[str, str]) -> str:
     grey box in the cell-line and people tabs.
 
     ``additionalType`` is filled in as well as ``@type`` because the process
-    kinds (``CellCulture``, ``Exposure``, …) reach the tag from there.
+    kinds (``TestSystemPreparation``, ``Exposure``, …) reach the tag from there.
     """
     head = brief.get("tag", "").split(" · ", 1)[0]
     return _node_class({"@type": head, "additionalType": head})

@@ -42,7 +42,7 @@ def tabbed_views_graph() -> dict[str, Any]:
             {
                 "@id": "#culture",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": "Cell culture",
                 "input": {"@id": "#line"},
                 "output": {"@id": "#cells"},
@@ -435,7 +435,7 @@ def assay_lane_graph() -> dict[str, Any]:
             {
                 "@id": "#culture-a",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": "Culture SK-N-AS",
                 "object": {"@id": "#cellline-a"},
                 "result": {"@id": "#cultured-a"},
@@ -538,7 +538,7 @@ def assay_lane_graph() -> dict[str, Any]:
             {
                 "@id": "#culture-b",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": "Culture MO3.13",
                 "object": {"@id": "#cellline-b"},
                 "result": {"@id": "#cultured-b"},
@@ -594,7 +594,7 @@ def assay_lane_real_shapes_graph() -> dict[str, Any]:
     line, so two things the RIVM deposit does on every build are untested:
 
     * **Assay C — several lines, one exposure.** Since #678 an assay cultures
-      each line separately, so three CellCulture steps share a rank and each
+      each line separately, so three TestSystemPreparation steps share a rank and each
       executes its own protocol. A layout that gives a step's satellites the
       step's own x draws all three protocols at one point, and two of the three
       are invisible. One line cannot show that; three can.
@@ -711,7 +711,7 @@ def assay_lane_real_shapes_graph() -> dict[str, Any]:
                 {
                     "@id": f"#culture-{assay}-{key}",
                     "@type": "LabProcess",
-                    "additionalType": "CellCulture",
+                    "additionalType": "TestSystemPreparation",
                     "name": f"Culture {name}",
                     "object": {"@id": f"#cellline-{assay}-{key}"},
                     "result": {"@id": f"#cultured-{assay}-{key}"},

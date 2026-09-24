@@ -53,7 +53,7 @@ def _build(tmp_path_factory, **primary_fields) -> dict:
             "proc_cult",
             "LabProcess",
             name="Culture tubuloids",
-            process_type="CellCulture",
+            process_type="TestSystemPreparation",
             assay_id="assay_1",
             cell_line=["cell_t19"],
             culture_medium="expansion medium",

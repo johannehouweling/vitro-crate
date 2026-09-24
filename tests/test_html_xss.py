@@ -64,7 +64,7 @@ def _malicious_graph() -> dict:
             {
                 "@id": "#cc",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": SCRIPT_PAYLOAD,
                 "input": {"@id": "#sample"},
                 "output": {"@id": "#cultured"},

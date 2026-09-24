@@ -5,8 +5,10 @@
 # / @type) and used as sh:targetClass anchors. They are NEVER serialized into a
 # crate: crate entities stay typed with Schema.org / Bioschemas + an additionalType
 # discriminator, matching the ISA convention, the paper's "no new RDF classes" in
-# the published crate, and the MIT crate_slot keying. Each tox process/sample type
-# is declared a subclass of the corresponding isa-ro-crate class for semantics.
+# the published crate, and the MIT crate_slot keying — except that the MIT slot for
+# the preparation step keeps its upstream name, LabProcessCellCulture. Each tox
+# process/sample type is declared a subclass of the corresponding isa-ro-crate
+# class for semantics.
 
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
@@ -37,10 +39,10 @@ tox:PrimaryCellSample rdf:type owl:Class ;
     rdfs:label "PrimaryCellSample"@en .
 
 # Workflow processes, discriminated by additionalType on a bioschemas:LabProcess.
-tox:LabProcessCellCulture rdf:type owl:Class ;
+tox:LabProcessTestSystemPreparation rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Process ;
-    rdfs:comment "A cell culture process in a toxicology study" ;
-    rdfs:label "LabProcessCellCulture"@en .
+    rdfs:comment "A test system preparation process in a toxicology study" ;
+    rdfs:label "LabProcessTestSystemPreparation"@en .
 
 tox:LabProcessExposure rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Process ;

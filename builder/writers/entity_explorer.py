@@ -400,7 +400,7 @@ def _of_process_flavour(flavour: str) -> Callable[[_Crate], set[str]]:
 
 
 PROCESS_FLAVOURS: dict[str, str] = {
-    "cellculture": "CellCulture",
+    "testsystempreparation": "TestSystemPreparation",
     "exposure": "Exposure",
     "endpointreadout": "EndpointReadout",
     "dataanalysis": "DataAnalysis",
@@ -581,10 +581,10 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
         )
         for key, kind, label, hint in (
             (
-                "cellculture",
-                "CellCulture",
-                "Cell culture",
-                "Only the culture steps, with what they used and produced",
+                "testsystempreparation",
+                "TestSystemPreparation",
+                "Test system preparation",
+                "Only the preparation steps, with what they used and produced",
             ),
             (
                 "exposure",

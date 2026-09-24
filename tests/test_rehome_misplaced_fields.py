@@ -60,10 +60,10 @@ def _step(state: CrateState, process_type: str):
 class TestTheReportedCase:
     def test_the_four_fields_reach_the_process_that_consumes_them(self) -> None:
         state = CrateState()
-        # EndpointReadout deliberately NOT first: the chain is CellCulture ->
+        # EndpointReadout deliberately NOT first: the chain is TestSystemPreparation ->
         # Exposure -> EndpointReadout, so a router that took "the first process"
         # would file the instrument under the cell culture.
-        assay = _assay_with_chain(state, "CellCulture", "Exposure", "EndpointReadout")
+        assay = _assay_with_chain(state, "TestSystemPreparation", "Exposure", "EndpointReadout")
         assay.set_fields_from_dict(
             dict(zip(_READOUT_FIELDS, ("Wallac 1470", "PerkinElmer", "Radioactivity", "3"))),
             source="llm",
@@ -75,13 +75,13 @@ class TestTheReportedCase:
         assert not [f for f in _READOUT_FIELDS if f in assay.fields]
         readout = _step(state, "EndpointReadout")
         assert readout.fields["instrument_manufacturer"] == "PerkinElmer"
-        assert not [f for f in _READOUT_FIELDS if f in _step(state, "CellCulture").fields]
+        assert not [f for f in _READOUT_FIELDS if f in _step(state, "TestSystemPreparation").fields]
 
     def test_the_value_survives_into_the_built_crate(self) -> None:
         """The point of the exercise. Previously this string was in state, then
         gone from the graph, with only a log line at exit to say so."""
         state = CrateState()
-        assay = _assay_with_chain(state, "CellCulture", "EndpointReadout")
+        assay = _assay_with_chain(state, "TestSystemPreparation", "EndpointReadout")
         assay.set_fields_from_dict({"instrument_manufacturer": "PerkinElmer"}, source="llm")
 
         crate = assemble_crate(state, None, materialize_payload=False, include_all_scanned=False)
@@ -120,7 +120,7 @@ class TestItMovesOnlyWhatItShould:
         put rather than being attached to an unrelated entity of the right class
         — this rescues values, it does not relocate them somewhere arguable."""
         state = CrateState()
-        assay = _assay_with_chain(state, "CellCulture")
+        assay = _assay_with_chain(state, "TestSystemPreparation")
         assay.set_fields_from_dict({"detection_instrument": "Wallac 1470"}, source="llm")
 
         assert rehome_misplaced_fields(state) == []

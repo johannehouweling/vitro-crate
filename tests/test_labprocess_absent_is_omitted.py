@@ -13,16 +13,16 @@ from rocrate.rocrate import ROCrate
 
 from profiles.models.isa import LabProcess, Sample
 from profiles.models.tox import (
-    LabProcessCellCulture,
     LabProcessDataAnalysis,
     LabProcessEndpointReadout,
     LabProcessExposure,
+    LabProcessTestSystemPreparation,
 )
 
 
 def _nothing_stated(crate):
     return {
-        "CellCulture": lambda: LabProcessCellCulture(
+        "TestSystemPreparation": lambda: LabProcessTestSystemPreparation(
             crate,
             "#cc",
             "Culture",
@@ -43,7 +43,9 @@ def _nothing_stated(crate):
     }
 
 
-@pytest.mark.parametrize("subtype", ["CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"])
+@pytest.mark.parametrize(
+    "subtype", ["TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"]
+)
 def test_a_subtype_told_nothing_states_nothing(subtype):
     node = _nothing_stated(ROCrate())[subtype]()
     absent = {k for k, v in node.properties().items() if v is None or v == []}

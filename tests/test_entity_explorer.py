@@ -579,7 +579,7 @@ class TestProcessFlavours:
     restricted to one tag, context and all.
     """
 
-    _KEYS = ("cellculture", "exposure", "endpointreadout", "dataanalysis")
+    _KEYS = ("testsystempreparation", "exposure", "endpointreadout", "dataanalysis")
 
     def test_the_four_flavours_are_the_profiles_own_discriminators(self) -> None:
         """Not a hand-written list: the profile defines exactly these four
@@ -606,7 +606,7 @@ class TestProcessFlavours:
         parents = {v["key"]: v["parent"] for v in payload["views"]}
 
         assert parents["exposure"] == "processes"
-        assert parents["cellculture"] == "processes"
+        assert parents["testsystempreparation"] == "processes"
         assert parents["processes"] is None
         assert parents["all"] is None
 
@@ -615,8 +615,8 @@ class TestProcessFlavours:
 
         assert "#exposure" in views["exposure"]
         assert "#culture" not in views["exposure"]
-        assert "#culture" in views["cellculture"]
-        assert "#exposure" not in views["cellculture"]
+        assert "#culture" in views["testsystempreparation"]
+        assert "#exposure" not in views["testsystempreparation"]
 
     def test_a_flavour_brings_the_context_its_parent_brings(self) -> None:
         """Narrowing the steps must not strip what makes a step readable — the
@@ -666,7 +666,7 @@ class TestProcessFlavours:
         members = _views(payload)
 
         assert counts["exposure"] == 1
-        assert counts["cellculture"] == 1
+        assert counts["testsystempreparation"] == 1
         assert len(members["exposure"]) > counts["exposure"]  # context is drawn, not counted
 
     def test_the_flavours_follow_their_parent_in_the_offered_order(self) -> None:

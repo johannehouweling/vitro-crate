@@ -255,7 +255,7 @@ class TestResolveCellLine:
         A ``CellLineSample`` with only a name is a valid ISA Sample and is what
         the arm produced before this composite. Returning ``{ok: False}`` would
         delete the cell line from every crate whose line is not catalogued,
-        taking ``CellCulture.cell_line`` and the Study's ``cell_lines`` mention
+        taking ``TestSystemPreparation.cell_line`` and the Study's ``cell_lines`` mention
         with it — so the entity is always minted and there is no ``ok`` key.
         """
         for field in ("id", "sy"):

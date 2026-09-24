@@ -229,7 +229,9 @@ class TestNothingIsManufactured:
         state, (assay_id,) = _scaffold(["protocol.docx"])
 
         result = draft_process_chain(
-            state, assay_id, chain=[{"process_type": "CellCulture", "hints": {"name": "Seed"}}]
+            state,
+            assay_id,
+            chain=[{"process_type": "TestSystemPreparation", "hints": {"name": "Seed"}}],
         )
 
         assert len(result["synthesized"]) == 1
