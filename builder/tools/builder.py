@@ -566,13 +566,14 @@ def export_crate(
         embed_report: Write the maturity report (ro-crate-metadata-maturity.html, #85)
             into the crate (default True). Set False to skip it.
         validate: Validate before writing, unless the recorded verdict is already
-            current AND covers every severity tier (default True). The export
-            embeds a maturity report whose verdict comes from
-            ``state.validation``; without this, a crate edited after its last
-            validation ships a report describing a state nobody checked. The
-            sweep runs at the widest gate so REQUIRED, RECOMMENDED and OPTIONAL
-            are all assessed. A failing validation does NOT block the write —
-            the crate is still written and the report states the real verdict.
+            current, covers every severity tier AND asked about ISA
+            reachability (default True). The export embeds a maturity report
+            whose verdict comes from ``state.validation``; without this, a
+            crate edited after its last validation ships a report describing a
+            state nobody checked. The sweep runs at the widest gate so
+            REQUIRED, RECOMMENDED and OPTIONAL are all assessed. A failing
+            validation does NOT block the write — the crate is still written and
+            the report states the real verdict.
 
     Returns:
         A dict with keys:
@@ -583,8 +584,9 @@ def export_crate(
             validation (dict): ``{"ran", "reason", "ok", "error", "severity",
                 "issue_counts"}`` from the pre-write freshness check —
                 ``reason`` is ``"fresh"`` (skipped, the recorded verdict still
-                describes this crate and covers every tier),
-                ``"tiers-incomplete"``, ``"never-validated"`` or ``"stale"``.
+                describes this crate, covers every tier and asked about ISA
+                reachability), ``"tiers-incomplete"``,
+                ``"reachability-unasked"``, ``"never-validated"`` or ``"stale"``.
                 ``ok`` is REQUIRED conformance, the ISA backbone's reachability
                 included (#738); RECOMMENDED/OPTIONAL findings appear in
                 ``issue_counts`` and never mark the export not-ok. Absent when
@@ -616,25 +618,6 @@ def export_crate(
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Validate BEFORE assembling, so the maturity report embedded below
-        # reports on the crate actually being written. Runs the FULL severity
-        # gate ("optional" covers REQUIRED + RECOMMENDED + OPTIONAL): the report
-        # has a row for each tier, and a REQUIRED-only sweep left two of the
-        # three reading "not assessed" in the finished crate. Skipped only when
-        # the recorded verdict both matches the state and already covers every
-        # tier. Never blocks the write: the report tells the truth.
-        validation_info: dict[str, Any] | None = None
-        if validate:
-            from builder.tools.validation import ensure_validated
-
-            validation_info = ensure_validated(state, severity="optional")
-            if validation_info["error"]:
-                logger.warning(
-                    "Export-time validation did not complete (%s); the maturity "
-                    "report will mark the verdict unverified",
-                    validation_info["error"],
-                )
-
         # Wire domain entities that nothing references onto the process that used
         # them (#438/#273). A compound reaches the experiment only through the
         # Exposure's `chemicals` field, and neither build arm guarantees that is
@@ -653,6 +636,26 @@ def export_crate(
         except Exception as wire_err:  # noqa: BLE001 — wiring never fails an export
             logger.warning("Could not wire unreferenced domain entities: %s", wire_err)
             wiring = {"wired": {}, "ambiguous": []}
+
+        # Validate AFTER the wiring above and BEFORE assembling, so the maturity
+        # report embedded below reports on the crate actually being written.
+        # Runs the FULL severity gate ("optional" covers REQUIRED + RECOMMENDED
+        # + OPTIONAL): the report has a row for each tier, and a REQUIRED-only
+        # sweep left two of the three reading "not assessed" in the finished
+        # crate. Skipped only when the recorded verdict matches the state, covers
+        # every tier and asked about ISA reachability. Never blocks the write:
+        # the report tells the truth.
+        validation_info: dict[str, Any] | None = None
+        if validate:
+            from builder.tools.validation import ensure_validated
+
+            validation_info = ensure_validated(state, severity="optional")
+            if validation_info["error"]:
+                logger.warning(
+                    "Export-time validation did not complete (%s); the maturity "
+                    "report will mark the verdict unverified",
+                    validation_info["error"],
+                )
 
         # Stamp what produced this crate — application, version, model, and the
         # run's tokens/cost/wall-clock — immediately before assembly, so the

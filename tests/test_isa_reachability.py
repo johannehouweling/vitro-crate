@@ -325,6 +325,41 @@ class TestTheInLoopVerdictCarriesReachability:
         )
         assert state.validation.isa_reachability_checked is True
 
+    def test_the_gap_engine_carries_it_as_a_must_gap(self, tmp_path: Path) -> None:
+        """The guidance summary reads `assess_gaps`, which must agree with the loop.
+
+        Report-only: the edge is missing on whatever should point AT the entity,
+        so no value the guidance loop could set on the entity itself clears it.
+        """
+        from builder.tools.gap_analysis import REPORT_ONLY, assess_gaps
+
+        report = assess_gaps(_state_with_a_detached_process(tmp_path))
+
+        assert report.conformance["isa"] is False
+        assert [
+            (g.tier, g.fix_hint)
+            for g in report.gaps
+            if g.source == "shacl" and "proc_orphan" in (g.entity_id or "") and g.tier == "MUST"
+        ] == [("MUST", REPORT_ONLY)]
+
+    def test_a_current_verdict_that_never_asked_is_re_run(self, tmp_path: Path) -> None:
+        """A disk `validate` report covers every tier and never asked (#738)."""
+        from builder.tools.validation import ensure_validated
+
+        state = _state_with_a_detached_process(tmp_path)
+        state.validation = ValidationReport(
+            base_passed=True,
+            isa_passed=True,
+            tox_passed=True,
+            assessed_tiers={"required", "recommended", "optional"},
+            input_fingerprint=state.validation_fingerprint(),
+        )
+
+        info = ensure_validated(state)
+
+        assert (info["ran"], info["reason"]) == (True, "reachability-unasked")
+        assert any("proc_orphan" in issue for issue in state.validation.required_issues)
+
 
 class TestExportRefusesToCallADetachedBackboneClean:
     """The end-to-end regression: the shipped report must not say Conformant."""
@@ -341,6 +376,23 @@ class TestExportRefusesToCallADetachedBackboneClean:
             state.validation.required_issues
         )
         assert state.validation.isa_passed is False
+
+    def test_a_sample_the_export_itself_wires_on_is_not_reported(self, tmp_path: Path) -> None:
+        """The verdict describes the crate written, after export's own wiring step."""
+        state = vhps_fixture_state("S-VHPS21")
+        state.add_entity(
+            Entity(
+                entity_id="cell_primary",
+                type="CellLineSample",
+                fields={"name": "Primary hepatocytes", "source_kind": "primary cells"},
+            )
+        )
+
+        result = export_crate(state, str(tmp_path / "crate"))
+
+        assert result["wiring"]["wired"] == {"cell_lines": ["cell_primary"]}
+        assert result["validation"]["ok"] is True
+        assert not any("cell_primary" in i for i in state.validation.required_issues)
 
     def test_the_embedded_report_does_not_headline_conformant(self, tmp_path: Path) -> None:
         state = _state_with_a_detached_process(tmp_path)

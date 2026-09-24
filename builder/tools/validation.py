@@ -284,8 +284,8 @@ def verify_isa_reachability(
     to an unreached node is the root of an island (the AOP head, to its
     KeyEvents) and is reported like any local entity.
 
-    Runs inside :func:`build_and_validate` beside the ISA pass, so every
-    verdict that ran the pass carries the answer (#738). O(V+E).
+    :func:`fold_isa_reachability` asks it beside the ISA pass, so every
+    in-memory verdict that ran the pass carries the answer (#738). O(V+E).
 
     Args:
         metadata: The ``crate.metadata.generate()`` document, the parsed
@@ -323,7 +323,9 @@ def verify_isa_reachability(
         issues.append(
             {
                 "entity_id": entity_id,
-                "property": "about",
+                # None: the missing edge belongs to whatever should point AT the
+                # entity, so no field set on the entity itself can clear it.
+                "property": None,
                 "message": (
                     f"Nothing the crate's root reaches references the {kind} "
                     f"{entity_id!r}, so it is detached from the ISA backbone and every "
@@ -340,6 +342,24 @@ def verify_isa_reachability(
             }
         )
     return issues
+
+
+def fold_isa_reachability(
+    metadata: dict[str, Any], conformance: dict[str, bool], issues: list[dict[str, Any]]
+) -> None:
+    """Carry :func:`verify_isa_reachability` into a verdict that ran the ISA pass (#738).
+
+    Asked beside the ISA pass, never after it, by both in-memory producers —
+    :func:`build_and_validate` and the gap engine's ``_shacl_gaps`` — so the
+    loop, the write-back, the export gate and the guidance summary all read one
+    answer and no ``ok`` predates it. Extends *issues* and folds the finding
+    into ``conformance["isa"]`` in place; a verdict without the ISA pass is left
+    alone.
+    """
+    if "isa" in conformance:
+        detached = verify_isa_reachability(metadata)
+        issues.extend(detached)
+        conformance["isa"] = conformance["isa"] and not detached
 
 
 def record_payload_check(state: CrateState, crate: Any) -> list[dict[str, Any]]:
@@ -687,15 +707,9 @@ def build_and_validate(
             len(citations),
         )
 
-    # Asked beside the ISA pass, never after it: a verdict reached here is the
-    # one the loop acts on, the write-back records, and the export gate serves
-    # from the memo below, so there is no `ok` that predates the answer (#738).
     # After the citation split on purpose — a detached entity is one the crate
     # describes, by construction, so the finding is never vocabulary.
-    if "isa" in conformance:
-        detached = verify_isa_reachability(metadata_doc)
-        issues.extend(detached)
-        conformance["isa"] = conformance["isa"] and not detached
+    fold_isa_reachability(metadata_doc, conformance, issues)
 
     if memo_key:
         _remember_sweep(memo_key, profile, severity, conformance, issues, citations)
@@ -1057,9 +1071,9 @@ def ensure_validated(
     Returns:
         ``{"ran", "reason", "ok", "error", "severity", "issue_counts"}`` where
         ``reason`` is ``"fresh"`` / ``"never-validated"`` / ``"stale"`` /
-        ``"tiers-incomplete"``, and ``ok`` reports REQUIRED conformance only —
-        advisory findings at the wider tiers are reported in ``issue_counts``,
-        never as a failed export.
+        ``"tiers-incomplete"`` / ``"reachability-unasked"``, and ``ok`` reports
+        REQUIRED conformance only — advisory findings at the wider tiers are
+        reported in ``issue_counts``, never as a failed export.
     """
     report = state.validation
     has_verdict = bool(
@@ -1082,7 +1096,7 @@ def ensure_validated(
                 "severity": severity,
                 "issue_counts": _recorded_tier_counts(report),
             }
-        reason = "tiers-incomplete"
+        reason = "tiers-incomplete" if missing_tiers else "reachability-unasked"
     else:
         reason = "stale" if has_verdict else "never-validated"
 
