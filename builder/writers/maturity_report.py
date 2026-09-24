@@ -2612,7 +2612,7 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
     artifact); the entities are cell lines, and the wording keeps
     "cell line" only where it names the declaration being checked.
     The same two questions the compound view asks, because a model fails the
-    same two ways. It is *unreachable* when the ``CellCulture`` consumes a freshly
+    same two ways. It is *unreachable* when the ``TestSystemPreparation`` consumes a freshly
     minted generic ``Sample`` instead of the declared ``CellLineSample`` — the
     line is then described and used by nothing. It is *unidentified* when it
     carries a name but no Cellosaurus RRID: "CHO-K1" names a family of divergent
@@ -2639,10 +2639,10 @@ def _render_celllines_panel(inv: dict[str, Any]) -> tuple[str, str]:
     if unreached:
         notes.append(
             f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {total} biological '
-            "samples are not consumed by any process.</b> The <code>CellCulture</code> should "
-            "take the declared sample as its <code>input</code> — when it takes a freshly "
-            "minted generic <code>Sample</code> instead, the declared one is described in the "
-            "crate and used by nothing.</span></p>"
+            "samples are not consumed by any process.</b> The <code>TestSystemPreparation</code> "
+            "should take the declared sample as its <code>input</code> — when it takes a "
+            "freshly minted generic <code>Sample</code> instead, the declared one is described "
+            "in the crate and used by nothing.</span></p>"
         )
     if unpinned:
         notes.append(

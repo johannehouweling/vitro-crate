@@ -53,7 +53,7 @@ def valid_doc(tmp_path_factory):
             "proc_cult",
             "LabProcess",
             name="Culture neural cells",
-            process_type="CellCulture",
+            process_type="TestSystemPreparation",
             assay_id="assay_1",
             cell_line=["cell_a", "cell_b"],
             culture_medium="CT medium",
@@ -162,6 +162,45 @@ class TestACoCultureIsAMixture:
         assert not _tox(doc).passed_required, (
             "a co-culture of one cell line is a contradiction"
         )
+
+
+def _preparations(doc):
+    """The crate's test-system preparation steps."""
+    steps = [n for n in doc["@graph"] if n.get("additionalType") == "TestSystemPreparation"]
+    assert steps, "no TestSystemPreparation step in the fixture"
+    return steps
+
+
+class TestAPreparationSaysWhatItPrepared:
+    """A preparation step names the source it prepared, under either spelling (#785).
+
+    ``TestSystemPreparation`` is the discriminator; ``CellCulture`` is the
+    deprecated alias every crate exported before it carries, and those crates are
+    held to the same shape rather than validating as an unconstrained LabProcess.
+    """
+
+    def test_a_test_system_preparation_with_no_input_is_a_violation(self, valid_doc):
+        doc = copy.deepcopy(valid_doc)
+        step = _preparations(doc)[0]
+        del step["input"]
+        result = _tox(doc)
+        assert not result.passed_required
+        assert any(
+            i.entity_id and i.entity_id.endswith(step["@id"]) and "schema:object" in i.message
+            for i in result.issues
+        ), [i.message for i in result.issues]
+
+    def test_the_deprecated_cellculture_literal_is_held_to_the_same_shape(self, valid_doc):
+        doc = copy.deepcopy(valid_doc)
+        step = _preparations(doc)[0]
+        step["additionalType"] = "CellCulture"
+        del step["input"]
+        result = _tox(doc)
+        assert not result.passed_required
+        assert any(
+            i.entity_id and i.entity_id.endswith(step["@id"]) and "schema:object" in i.message
+            for i in result.issues
+        ), [i.message for i in result.issues]
 
 
 def _with_readout(doc, *, consumes):

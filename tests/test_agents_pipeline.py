@@ -760,11 +760,11 @@ class TestMaterializePlan:
             # EVERY typed step MUST carry at least one schema:additionalProperty
             # under the tox profile, and `_pv` no longer publishes "unknown" to
             # satisfy it — so a plan whose crate is expected to CONFORM has to
-            # supply a real parameter per step. CellCulture used to be the
+            # supply a real parameter per step. TestSystemPreparation used to be the
             # exception only because the mapper defaulted a missing medium to
             # "Standard medium"; that fabrication is gone, so it states one.
             {
-                "process_type": "CellCulture",
+                "process_type": "TestSystemPreparation",
                 "name": "Seed cells",
                 "parameters": {"culture_medium": "DMEM + 10% FBS"},
             },
@@ -1009,7 +1009,7 @@ class TestMaterializePlan:
         # Process chain → 4 LabProcess steps wired to the assay.
         procs = self._by_type(engine, "LabProcess")
         ptypes = {p.fields.get("process_type") for p in procs}
-        assert ptypes == {"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"}
+        assert ptypes == {"TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"}
 
         # Protocol → LabProtocol minted from the name/description (D5: no id), and
         # linked to the EndpointReadout process it governs (executesLabProtocol).
@@ -1636,7 +1636,7 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
       (objects MUST be File/Sample/BioSample), so the compound is a ``reagent`` of
       the Exposure's CSVW condition table and, at a glance, on the Study via
       ``schema:mentions`` (the ``chemicals`` Study mention).
-    * the resolved ``CellLineSample`` → the CellCulture LabProcess via the
+    * the resolved ``CellLineSample`` → the TestSystemPreparation LabProcess via the
       ``cell_line`` ref field (its consumed input), replacing the synthesized
       generic ``..._input`` placeholder; also surfaced on the Study via
       ``cell_lines`` (``biologicalModels``, an alias of ``schema:mentions``).
@@ -1718,9 +1718,11 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
         wired_chem_ids = {str(c).lstrip("#") for c in wired_chem_ids if c}
         assert wired_chem_ids == {c.lstrip("#") for c in chem_ids}
 
-        # The CellCulture references the actual cell-line Sample via `cell_line`
+        # The TestSystemPreparation references the actual cell-line Sample via `cell_line`
         # (not a synthesized generic `_input`).
-        cell_culture = next(p for p in procs if p.fields.get("process_type") == "CellCulture")
+        cell_culture = next(
+            p for p in procs if p.fields.get("process_type") == "TestSystemPreparation"
+        )
         cell_ids = {c.entity_id for c in self._by_type(engine, "CellLineSample")}
         assert cell_ids, "no CellLineSample resolved — test setup is wrong"
         wired_cell = cell_culture.fields.get("cell_line")
@@ -2090,7 +2092,7 @@ class TestMaterializeCellLineAccessionFromThePlan:
         """Honesty control: an uncatalogued line still mints, with NO accession.
 
         This is the divergence from ``resolve_compound`` that keeps the crate
-        whole — the Sample survives so ``CellCulture.cell_line`` and the Study's
+        whole — the Sample survives so ``TestSystemPreparation.cell_line`` and the Study's
         ``cell_lines`` mention still have something to point at — and it is also
         the proof that the accession above was not manufactured by the wiring.
         """
@@ -3165,7 +3167,7 @@ def _scanned(
 
 class TestMaterializeStandardProcessChain:
     """`_materialize_plan` deterministically drafts the standard 4-step in-vitro
-    chain (CellCulture → Exposure → EndpointReadout → DataAnalysis) under the
+    chain (TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis) under the
     scaffolded Assay — regardless of whether an LLM provider is configured.
 
     Before #262 the pipeline only drafted a chain from a provider-extracted plan,
@@ -3205,7 +3207,7 @@ class TestMaterializeStandardProcessChain:
 
         procs = self._by_type(engine, "LabProcess")
         assert {p.fields.get("process_type") for p in procs} == {
-            "CellCulture",
+            "TestSystemPreparation",
             "Exposure",
             "EndpointReadout",
             "DataAnalysis",
@@ -3264,7 +3266,7 @@ class TestMaterializeStandardProcessChain:
         run_pipeline(engine)
         procs = self._by_type(engine, "LabProcess")
         assert {p.fields.get("process_type") for p in procs} == {
-            "CellCulture",
+            "TestSystemPreparation",
             "Exposure",
             "EndpointReadout",
             "DataAnalysis",

@@ -1,6 +1,6 @@
-"""One CellCulture per cell line, and one exposed Sample per cultured one (#678).
+"""One TestSystemPreparation per cell line, and one exposed Sample per cultured one (#678).
 
-The crate used to assert a co-culture that never happened: a single CellCulture
+The crate used to assert a co-culture that never happened: a single TestSystemPreparation
 consumed every named line and emitted ONE Sample whose ``derivesFrom`` listed all
 of them. The deposit says otherwise — S-VHPS22 ships one culture protocol
 document per line. These pin the split, and pin it at both hops, because
@@ -71,7 +71,7 @@ def _two_line_culture(**extra):
             "proc_cult",
             "LabProcess",
             name="Culture SK-N-AS and MO3.13 neural cells",
-            process_type="CellCulture",
+            process_type="TestSystemPreparation",
             assay_id="assay_1",
             cell_line=["cell_a", "cell_b"],
             culture_medium="CT medium",
@@ -84,7 +84,7 @@ def _two_line_culture(**extra):
 class TestCultureSplitsPerCellLine:
     def test_two_lines_yield_two_culture_processes(self, tmp_path):
         graph, _ = _build(_two_line_culture(), tmp_path)
-        cultures = _processes(graph, "CellCulture")
+        cultures = _processes(graph, "TestSystemPreparation")
         assert len(cultures) == 2, (
             "a culture naming two lines is two culturing activities, not one: "
             f"got {[c.get('name') for c in cultures]}"
@@ -92,7 +92,7 @@ class TestCultureSplitsPerCellLine:
 
     def test_each_culture_consumes_exactly_one_line(self, tmp_path):
         graph, _ = _build(_two_line_culture(), tmp_path)
-        for culture in _processes(graph, "CellCulture"):
+        for culture in _processes(graph, "TestSystemPreparation"):
             consumed = _ids(culture.get("input"))
             assert len(consumed) == 1, (
                 f"{culture.get('name')!r} consumed {len(consumed)} cell lines; "
@@ -102,7 +102,7 @@ class TestCultureSplitsPerCellLine:
     def test_no_cultured_sample_derives_from_two_lines(self, tmp_path):
         """The co-culture claim itself. This is the assertion the crate failed."""
         graph, by_id = _build(_two_line_culture(), tmp_path)
-        for culture in _processes(graph, "CellCulture"):
+        for culture in _processes(graph, "TestSystemPreparation"):
             for out_id in _ids(culture.get("output")):
                 sample = by_id.get(out_id)
                 assert sample is not None, f"{out_id} produced but not described"
@@ -118,7 +118,7 @@ class TestCultureSplitsPerCellLine:
         graph, _ = _build(_two_line_culture(), tmp_path)
         consumed = {
             cid
-            for culture in _processes(graph, "CellCulture")
+            for culture in _processes(graph, "TestSystemPreparation")
             for cid in _ids(culture.get("input"))
         }
         assert "https://www.cellosaurus.org/CVCL_1700" in consumed
@@ -144,7 +144,7 @@ class TestExposureDoesNotRelocateTheMerge:
         graph, _ = _build(self._state(), tmp_path)
         cultured = {
             out
-            for culture in _processes(graph, "CellCulture")
+            for culture in _processes(graph, "TestSystemPreparation")
             for out in _ids(culture.get("output"))
         }
         exposure = _processes(graph, "Exposure")[0]
@@ -188,7 +188,7 @@ class TestTheReadoutMeasuresWhatTheExposureProduced:
     ``_chain_processes`` redirects a readout off the cultured sample onto the
     exposed one, but grouped by ASSAY — and culturing is study-level, shared
     between the deiodinase and metabolism assays. The deiodinase group held no
-    CellCulture, so its ``cultured_ids`` was empty, the guard never matched, and
+    TestSystemPreparation, so its ``cultured_ids`` was empty, the guard never matched, and
     its readout kept consuming the culture while an exposure sat between them.
     """
 
@@ -206,7 +206,7 @@ class TestTheReadoutMeasuresWhatTheExposureProduced:
                 "proc_cult",
                 "LabProcess",
                 name="Culture SK-N-AS",
-                process_type="CellCulture",
+                process_type="TestSystemPreparation",
                 assay_id="assay_1",
                 cell_line="cell_a",
                 culture_medium="CT medium",
@@ -308,7 +308,7 @@ class TestAProtocolSitsWhereItIsUsed:
                     f"proc_{n}",
                     "LabProcess",
                     name=f"Culture {n}",
-                    process_type="CellCulture",
+                    process_type="TestSystemPreparation",
                     assay_id=assay,
                     cell_line=line,
                     culture_medium="DMEM",

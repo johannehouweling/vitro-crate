@@ -1666,6 +1666,22 @@ def _migrate_documents(documents: list[Any]) -> list[Any]:
     return migrated
 
 
+def _migrate_process_types(store: EntityStore) -> EntityStore:
+    """Read a pre-#785 session's culture step under the current discriminator.
+
+    ``CellCulture`` is the deprecated spelling of ``TestSystemPreparation``, and
+    every reader keys on the new one: left as it was, the step would build as a
+    plain LabProcess with no cell-line input and no cultured Sample, and validate
+    and score differently from the session it came from. Renamed once here, like
+    :func:`_migrate_documents`; nothing else is added to the step.
+    """
+    for process in store.lab_processes.values():
+        for key in ("process_type", "additionalType"):
+            if process.fields.get(key) == "CellCulture":
+                process.fields[key] = "TestSystemPreparation"
+    return store
+
+
 # ===================================================================
 # StateSerializer - JSON (de)serialization for CrateState
 # ===================================================================
@@ -1757,7 +1773,7 @@ class StateSerializer:
             updated_at=data.get("updated_at", ""),
             metadata=CrateMetadata.from_dict(data.get("metadata", {})),
             generator=GeneratorInfo.from_dict(data.get("generator", {})),
-            entities=EntityStore.from_dict(data.get("entities", {})),
+            entities=_migrate_process_types(EntityStore.from_dict(data.get("entities", {}))),
             approved_scan_roots=set(data.get("approved_scan_roots", [])),
             scanned_files=[FileClassification.from_dict(f) for f in data.get("scanned_files", [])],
             documents=_migrate_documents(data.get("documents") or []),

@@ -69,7 +69,7 @@ def _representative_state() -> CrateState:
             "cc",
             "LabProcess",
             name="Cell Culture",
-            process_type="CellCulture",
+            process_type="TestSystemPreparation",
             assay_id="assay_1",
             cell_line="cell_1",
             culture_medium="DMEM + 10% FBS",

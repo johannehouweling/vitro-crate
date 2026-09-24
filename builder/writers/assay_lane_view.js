@@ -5,7 +5,7 @@
  * the layered pass and then hung a band underneath. That inherited two defects
  * the layered pass cannot avoid here. Sibling steps land in ONE rank sharing an
  * x, so their satellites were dealt into the same cell and drew on top of each
- * other — normal since #678 gave every cell line its own CellCulture. And a
+ * other — normal since #678 gave every cell line its own preparation step. And a
  * spine that is not one connected component was declined outright, so a
  * characterisation assay with no Exposure fell back to the canvas the lane
  * exists to improve on.
@@ -20,7 +20,7 @@
  *
  * Two consequences the old module had to work for, and this one gets for free:
  *
- *   * A rank is a COLUMN. Two CellCultures stack; they cannot coincide, because
+ *   * A rank is a COLUMN. Two preparation steps stack; they cannot coincide, because
  *     a rank deals its members down its own column and nothing else is in it.
  *   * A missing step is an EMPTY column, not a broken graph. An assay that ran
  *     no exposure still draws, and the gap is visible in the place the reader
@@ -75,8 +75,8 @@
    */
   var RANKS = [
     { key: 'cellline',  label: 'CELL LINE', kind: 'material', seed: 'CellLineSample' },
-    { key: 'culture',   label: 'CULTURE',   kind: 'process',  of: 'CellCulture' },
-    { key: 'cultured',  label: 'CULTURED',  kind: 'material', from: 'CellCulture' },
+    { key: 'culture',   label: 'PREPARATION', kind: 'process',  of: 'TestSystemPreparation' },
+    { key: 'cultured',  label: 'CULTURED',  kind: 'material', from: 'TestSystemPreparation' },
     { key: 'exposure',  label: 'EXPOSURE',  kind: 'process',  of: 'Exposure' },
     { key: 'exposed',   label: 'EXPOSED',   kind: 'material', from: 'Exposure' },
     { key: 'readout',   label: 'READOUT',   kind: 'process',  of: 'EndpointReadout' },

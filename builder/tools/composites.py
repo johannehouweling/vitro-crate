@@ -174,16 +174,6 @@ def scaffold_isa_backbone(
 # LabProcess derivation chain (Issue #179, task 3)
 # ---------------------------------------------------------------------------
 
-# The canonical order of the gold S-VHPS21 derivation chain. A supplied chain may
-# be any *subset* of these (partial chains work) but is always wired in this
-# order so the provenance flows the right way.
-_CHAIN_ORDER: tuple[str, ...] = (
-    "CellCulture",
-    "Exposure",
-    "EndpointReadout",
-    "DataAnalysis",
-)
-
 # Subtypes that produce *material* (a Sample) vs *data* (a File). Determines
 # which kind of placeholder entity is synthesized to carry a step's output so the
 # next step has something concrete to consume. EndpointReadout / DataAnalysis are
@@ -191,7 +181,7 @@ _CHAIN_ORDER: tuple[str, ...] = (
 # schema:result on them fires a tox Violation — closing that trap is this tool's
 # load-bearing job, and synthesizing an output for *every* producing step keeps
 # the whole derivation chain connected and referenceable.
-_SAMPLE_PRODUCERS = frozenset({"CellCulture"})
+_SAMPLE_PRODUCERS = frozenset({"TestSystemPreparation"})
 
 # Subtypes whose build-time output fallback is the *semantically-correct* output
 # entity, so synthesizing a generic placeholder here would PRE-EMPT it (#285).
@@ -246,11 +236,11 @@ def draft_process_chain(
     Fuses the recurring ``draft_process`` + ``link`` sequence that wires the gold
     S-VHPS21 chain::
 
-        Sample →[CellCulture]→ Sample →[Exposure]→ Sample
+        Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample
                →[EndpointReadout]→ raw/result →[DataAnalysis]→ figures
 
     into a single call. ``chain`` is an ordered list of step dicts; each step has
-    a ``process_type`` (a subset of CellCulture / Exposure / EndpointReadout /
+    a ``process_type`` (a subset of TestSystemPreparation / Exposure / EndpointReadout /
     DataAnalysis — **partial chains are allowed**), optional ``hints`` (passed
     straight to :func:`draft_process`), and optional explicit ``object`` /
     ``result`` reference id(s) (or their ``input`` / ``output`` aliases). Steps
@@ -258,7 +248,7 @@ def draft_process_chain(
     weak model cannot mis-sequence the provenance.
 
     **The load-bearing job — output synthesis (AGENTS.md §14.3).** Unlike
-    CellCulture / Exposure, ``EndpointReadout`` and ``DataAnalysis`` have **no
+    TestSystemPreparation / Exposure, ``EndpointReadout`` and ``DataAnalysis`` have **no
     build-time output fallback**: a process with no explicit ``result`` (and, for
     DataAnalysis, no ``object``) fires a tox REQUIRED Violation and the chain
     dangles. This composite closes that trap:
@@ -268,7 +258,7 @@ def draft_process_chain(
     - For any step that still lacks a required output (``result`` for both,
       ``object`` for DataAnalysis), it **synthesizes an explicit placeholder data
       entity** — a :func:`~builder.tools.drafters.draft_sample` Sample for a
-      material producer (CellCulture) or a
+      material producer (TestSystemPreparation) or a
       :func:`~builder.tools.provenance.draft_file` File for a data producer — and
       wires it with :func:`~builder.tools.provenance.link`.
 
@@ -336,7 +326,7 @@ def draft_process_chain(
 
     # Wire in canonical order regardless of input order so the model cannot
     # mis-sequence the provenance. Within a type, preserve the caller's order.
-    ordered = sorted(steps_in, key=lambda s: _CHAIN_ORDER.index(s["process_type"]))
+    ordered = sorted(steps_in, key=lambda s: VALID_PROCESS_TYPES.index(s["process_type"]))
 
     process_ids: list[str] = []
     step_summaries: list[dict[str, Any]] = []
@@ -543,7 +533,7 @@ def _deposit_evidences(state: CrateState, ptype: str) -> bool:
     does after drafting the chain, so an assay-scoped answer here would read "no
     evidence" on every run and delete the chain outright.
 
-    ``True`` for a subtype producing no data file (CellCulture, Exposure), whose
+    ``True`` for a subtype producing no data file (TestSystemPreparation, Exposure), whose
     output is a Sample — the cultured and the exposed one respectively.
     """
     if _CLASS_FOR_PROCESS.get(ptype) is None:
@@ -624,7 +614,7 @@ def _deposited_outputs(state: CrateState, assay_id: str, ptype: str) -> list[Ent
 
 
 def _synthesize_output(state: CrateState, proc: Entity, draft_sample_fn: Any) -> Entity:
-    """The Sample a material producer (CellCulture) yields, created deterministically.
+    """The Sample a material producer (TestSystemPreparation) yields, created deterministically.
 
     Materials only. A data producer used to get a placeholder ``File`` here when
     the deposit held no output for it, so that the tox "MUST have a result"
@@ -2334,7 +2324,7 @@ def resolve_cell_line(
     A ``CellLineSample`` carrying only a name is a valid ISA Sample and is
     exactly what the arm produced before this composite existed, so refusing to
     mint would delete the cell line from every crate whose line is not
-    catalogued — taking the ``CellCulture.cell_line`` input and the Study's
+    catalogued — taking the ``TestSystemPreparation.cell_line`` input and the Study's
     ``cell_lines`` mention with it. **Always mint; the accession is enrichment.**
     There is therefore no ``ok`` key: read ``accession``/``match`` instead.
 
@@ -2562,7 +2552,7 @@ TOOL_REGISTRY.register(
 # the correct statement when there is no process to point at.
 _DOMAIN_WIRING: tuple[tuple[str, str, str, bool, str], ...] = (
     ("MolecularEntity", "Exposure", "chemicals", True, "chemicals"),
-    ("CellLineSample", "CellCulture", "cell_line", False, "cell_lines"),
+    ("CellLineSample", "TestSystemPreparation", "cell_line", False, "cell_lines"),
 )
 
 # Where a domain entity attaches when no suitable process exists. The STUDY,
@@ -2608,7 +2598,7 @@ def _is_consumed_by_process(state: CrateState, target_id: str) -> bool:
         # consumed makes this backstop skip the exact case it exists for.
         #
         # The process type is half of that key and cannot be dropped. A
-        # CellLineSample has a build home under a CellCulture (`cell_line`), but
+        # CellLineSample has a build home under a TestSystemPreparation (`cell_line`), but
         # under an Exposure it is an ordinary `samples` participant that the
         # build does read. Narrowing it everywhere marked it permanently loose,
         # so `wire_unreferenced_domain_entities` re-wired it on every call —
@@ -2652,7 +2642,7 @@ def wire_unreferenced_domain_entities(state: CrateState) -> dict[str, Any]:
         # "Loose" means NO PROCESS USES IT, not "nothing mentions it". A cell
         # line listed under the Study's `cell_lines` and pointed at by a
         # placeholder Sample's `derives_from` satisfied the old reference test
-        # while the CellCulture that supposedly grew it consumed neither — so
+        # while the TestSystemPreparation that supposedly grew it consumed neither — so
         # the backstop skipped exactly the case it exists for. Wiring is
         # idempotent and unions with what is already there, so re-stating a
         # container mention costs nothing when there is no process to point at.

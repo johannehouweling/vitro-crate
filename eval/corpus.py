@@ -309,8 +309,8 @@ def _arbitrary_tox_folder_state() -> CrateState:
     ``arbitrary_tox_folder`` fixture: not just a backbone + one Exposure, but the
     full ISA-Tox study described in ``profiles/docs/isa_tox.md`` — the ISA
     backbone, the contributors, a cell line, a compound, a protocol, the two
-    attached data files, and the **four-step derivation chain** (CellCulture →
-    Exposure → EndpointReadout → DataAnalysis). It is REQUIRED-clean across
+    attached data files, and the **four-step derivation chain** (TestSystemPreparation
+    → Exposure → EndpointReadout → DataAnalysis). It is REQUIRED-clean across
     base/ISA/ISA-Tox *and* satisfies that case's complete-study ``min_entities``
     quota, so the content-quality signal is exercisable offline with a mock agent.
 
@@ -400,14 +400,14 @@ def _arbitrary_tox_folder_state() -> CrateState:
         _ent("proc", "File", name="ic50_results.csv", path="analysis/ic50_results.csv")
     )
 
-    # The full four-step derivation chain: CellCulture → Exposure →
+    # The full four-step derivation chain: TestSystemPreparation → Exposure →
     # EndpointReadout → DataAnalysis.
     state.add_entity(
         _ent(
             "culture",
             "LabProcess",
             name="FRTL-5 cell culture",
-            process_type="CellCulture",
+            process_type="TestSystemPreparation",
             assay_id="assay",
             samples="cell",
             protocol_id="protocol",
@@ -578,7 +578,7 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
         # Complete-study quota (counted from profiles/docs/isa_tox.md): the ISA
         # backbone is 3 entities (Investigation + Study + Assay); a complete study
         # adds >= 1 CellLine Sample, >= 1 MolecularEntity (the test chemical), >= 1
-        # LabProtocol, the full four-step LabProcess chain (CellCulture, Exposure,
+        # LabProtocol, the full four-step LabProcess chain (TestSystemPreparation, Exposure,
         # EndpointReadout, DataAnalysis = 4), and the raw + processed data Files
         # (>= 2). That is a conservative floor: it demands the WHOLE derivation
         # chain, so an agent that reaches conformance with only a backbone + one

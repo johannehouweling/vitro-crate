@@ -85,11 +85,11 @@ def _crate() -> dict:
             },
             # LabProtocol (L2)
             {"@id": "#proto", "@type": "LabProtocol", "name": "Culture protocol"},
-            # CellCulture (L3)
+            # TestSystemPreparation (L3)
             {
                 "@id": "#cc",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": "Cell Culture",
                 "input": {"@id": "#hepg2"},
                 "output": {"@id": "#cult"},
@@ -241,7 +241,7 @@ def test_layer_classification() -> None:
     assert nodes["#cult"]["layer"] == 2  # plain Sample
     assert nodes["#cellline-term"]["layer"] == 2  # DefinedTerm
     assert nodes["#proto"]["layer"] == 2  # LabProtocol
-    assert nodes["#cc"]["layer"] == 3  # CellCulture
+    assert nodes["#cc"]["layer"] == 3  # TestSystemPreparation
     assert nodes["#exp"]["layer"] == 3  # Exposure
     assert nodes["#aflb1"]["layer"] == 3  # MolecularEntity
     assert nodes["#tbl"]["layer"] == 3  # File+csvw:Table override
@@ -249,6 +249,15 @@ def test_layer_classification() -> None:
     assert nodes["#col1"]["layer"] == 3  # csvw:Column
     assert nodes["#raw"]["layer"] == 1  # plain File
     assert nodes["https://orcid.org/0000-0002-1825-0097"]["layer"] == 1  # Person
+
+
+def test_a_deprecated_cellculture_step_is_drawn_as_a_preparation_step() -> None:
+    """A crate exported before #785 names its preparation step ``CellCulture``,
+    the deprecated alias; the graph draws it as the step it is."""
+    crate = _crate()
+    next(n for n in crate["@graph"] if n["@id"] == "#cc")["additionalType"] = "CellCulture"
+    node = _by_id(build_crate_graph(crate))["#cc"]
+    assert (node["type"], node["layer"]) == ("TestSystemPreparation", 3)
 
 
 # --- functional category (node colour/shape, orthogonal to layer) -----------
@@ -259,7 +268,7 @@ def test_entity_category_is_functional_not_layer() -> None:
     assert nodes["./"]["category"] == "container"  # root Dataset
     assert nodes["#study1"]["category"] == "container"
     assert nodes["#assay1"]["category"] == "container"
-    assert nodes["#cc"]["category"] == "process"  # CellCulture
+    assert nodes["#cc"]["category"] == "process"  # TestSystemPreparation
     assert nodes["#exp"]["category"] == "process"
     assert nodes["#proto"]["category"] == "protocol"
     assert nodes["#hepg2"]["category"] == "material"  # CellLine Sample
@@ -410,7 +419,7 @@ def _edge(model: dict, src: str, dst: str) -> dict | None:
 def test_process_input_edge_is_reversed() -> None:
     """input/object/samples point FROM the consumed entity INTO the process."""
     model = build_crate_graph(_crate())
-    assert _edge(model, "#hepg2", "#cc") is not None  # HepG2 --input--> CellCulture
+    assert _edge(model, "#hepg2", "#cc") is not None  # HepG2 --input--> TestSystemPreparation
     assert _edge(model, "#cc", "#hepg2") is None
 
 

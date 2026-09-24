@@ -19,7 +19,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 _SCHEMA = Namespace("http://schema.org/")
 _TOX = Namespace("https://w3id.org/ro/crate/isa-tox/1.0/")
 
-# `### LabProcess - Cell Culture` up to the next heading, and its object/result rows.
+# `### LabProcess - Test System Preparation` up to the next heading, and its object/result rows.
 _SECTION_RE = re.compile(r"^### LabProcess - (.+?)\n(.*?)(?=^#{2,3} )", re.M | re.S)
 _ROW_RE = re.compile(r"^\|(object|result)\|(MUST|SHOULD|MAY)\|", re.M)
 

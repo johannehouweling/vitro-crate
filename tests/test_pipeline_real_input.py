@@ -495,7 +495,7 @@ class TestRealInputPipeline:
         than regressions:
 
         * that DataAnalysis `additionalProperty`, as above;
-        * the CellCulture `additionalProperty`. Same shape of gap: the SOP names
+        * the TestSystemPreparation `additionalProperty`. Same shape of gap: the SOP names
           the medium ("DMEM: F12 media") only past offset ~12,800, so it never
           reaches the extraction leaf either. The shape reports the missing
           medium rather than the build inventing one — a fabricated default here
@@ -524,7 +524,7 @@ class TestRealInputPipeline:
                 str(i.get("property", "")).endswith("additionalProperty")
                 and (
                     "DataAnalysis" in str(i.get("message", ""))
-                    or "CellCulture" in str(i.get("message", ""))
+                    or "TestSystemPreparation" in str(i.get("message", ""))
                 )
             )
             or str(i.get("property", "")).endswith("result")
@@ -561,7 +561,7 @@ class TestRealInputPipeline:
         # phrase and no short catalogue name, so the exact-match gate finds
         # nothing — and the cell line must survive that anyway. A miss is not a
         # failure: returning {ok: False} would delete the Sample and with it the
-        # CellCulture's `cell_line` input. No canned CVCL_0214 is handed over,
+        # TestSystemPreparation's `cell_line` input. No canned CVCL_0214 is handed over,
         # because "CHO-K1 OATP1C1-overexpressing cells" is not a name Cellosaurus
         # can resolve to the parent line.
         cells = state.list_entities("CellLineSample")
@@ -571,7 +571,7 @@ class TestRealInputPipeline:
         assert "accession" not in cells[0].fields
 
         procs = state.list_entities("LabProcess")
-        assert {"CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"} <= {
+        assert {"TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"} <= {
             p.fields.get("process_type") for p in procs
         }
 

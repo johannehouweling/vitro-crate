@@ -250,6 +250,29 @@ class TestAssessMITCoverage:
             line, graph=_assembled_graph(line, tmp_path)
         )
 
+    def test_the_culture_slots_score_a_test_system_preparation(self, tmp_path):
+        """The vendored checklist keeps its upstream slot name ``LabProcessCellCulture``;
+        what it describes is the preparation step, discriminated
+        ``TestSystemPreparation`` (#785)."""
+        from builder.tools.drafters import draft_process
+        from builder.tools.mit_assessment import slot_matcher
+
+        state = CrateState()
+        state.add_entity(
+            Entity(
+                entity_id="assay_1",
+                type="Assay",
+                fields={"name": "Deiodinase Assay"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        draft_process(
+            state, "assay_1", "TestSystemPreparation", {"name": "Culture", "culture_medium": "DMEM"}
+        )
+        graph = _assembled_graph(state, tmp_path)
+
+        assert slot_matcher(state, graph=graph)("LabProcessCellCulture", "param")
+
 
 class TestUnassessedIsNotZero:
     """A coverage figure nobody measured must be reported as absent (#311).

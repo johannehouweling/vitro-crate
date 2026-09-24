@@ -44,6 +44,7 @@ from builder.agents.llm import (
     _extract_token_usage,
 )
 from builder.tools._crate_mapping import draft_hints_schema
+from builder.tools.drafters import VALID_PROCESS_TYPES
 from builder.tools.field_kinds import (
     _EXCLUDED_DRAFT_FIELDS,
     IDENTIFIER_FIELDS,
@@ -189,7 +190,7 @@ def _process_parameters_schema() -> dict[str, Any]:
 # SINGLE bounded structured-output call on the drafter tier that reads scanned
 # research docs and proposes a CANDIDATE PLAN of the ISA-Tox entities the docs
 # support — the study, the test/control compounds, cell lines, the
-# CellCulture→Exposure→EndpointReadout→DataAnalysis process chain, AOPs, people,
+# TestSystemPreparation→Exposure→EndpointReadout→DataAnalysis process chain, AOPs, people,
 # publications, files, and free-text notes for the user to confirm.
 #
 # It is a *proposal*, not committed truth: every field is optional and the model
@@ -232,7 +233,7 @@ _PLAN_SYSTEM_PROMPT = (
     "You are a bounded planning extractor for ISA-Tox RO-Crates. Read the "
     "provided research documents and propose a CANDIDATE PLAN of the entities "
     "and connections the documents support: the study, test/control compounds, "
-    "cell lines, the CellCulture -> Exposure -> EndpointReadout -> DataAnalysis "
+    "cell lines, the TestSystemPreparation -> Exposure -> EndpointReadout -> DataAnalysis "
     "process chain, AOPs (only if an AOP id is explicitly stated), people, "
     "and publications. This is a PROPOSAL for the user to confirm, not "
     "committed truth. Propose ONLY what the documents support; leave any field "
@@ -384,7 +385,7 @@ def _plan_schema() -> dict[str, Any]:
                 {
                     "process_type": {
                         "type": "string",
-                        "enum": ["CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"],
+                        "enum": list(VALID_PROCESS_TYPES),
                         "description": "Which step of the ISA-Tox LabProcess chain this is.",
                     },
                     "name": {**str_field, "description": "Step name."},
@@ -481,7 +482,7 @@ def extract_plan(
     structured-output call on the drafter tier
     (``_build_chat_model(role="drafter")``) over the scanned-document ``context``.
     It returns a CANDIDATE PLAN — the study, test/control compounds, cell lines,
-    the CellCulture→Exposure→EndpointReadout→DataAnalysis process chain, AOPs,
+    the TestSystemPreparation→Exposure→EndpointReadout→DataAnalysis process chain, AOPs,
     people, publications, files, and free-text ``notes`` — for the user to
     confirm. It does not mutate state and does not orchestrate.
 

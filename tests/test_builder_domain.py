@@ -181,7 +181,7 @@ class TestISAHierarchy:
 class TestTheAssayProtocolReachesItsStep:
     """#650 item 3 — an assay's deposited protocols reach the step they describe.
 
-    Only CellCulture ever got a protocol. EndpointReadout and DataAnalysis fell
+    Only TestSystemPreparation ever got a protocol. EndpointReadout and DataAnalysis fell
     through to nothing, so S-VHPS22's nine assay-scoped documents — the
     transporter assay, Bradford, deiodinase activity, the UPLC run, RNA
     isolation, cDNA/qPCR — were carried in the payload and executed by no step.
@@ -357,7 +357,7 @@ class TestLabProcessSubtypes:
 
     def test_cell_culture(self, tmp_path):
         state = self._state_with_process(
-            "CellCulture",
+            "TestSystemPreparation",
             cell_line="cell_1",
             culture_medium="DMEM",
             result="sample_out",
@@ -366,7 +366,7 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("sample_out", "Sample", name="cultured"))
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
-        assert proc["additionalType"] == "CellCulture"
+        assert proc["additionalType"] == "TestSystemPreparation"
         # No protocol is invented: this deposit holds no culture document, and a
         # step with none has none (#650). `executesLabProtocol` is a SHOULD, so
         # the honest gap costs a recommendation.
@@ -521,7 +521,7 @@ class TestLabProcessSubtypes:
         assert "out.csv" in _ids(proc.get("output"))
 
     def test_process_attached_to_assay_via_about(self, tmp_path):
-        state = self._state_with_process("CellCulture", cell_line="cell_1")
+        state = self._state_with_process("TestSystemPreparation", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
         _, by_id = _build(state, tmp_path)
         assert "#LabProcess_proc_1" in _ids(by_id["#Assay_assay_1"].get("about"))
@@ -538,7 +538,7 @@ class TestLabProcessSubtypes:
         A protocol entity IS its file. With no such document, the process carries
         no protocol and the warning reports the real gap.
         """
-        state = self._state_with_process("CellCulture", cell_line="cell_1")
+        state = self._state_with_process("TestSystemPreparation", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
         graph, by_id = _build(state, tmp_path)
         assert not by_id["#LabProcess_proc_1"].get("executesLabProtocol")
@@ -556,7 +556,7 @@ class TestLabProcessSubtypes:
         companion is for a node that would otherwise have none, like a bare
         `LabProtocol`.
         """
-        state = self._state_with_process("CellCulture", cell_line="cell_1")
+        state = self._state_with_process("TestSystemPreparation", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
         state.add_entity(
             _ent(
@@ -716,7 +716,7 @@ class TestTheCultureRecordsEveryCellLine:
                 "proc_1",
                 "LabProcess",
                 name="Neural cell culture",
-                process_type="CellCulture",
+                process_type="TestSystemPreparation",
                 assay_id="assay_1",
                 cell_line=cell_line,
                 culture_medium="DMEM",
@@ -736,7 +736,7 @@ class TestTheCultureRecordsEveryCellLine:
         consumed = {
             cid
             for n in graph
-            if n.get("additionalType") == "CellCulture"
+            if n.get("additionalType") == "TestSystemPreparation"
             for cid in _ids(n.get("input"))
         }
         assert "#CellLineSample_cell_a" in consumed, consumed
@@ -757,7 +757,7 @@ class TestTheCultureRecordsEveryCellLine:
         graph, by_id = _build(state, tmp_path)
         lineage = set()
         for n in graph:
-            if n.get("additionalType") != "CellCulture":
+            if n.get("additionalType") != "TestSystemPreparation":
                 continue
             for out_id in _ids(n.get("output")):
                 derived = _ids(by_id[out_id].get("derivesFrom"))
@@ -804,7 +804,7 @@ class TestACultureFindsTheCellLineItIsNamedFor:
                 "proc_anchor",
                 "LabProcess",
                 name="Anchor culture",
-                process_type="CellCulture",
+                process_type="TestSystemPreparation",
                 assay_id="assay_1",
                 cell_line=list(anchored),
                 culture_medium="DMEM",
@@ -815,7 +815,7 @@ class TestACultureFindsTheCellLineItIsNamedFor:
                 "proc_1",
                 "LabProcess",
                 name=proc_name,
-                process_type="CellCulture",
+                process_type="TestSystemPreparation",
                 assay_id="assay_1",
                 culture_medium="DMEM",
             )
@@ -846,7 +846,7 @@ class TestACultureFindsTheCellLineItIsNamedFor:
         assert not (
             {"#CellLineSample_cell_a", "#CellLineSample_cell_b"} & set(consumed)
         ), f"nothing in the name matched, so nothing may be claimed: {consumed}"
-        assert consumed, "a CellCulture MUST still consume something"
+        assert consumed, "a TestSystemPreparation MUST still consume something"
 
     def test_two_matching_names_are_not_guessed_between(self, tmp_path):
         """An ambiguous title picks neither."""
@@ -908,7 +908,7 @@ class TestTheCultureProtocolIsStudyLevel:
                     f"proc_{n}",
                     "LabProcess",
                     name=f"Culture {n}",
-                    process_type="CellCulture",
+                    process_type="TestSystemPreparation",
                     assay_id=assay,
                     cell_line=[line],
                     culture_medium="DMEM",
@@ -959,7 +959,7 @@ class TestTheCultureProtocolIsStudyLevel:
         parts = [
             n
             for n in graph
-            if n.get("additionalType") == "CellCulture"
+            if n.get("additionalType") == "TestSystemPreparation"
             and str(n["@id"]).startswith("#LabProcess_proc_1")
         ]
         assert len(parts) == 2, f"a culture of two lines is two cultures: {parts}"
@@ -992,7 +992,7 @@ class TestTheCultureProtocolIsStudyLevel:
         culturing.
 
         A file classified as a protocol and naming SK-N-AS may still describe the
-        deiodinase readout. Executing it as the CellCulture's protocol would
+        deiodinase readout. Executing it as the TestSystemPreparation's protocol would
         assert it explains how that line was grown, which nobody checked.
         """
         state = self._two_assays(
@@ -1096,7 +1096,7 @@ class TestSynthesizedSamplesCarryTheirType:
                 "proc_cult",
                 "LabProcess",
                 name="Culture",
-                process_type="CellCulture",
+                process_type="TestSystemPreparation",
                 assay_id="assay_1",
                 cell_line=["cell_a"],
                 culture_medium="DMEM",
@@ -1172,7 +1172,7 @@ class TestSynthesizedSamplesCarryTheirType:
     def _chain_with_drafted_result(self):
         """The real-crate shape: the drafter supplies the culture's result.
 
-        `_synth_sample` only runs when the CellCulture has no `result` of its own,
+        `_synth_sample` only runs when the TestSystemPreparation has no `result` of its own,
         and in a real deposit `draft_process_chain` always supplies one — so on
         every crate we have actually built, the cultured sample was a drafted
         entity that carried neither its type nor its lineage.

@@ -1,7 +1,7 @@
 """Tests for the LabProcess derivation-chain tools (Issue #88).
 
 draft_file / link / check_provenance let the agent build and lint the
-Sample →[CellCulture]→ Sample →[Exposure]→ Sample →[EndpointReadout]→ raw
+Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample →[EndpointReadout]→ raw
 →[DataAnalysis]→ figures provenance chain explicitly, rather than relying on
 build-time synthesis that a weak model never triggers.
 """
@@ -202,7 +202,7 @@ class TestLinkWritesWhereTheBuildReads:
     def _state(self):
         state = CrateState()
         state.add_entity(_ent("exp", "LabProcess", process_type="Exposure"))
-        state.add_entity(_ent("cult", "LabProcess", process_type="CellCulture"))
+        state.add_entity(_ent("cult", "LabProcess", process_type="TestSystemPreparation"))
         state.add_entity(_ent("cmp", "MolecularEntity", name="doxorubicin"))
         state.add_entity(_ent("cells", "CellLineSample", name="HepG2"))
         state.add_entity(_ent("smp", "Sample", name="well A1"))
@@ -246,7 +246,7 @@ class TestLinkWritesWhereTheBuildReads:
         assert "stored_as" not in result
 
     def test_the_wrong_process_type_is_not_rerouted(self):
-        # `chemicals` is where an Exposure carries compounds; a CellCulture is
+        # `chemicals` is where an Exposure carries compounds; a TestSystemPreparation is
         # not an exposure and has no such field.
         state = self._state()
         result = link(state, "cult", "input", "cmp")
@@ -297,10 +297,10 @@ class TestCheckProvenance:
         assert report["ok"] is True, report
 
     def test_passes_connected_chain(self):
-        # Full Sample→CellCulture→Exposure→EndpointReadout→DataAnalysis chain,
+        # Full Sample→TestSystemPreparation→Exposure→EndpointReadout→DataAnalysis chain,
         # every process output wired to the next input — zero issues.
         state = CrateState()
-        state.add_entity(_ent("cc", "LabProcess", process_type="CellCulture"))
+        state.add_entity(_ent("cc", "LabProcess", process_type="TestSystemPreparation"))
         state.add_entity(_ent("exp", "LabProcess", process_type="Exposure"))
         state.add_entity(_ent("er", "LabProcess", process_type="EndpointReadout"))
         state.add_entity(_ent("da", "LabProcess", process_type="DataAnalysis"))
@@ -326,11 +326,11 @@ class TestCheckProvenance:
     def test_flags_disconnected_sample_input(self):
         # Issue #140: each process individually has an output (so Rule 1 is
         # silent), but the EndpointReadout consumes an UNRELATED sample instead
-        # of the CellCulture's cultured output — the derivation chain is broken
+        # of the TestSystemPreparation's cultured output — the derivation chain is broken
         # in the middle. The per-node presence lint missed this; the continuity
         # rule must catch it.
         state = CrateState()
-        state.add_entity(_ent("cc", "LabProcess", process_type="CellCulture"))
+        state.add_entity(_ent("cc", "LabProcess", process_type="TestSystemPreparation"))
         state.add_entity(_ent("er", "LabProcess", process_type="EndpointReadout"))
         state.add_entity(_ent("cells", "CellLineSample", name="HepG2"))
         state.add_entity(_ent("cultured", "Sample", name="cultured"))
@@ -352,10 +352,10 @@ class TestCheckProvenance:
         assert issue["fix"]
 
     def test_culture_seed_sample_not_flagged(self):
-        # A CellCulture seeded with a primary-tissue Sample (not a CellLineSample)
+        # A TestSystemPreparation seeded with a primary-tissue Sample (not a CellLineSample)
         # that no process produces is a legitimate starting material, not a break.
         state = CrateState()
-        state.add_entity(_ent("cc", "LabProcess", process_type="CellCulture"))
+        state.add_entity(_ent("cc", "LabProcess", process_type="TestSystemPreparation"))
         state.add_entity(_ent("primary", "Sample", name="primary hepatocytes"))
         state.add_entity(_ent("cultured", "Sample", name="cultured"))
         link(state, "cc", "object", "primary")
@@ -382,7 +382,7 @@ class TestCheckProvenance:
         # produced is a valid data-only crate — File inputs are never flagged by
         # the continuity rule (only Samples are).
         state = CrateState()
-        state.add_entity(_ent("cc", "LabProcess", process_type="CellCulture"))
+        state.add_entity(_ent("cc", "LabProcess", process_type="TestSystemPreparation"))
         state.add_entity(_ent("cells", "CellLineSample", name="HepG2"))
         state.add_entity(_ent("cultured", "Sample", name="cultured"))
         state.add_entity(_ent("da", "LabProcess", process_type="DataAnalysis"))

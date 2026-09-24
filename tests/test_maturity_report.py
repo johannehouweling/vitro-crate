@@ -2367,7 +2367,7 @@ class TestCellLinesPanel:
     whether it is pinned down.
 
     A model fails the same two ways a compound does — unreachable when the
-    ``CellCulture`` consumes a freshly minted generic ``Sample`` instead of the
+    ``TestSystemPreparation`` consumes a freshly minted generic ``Sample`` instead of the
     declared line, and unidentified when it carries a name but no Cellosaurus
     RRID ("CHO-K1" names a family of divergent stocks; CVCL_0214 names one).
     """
@@ -2390,7 +2390,7 @@ class TestCellLinesPanel:
                 {
                     "@id": "#culture",
                     "@type": "LabProcess",
-                    "additionalType": "CellCulture",
+                    "additionalType": "TestSystemPreparation",
                     "name": "CHO-K1 culture",
                     "input": {"@id": "#cho" if wire else "#generic"},
                     "output": {"@id": "#cultured"},
@@ -2454,7 +2454,7 @@ class TestCellLinesPanel:
     def test_unconsumed_model_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)
         assert "1 of 1 biological samples are not consumed by any process." in page
-        assert "<code>CellCulture</code>" in page
+        assert "<code>TestSystemPreparation</code>" in page
         assert "<code>input</code>" in page
 
     def test_consumed_model_reports_a_clean_route(self) -> None:

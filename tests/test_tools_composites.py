@@ -180,7 +180,7 @@ class TestConsumedByProcessCountsOnlyBuildReadFields:
     def test_a_cell_line_under_an_exposure_is_consumed_via_samples(self):
         """The process type is half the key, and dropping it is not harmless.
 
-        A CellLineSample has a build home under a CellCulture (`cell_line`), but
+        A CellLineSample has a build home under a TestSystemPreparation (`cell_line`), but
         under an Exposure it is an ordinary `samples` participant that the build
         does read. Narrowing the fields for every process marked it permanently
         loose, so `wire_unreferenced_domain_entities` re-wired it on every call.
@@ -199,7 +199,7 @@ class TestConsumedByProcessCountsOnlyBuildReadFields:
         state = CrateState()
         state.add_entity(_ent("cell", "CellLineSample", name="HepG2"))
         state.add_entity(
-            _ent("cult", "LabProcess", process_type="CellCulture", samples="cell")
+            _ent("cult", "LabProcess", process_type="TestSystemPreparation", samples="cell")
         )
         assert _is_consumed_by_process(state, "cell") is False
 

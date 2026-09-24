@@ -2,7 +2,7 @@
 
 ``draft_process_chain`` fuses the recurring
 ``draft_process`` + ``link`` sequence that wires the gold S-VHPS21 derivation
-chain — ``Sample →[CellCulture]→ Sample →[Exposure]→ Sample
+chain — ``Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample
 →[EndpointReadout]→ raw/result →[DataAnalysis]→ figures`` — into ONE
 idempotent call. Its keystone job is to **synthesize the missing outputs** for
 EndpointReadout / DataAnalysis (the two subtypes with no build-time output
@@ -92,13 +92,13 @@ def _scaffold() -> tuple[CrateState, str]:
 
 
 _FULL_CHAIN = [
-    # CellCulture / Exposure / EndpointReadout / DataAnalysis each MUST carry at
+    # TestSystemPreparation / Exposure / EndpointReadout / DataAnalysis each MUST carry at
     # least one schema:additionalProperty under the tox profile, and `_pv` no
     # longer publishes a placeholder like "unknown" (or a fabricated default
     # medium) as if it were a measurement — so a chain that is expected to
     # VALIDATE has to state a real parameter per step.
     {
-        "process_type": "CellCulture",
+        "process_type": "TestSystemPreparation",
         "hints": {"name": "Seed", "culture_medium": "DMEM + 10% FBS"},
     },
     {"process_type": "Exposure", "hints": {"name": "Dose", "duration": "24 hours"}},
@@ -119,7 +119,7 @@ class TestChainCreation:
         result = draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
 
         by_subtype = _processes_by_subtype(state)
-        for t in ("CellCulture", "Exposure", "EndpointReadout", "DataAnalysis"):
+        for t in ("TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"):
             assert len(by_subtype.get(t, [])) == 1, f"missing {t}: {by_subtype}"
 
         # Result reports one process id per step, in order.
@@ -137,20 +137,20 @@ class TestChainCreation:
         state, assay_id = _scaffold()
         draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
         by = _processes_by_subtype(state)
-        cc = by["CellCulture"][0]
+        cc = by["TestSystemPreparation"][0]
         exp = by["Exposure"][0]
         er = by["EndpointReadout"][0]
         da = by["DataAnalysis"][0]
 
-        # CellCulture produces a Sample that the Exposure consumes.
+        # TestSystemPreparation produces a Sample that the Exposure consumes.
         cc_out = _ref_ids(cc.fields.get("result")) | _ref_ids(cc.fields.get("output"))
         exp_in = (
             _ref_ids(exp.fields.get("object"))
             | _ref_ids(exp.fields.get("input"))
             | _ref_ids(exp.fields.get("samples"))
         )
-        assert cc_out, "CellCulture must have an output to feed the Exposure"
-        assert cc_out & exp_in, "Exposure must consume the CellCulture output"
+        assert cc_out, "TestSystemPreparation must have an output to feed the Exposure"
+        assert cc_out & exp_in, "Exposure must consume the TestSystemPreparation output"
 
         # The material flow continues into the EndpointReadout. The Exposure has
         # NO in-state output of its own (#285): its output is the build's exposed
@@ -610,7 +610,7 @@ class TestExposureProducesTheExposedSample:
 
     The chain the profile describes runs
     ``cultured sample --[Exposure]--> exposed sample``, but every step after
-    CellCulture used to hang off the same cultured sample and no exposed-sample
+    TestSystemPreparation used to hang off the same cultured sample and no exposed-sample
     entity existed anywhere in the crate. The graph drew a star, so a reader
     could not see what was exposed to what.
 
@@ -688,9 +688,9 @@ class TestExposureProducesTheExposedSample:
         by_id = {n.get("@id"): n for n in graph}
 
         exposure = self._process(graph, "Exposure")
-        culture = self._process(graph, "CellCulture")
+        culture = self._process(graph, "TestSystemPreparation")
         cultured_ids = self._out_ids(culture)
-        assert cultured_ids, "test setup: CellCulture produced nothing"
+        assert cultured_ids, "test setup: TestSystemPreparation produced nothing"
 
         exposed = [
             by_id[i]
@@ -805,7 +805,7 @@ class TestTheChainFlowsThroughTheExposure:
 
         exposure = self._process(graph, "Exposure")
         readout = self._process(graph, "EndpointReadout")
-        culture = self._process(graph, "CellCulture")
+        culture = self._process(graph, "TestSystemPreparation")
 
         exposed = self._out_ids(exposure)
         cultured = self._out_ids(culture)
@@ -831,7 +831,7 @@ class TestTheChainFlowsThroughTheExposure:
         )
         graph = self._built_graph(state)
 
-        culture = self._process(graph, "CellCulture")
+        culture = self._process(graph, "TestSystemPreparation")
         readout = self._process(graph, "EndpointReadout")
         assert self._in_ids(readout) & self._out_ids(culture), (
             "with no exposure in the assay the readout measures the cultured "
@@ -870,7 +870,7 @@ class TestTheChainFlowsThroughTheExposure:
         """
         state, assay_id = _scaffold()
         draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
-        culture = _processes_by_subtype(state)["CellCulture"][0]
+        culture = _processes_by_subtype(state)["TestSystemPreparation"][0]
         cultured_id = next(iter(_ref_ids(culture.fields.get("result"))), None)
         assert cultured_id, "test setup: the culture produced nothing"
 
@@ -886,7 +886,7 @@ class TestTheChainFlowsThroughTheExposure:
         graph = self._built_graph(self._star_wired())
         readout = self._process(graph, "EndpointReadout")
         exposure = self._process(graph, "Exposure")
-        culture = self._process(graph, "CellCulture")
+        culture = self._process(graph, "TestSystemPreparation")
 
         consumed = self._in_ids(readout)
         assert consumed & self._out_ids(exposure), (
@@ -935,6 +935,40 @@ class TestTheChainFlowsThroughTheExposure:
         )
 
 
+def test_a_test_system_preparation_step_grows_the_cell_line() -> None:
+    """The preparation step is drafted under its own discriminator (#785): it
+    consumes the cell line and yields cultured cells that derive from it."""
+    from builder.tools.builder import assemble_crate
+    from builder.tools.drafters import draft_cell_line_sample
+
+    state, assay_id = _scaffold()
+    line = draft_cell_line_sample(state, "HepG2", {}).entity_id
+    draft_process_chain(
+        state,
+        assay_id,
+        chain=[
+            {
+                "process_type": "TestSystemPreparation",
+                "hints": {"name": "Seed", "cell_line": line, "culture_medium": "DMEM"},
+            }
+        ],
+    )
+    crate = assemble_crate(
+        state, output_dir=None, materialize_payload=False, include_all_scanned=False
+    )
+    by_id = {n["@id"]: n for n in crate.metadata.generate()["@graph"]}
+
+    step = next(n for n in by_id.values() if n.get("name") == "Seed")
+    assert step["additionalType"] == "TestSystemPreparation"
+    (source,) = _node_ref_ids(step.get("input"))
+    assert by_id[source]["additionalType"] == "CellLine", by_id[source]
+    (made,) = _node_ref_ids(step.get("output"))
+    assert _node_ref_ids(by_id[made]["sampleType"]) == {
+        "http://purl.obolibrary.org/obo/OBI_0001876"
+    }
+    assert _node_ref_ids(by_id[made].get("derivesFrom")) == {source}
+
+
 class TestTheExposureConsumesWhereThePreparationEnded:
     """Issue #785 — the Exposure consumes where its assay's preparation chain
     ended, and keeps material its step named outside that chain.
@@ -944,14 +978,17 @@ class TestTheExposureConsumesWhereThePreparationEnded:
     cultured Sample of its assay and overwrite the object its step named, so a
     two-step preparation claimed its parent culture was exposed, and a transfected
     Sample the step named was left a dead end while the exposed cells derived from
-    the untransfected culture. A second CellCulture stands in for the later
-    preparation step: it is the only repeatable one the drafter emits.
+    the untransfected culture. The second TestSystemPreparation is that later
+    preparation step.
     """
 
     _TWO_CULTURES = [
-        {"process_type": "CellCulture", "hints": {"name": "Seed", "culture_medium": "DMEM"}},
         {
-            "process_type": "CellCulture",
+            "process_type": "TestSystemPreparation",
+            "hints": {"name": "Seed", "culture_medium": "DMEM"},
+        },
+        {
+            "process_type": "TestSystemPreparation",
             "hints": {"name": "Transfect", "culture_medium": "Opti-MEM"},
         },
         {"process_type": "Exposure", "hints": {"name": "Dose", "duration": "24 hours"}},

@@ -102,7 +102,7 @@ def _full_chain_graph() -> dict:
             {
                 "@id": "#cc",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": "Cell Culture",
                 "input": {"@id": "#cellline"},
                 "output": {"@id": "#cultured"},
@@ -216,7 +216,7 @@ class TestSharedSelectors:
         assert _route_hop_ids("#proc", "data/table.csv") == ["#proc", "data/table.csv"]
 
     def test_route_hop_ids_collapses_a_process_that_is_its_own_via(self) -> None:
-        """A CellCulture consuming its own cell line: drawing the process in two
+        """A TestSystemPreparation consuming its own cell line: drawing the process in two
         columns with an edge between them would depict a step the crate has not."""
         assert _route_hop_ids("#proc", "#proc") == ["#proc"]
 
@@ -427,7 +427,7 @@ class TestBuildChemicalInventory:
 
 
 def _cellline_graph(*, wire: bool = True) -> dict:
-    """A crate with a CellLineSample and a CellCulture that may or may not use it.
+    """A crate with a CellLineSample and a TestSystemPreparation that may or may not use it.
 
     The defect this view exists to catch: the culture consumes a freshly minted
     generic ``Sample`` (``#generic``) instead of the declared line, leaving the
@@ -442,7 +442,7 @@ def _cellline_graph(*, wire: bool = True) -> dict:
             {
                 "@id": "#culture",
                 "@type": "LabProcess",
-                "additionalType": "CellCulture",
+                "additionalType": "TestSystemPreparation",
                 "name": "CHO-K1 culture",
                 "input": {"@id": culture_input},
                 "output": {"@id": "#cultured"},

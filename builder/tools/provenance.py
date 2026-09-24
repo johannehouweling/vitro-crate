@@ -3,7 +3,7 @@
 The paper's core value proposition is that a receiving lab can trace how an
 output was produced:
 
-    Sample →[CellCulture]→ Sample →[Exposure]→ Sample
+    Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample
            →[EndpointReadout]→ raw →[DataAnalysis]→ figures
 
 The crate mapping resolves a process's ``object``/``result``/``input``/``output``
@@ -43,7 +43,7 @@ _INPUT_FIELDS: tuple[str, ...] = ("object", "input", "samples", "cell_line")
 _OUTPUT_FIELDS: tuple[str, ...] = ("result", "output")
 
 # Domain process types whose build mapping has NO synthesized output fallback
-# (_build_process synthesizes a result for CellCulture and Exposure, but takes
+# (_build_process synthesizes a result for TestSystemPreparation and Exposure, but takes
 # EndpointReadout/DataAnalysis results only from explicit fields). A missing
 # output on these therefore leaves the derivation chain genuinely dangling.
 _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
@@ -64,7 +64,7 @@ _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
 # Mirrors composites._DOMAIN_WIRING.
 _PROCESS_LINK_HOMES: dict[tuple[str, str], str] = {
     ("MolecularEntity", "Exposure"): "chemicals",
-    ("CellLineSample", "CellCulture"): "cell_line",
+    ("CellLineSample", "TestSystemPreparation"): "cell_line",
 }
 
 # Relations that name "this process consumed that thing" and so can be rerouted
@@ -511,7 +511,7 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
     2. A File referenced by no process input/output and not part of any
        ``hasPart`` — an orphan data entity with no producer.
     3. *Continuity* (Issue #140): a process consumes a ``Sample`` that no
-       process produces and that is not a CellCulture seed — the derivation
+       process produces and that is not a TestSystemPreparation seed — the derivation
        chain is broken upstream of that process (its input does not trace back
        to a cultured/exposed material). Only applied when the crate actually
        models sample material-flow (some process produces a Sample output), and
@@ -575,7 +575,7 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
     # Rule 3: derivation-chain continuity. Build the set of entity_ids produced
     # by some process; if any produced entity is a Sample, the crate models
     # sample material-flow, so every consumed Sample must trace back to a
-    # producer (or be a CellCulture seed). A consumed Sample that does neither
+    # producer (or be a TestSystemPreparation seed). A consumed Sample that does neither
     # means the chain is broken upstream — exactly the mid-chain break a flat
     # presence lint cannot see.
     produced: set[str] = set()
@@ -588,7 +588,7 @@ def check_provenance(state: CrateState) -> dict[str, Any]:
     if models_sample_flow:
         seeds: set[str] = set()
         for proc in processes:
-            if _process_type(proc) == "CellCulture":
+            if _process_type(proc) == "TestSystemPreparation":
                 for fld in _INPUT_FIELDS:
                     seeds |= _ref_ids(proc.fields.get(fld))
         for proc in processes:

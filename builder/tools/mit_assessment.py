@@ -128,7 +128,8 @@ _SLOT_TYPE_MATCH: dict[str, tuple[frozenset[str], frozenset[str] | None]] = {
     "Assay": (frozenset({"Dataset"}), frozenset({"Assay"})),
     "MolecularEntity": (frozenset({"MolecularEntity"}), None),
     "CellLineSample": (frozenset({"Sample"}), frozenset({"CellLine", "PrimaryCell"})),
-    "LabProcessCellCulture": (frozenset({"LabProcess"}), frozenset({"CellCulture"})),
+    # The vendored checklist's upstream slot name for the preparation step.
+    "LabProcessCellCulture": (frozenset({"LabProcess"}), frozenset({"TestSystemPreparation"})),
     "LabProcessExposure": (frozenset({"LabProcess"}), frozenset({"Exposure"})),
     "LabProcessEndpointReadout": (frozenset({"LabProcess"}), frozenset({"EndpointReadout"})),
     "LabProcessDataAnalysis": (frozenset({"LabProcess"}), frozenset({"DataAnalysis"})),

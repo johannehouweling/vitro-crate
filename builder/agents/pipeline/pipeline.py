@@ -862,7 +862,7 @@ _PROTOCOL_DEFAULT_PROCESS_TYPES: tuple[str, ...] = (
     "Exposure",
     "EndpointReadout",
     "DataAnalysis",
-    "CellCulture",
+    "TestSystemPreparation",
 )
 
 
@@ -919,13 +919,13 @@ def _select_process_for_protocol(steps: list[dict[str, Any]], process_hint: str)
 # both, and the deterministic spine must too.
 
 # The standard in-vitro derivation chain (AGENTS.md §14.3 / the gold S-VHPS21
-# shape): CellCulture → Exposure → EndpointReadout → DataAnalysis. `process_type`
+# shape): TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis. `process_type`
 # is the load-bearing field (it drives `draft_process_chain`'s wiring + the §14.3
 # output synthesis); the `name` is a stable default so the process `@id`s are
 # deterministic with NO provider, and is overlaid with a plan step name only when
 # the plan actually supplies one (idempotent: the id stays keyed to the name).
 _STANDARD_CHAIN: tuple[dict[str, str], ...] = (
-    {"process_type": "CellCulture", "name": "Cell culture"},
+    {"process_type": "TestSystemPreparation", "name": "Cell culture"},
     {"process_type": "Exposure", "name": "Exposure"},
     {"process_type": "EndpointReadout", "name": "Endpoint readout"},
     {"process_type": "DataAnalysis", "name": "Data analysis"},
@@ -1002,7 +1002,7 @@ def _draft_standard_chain(
     """Deterministically draft the standard process chain onto the scaffolded Assay.
 
     Calls the existing idempotent ``draft_process_chain`` composite (NO hand-rolled
-    JSON-LD) with the full CellCulture → Exposure → EndpointReadout → DataAnalysis
+    JSON-LD) with the full TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis
     chain, so EndpointReadout/DataAnalysis get the §14.3 result/object output
     synthesis (the "no output" Violation trap) and the whole chain is wired under
     the Assay. Plan step names (when a provider supplied them) are overlaid onto
@@ -1772,7 +1772,7 @@ def _materialize_plan(
       (ISA forbids a MolecularEntity as a process object, so the build makes each
       compound a ``reagent`` of the run-specific CSVW condition table the Exposure
       executes), the resolved
-      ``CellLineSample`` → the **CellCulture** LabProcess via ``cell_line`` (its
+      ``CellLineSample`` → the **TestSystemPreparation** LabProcess via ``cell_line`` (its
       consumed input, replacing the synthesized generic ``..._input``), and BOTH
       onto the scaffolded Study via ``schema:mentions`` (``chemicals`` /
       ``cell_lines``→``biologicalModels``) so every resolved entity — PubChem- AND
@@ -1787,7 +1787,7 @@ def _materialize_plan(
       central exposure/assay step, and an unresolvable link is left for the
       guidance loop rather than guessed (:func:`_select_process_for_protocol`).
     * **process chain — ALWAYS, regardless of provider (#262).** ONE
-      :func:`draft_process_chain` lays the standard in-vitro chain (CellCulture →
+      :func:`draft_process_chain` lays the standard in-vitro chain (TestSystemPreparation →
       Exposure → EndpointReadout → DataAnalysis) onto the scaffolded Assay
       (:func:`_draft_standard_chain`). The composite synthesizes the
       EndpointReadout / DataAnalysis outputs the build has no fallback for (the
@@ -1907,7 +1907,7 @@ def _materialize_plan(
                 plan = extracted
 
     # --- process chain (#262): ALWAYS draft the standard 4-step in-vitro chain
-    # (CellCulture → Exposure → EndpointReadout → DataAnalysis) under the scaffolded
+    # (TestSystemPreparation → Exposure → EndpointReadout → DataAnalysis) under the scaffolded
     # Assay, deterministically and regardless of provider, so `lab_processes` is
     # never empty. Plan step names (when a provider supplied them) are overlaid onto
     # the standard chain so the two paths share ONE chain (no duplicates). The
@@ -1972,7 +1972,7 @@ def _materialize_plan(
     # This used to call `draft_cell_line_sample(name=name, hints={})` — no lookup at
     # all — so `lookup_cell_line_by_name` had no caller on this arm and every
     # default-arm cell line shipped without an accession (#372). Collect each id so
-    # the cell line can be wired into the CellCulture (and Study) below (#273)
+    # the cell line can be wired into the TestSystemPreparation (and Study) below (#273)
     # rather than left orphaned.
     cell_line_ids: list[str] = []
     for cell_line in plan.get("cell_lines") or []:
@@ -2011,7 +2011,7 @@ def _materialize_plan(
     #     forbids a MolecularEntity as a process object (objects MUST be
     #     File/Sample/BioSample), so the build makes it a `reagent` of the
     #     condition table the Exposure executes (_crate_mapping._synth_condition_table).
-    #   * the CellLineSample → the CellCulture LabProcess via `cell_line` (its
+    #   * the CellLineSample → the TestSystemPreparation LabProcess via `cell_line` (its
     #     consumed input), replacing the synthesized generic `..._input` placeholder.
     #   * both also surface on the Study via schema:mentions (`chemicals` /
     #     `cell_lines`→biologicalModels) so every resolved entity is reachable at a
@@ -2056,10 +2056,10 @@ def _materialize_plan(
     # say what its exposure did.
     result["layout_conditions"] = _apply_layout_conditions(engine)
     if cell_line_ids:
-        culture_step = chain_by_type.get("CellCulture")
+        culture_step = chain_by_type.get("TestSystemPreparation")
         culture_id = culture_step.get("process_id") if culture_step else None
         if culture_id:
-            # CellCulture consumes ONE cell line; use the first resolved one.
+            # TestSystemPreparation consumes ONE cell line; use the first resolved one.
             _set_ref_field(engine, str(culture_id), "cell_line", cell_line_ids[0])
 
     # Surface both on the scaffolded Study via schema:mentions so every resolved

@@ -1,6 +1,6 @@
 # Cultured and co-cultured material — how many source Samples a Sample may come from.
 #
-# A CellCulture of several lines emitting ONE Sample asserts the lines were mixed.
+# A preparation step of several lines emitting ONE Sample asserts the lines were mixed.
 # The builder splits such a step per line (#678); these make the claim
 # unrepresentable, so a hand-authored or ReAct-built crate cannot make it either.
 #

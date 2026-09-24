@@ -10,6 +10,7 @@ scalar and reference keys an entity accepts.
 """
 
 from builder.tools._crate_mapping import draft_hints_schema
+from builder.tools.drafters import VALID_PROCESS_TYPES
 
 
 def _cell_line_resolve_hints_schema() -> dict:
@@ -90,7 +91,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_process_chain",
-        "description": "Create and wire a whole LabProcess derivation chain in ONE idempotent call: Sample ->[CellCulture]-> Sample ->[Exposure]-> Sample ->[EndpointReadout]-> raw ->[DataAnalysis]-> figures. Pass the parent assay_id and an ordered chain of steps; each step is {process_type, hints?, object?, result?}. Steps are always wired in canonical order (CellCulture->Exposure->EndpointReadout->DataAnalysis) and a subset is fine (partial chains work). CRITICAL: EndpointReadout/DataAnalysis MUST have an output, and this call supplies it FROM THE DEPOSIT: the scanned files filed under a raw directory become the EndpointReadout's result and the processed ones the DataAnalysis's, so the chain ends at the actual measurements. If the deposit holds no such file, the step is left WITHOUT a result on purpose and validation reports the gap — nothing is invented to make the shape pass, so do not create an empty File to silence it. A data-producing step that NOTHING in the deposit evidences (no data of its tier and no procedure document) is skipped entirely, and the result tells you which steps went and why; pass an explicit result reference to record one anyway. Explicit object/result you pass always win. You do not need to attach data files first: this reads them from the scan, and attach_files completes the wiring afterwards if you attach later. Set validate_after=true to also run build_and_validate. Prefer this over draft_process+link for the standard chain. ALWAYS fill each step's experimental parameters from the assay metadata workbook / SOP you have read — Exposure: duration, cell_seeding_density, microplate; EndpointReadout: detection_instrument, instrument_manufacturer, measured_entity, endpoint, technical_replicate; DataAnalysis: computational_tool, data_calculation_and_statistics. A parameter you leave out is OMITTED from the crate (never written as 'unknown'), and each process MUST end up with at least one, so an empty hints={} on a step whose values are sitting in the workbook is a validation failure you caused. Never invent a value — if the source is silent, leave it out. Example: draft_process_chain(assay_id='assay_cell_viability_assay', chain=[{'process_type':'CellCulture','hints':{'name':'Seed MDCK'}},{'process_type':'Exposure','hints':{'duration':'24h','microplate':'96-well'}},{'process_type':'EndpointReadout','hints':{'detection_instrument':'Multiskan FC','endpoint':'T4 uptake','measured_entity':'Radioactivity'}},{'process_type':'DataAnalysis','hints':{'computational_tool':'GraphPad Prism'}}]).",
+        "description": "Create and wire a whole LabProcess derivation chain in ONE idempotent call: Sample ->[TestSystemPreparation]-> Sample ->[Exposure]-> Sample ->[EndpointReadout]-> raw ->[DataAnalysis]-> figures. Pass the parent assay_id and an ordered chain of steps; each step is {process_type, hints?, object?, result?}. Steps are always wired in canonical order (TestSystemPreparation->Exposure->EndpointReadout->DataAnalysis) and a subset is fine (partial chains work). CRITICAL: EndpointReadout/DataAnalysis MUST have an output, and this call supplies it FROM THE DEPOSIT: the scanned files filed under a raw directory become the EndpointReadout's result and the processed ones the DataAnalysis's, so the chain ends at the actual measurements. If the deposit holds no such file, the step is left WITHOUT a result on purpose and validation reports the gap — nothing is invented to make the shape pass, so do not create an empty File to silence it. A data-producing step that NOTHING in the deposit evidences (no data of its tier and no procedure document) is skipped entirely, and the result tells you which steps went and why; pass an explicit result reference to record one anyway. Explicit object/result you pass always win. You do not need to attach data files first: this reads them from the scan, and attach_files completes the wiring afterwards if you attach later. Set validate_after=true to also run build_and_validate. Prefer this over draft_process+link for the standard chain. ALWAYS fill each step's experimental parameters from the assay metadata workbook / SOP you have read — Exposure: duration, cell_seeding_density, microplate; EndpointReadout: detection_instrument, instrument_manufacturer, measured_entity, endpoint, technical_replicate; DataAnalysis: computational_tool, data_calculation_and_statistics. A parameter you leave out is OMITTED from the crate (never written as 'unknown'), and each process MUST end up with at least one, so an empty hints={} on a step whose values are sitting in the workbook is a validation failure you caused. Never invent a value — if the source is silent, leave it out. Example: draft_process_chain(assay_id='assay_cell_viability_assay', chain=[{'process_type':'TestSystemPreparation','hints':{'name':'Seed MDCK'}},{'process_type':'Exposure','hints':{'duration':'24h','microplate':'96-well'}},{'process_type':'EndpointReadout','hints':{'detection_instrument':'Multiskan FC','endpoint':'T4 uptake','measured_entity':'Radioactivity'}},{'process_type':'DataAnalysis','hints':{'computational_tool':'GraphPad Prism'}}]).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -106,12 +107,7 @@ TOOL_SPECS = [
                         "properties": {
                             "process_type": {
                                 "type": "string",
-                                "enum": [
-                                    "CellCulture",
-                                    "Exposure",
-                                    "EndpointReadout",
-                                    "DataAnalysis",
-                                ],
+                                "enum": list(VALID_PROCESS_TYPES),
                                 "description": "Which domain LabProcess subtype this step is.",
                             },
                             "hints": draft_hints_schema("LabProcess"),
@@ -271,19 +267,14 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_process",
-        "description": "Create a LabProcess (CellCulture/Exposure/EndpointReadout/DataAnalysis). Wire its inputs/outputs with `link` afterwards. Example: draft_process(assay_id='assay_cell_viability_assay', process_type='Exposure', hints={'duration': '24h', 'chemicals': 'chem_silychristin_a'}).",
+        "description": "Create a LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis). Wire its inputs/outputs with `link` afterwards. Example: draft_process(assay_id='assay_cell_viability_assay', process_type='Exposure', hints={'duration': '24h', 'chemicals': 'chem_silychristin_a'}).",
         "parameters": {
             "type": "object",
             "properties": {
                 "assay_id": {"type": "string", "description": "entity_id of the parent Assay."},
                 "process_type": {
                     "type": "string",
-                    "enum": [
-                        "CellCulture",
-                        "Exposure",
-                        "EndpointReadout",
-                        "DataAnalysis",
-                    ],
+                    "enum": list(VALID_PROCESS_TYPES),
                     "description": "Which domain LabProcess subtype to create.",
                 },
                 "hints": draft_hints_schema("LabProcess"),
@@ -383,7 +374,7 @@ TOOL_SPECS = [
     },
     {
         "name": "check_provenance",
-        "description": "Lint the derivation chain (report-only, writes nothing). Returns {ok, issues:[{entity_id, property, message, fix, severity, profile}]} flagging EndpointReadout/DataAnalysis processes with no output and File entities produced by no process — each issue names the entity and the `link`/`draft_file` fix. Run it after wiring processes to confirm the Sample→CellCulture→Exposure→EndpointReadout→DataAnalysis chain is connected.",
+        "description": "Lint the derivation chain (report-only, writes nothing). Returns {ok, issues:[{entity_id, property, message, fix, severity, profile}]} flagging EndpointReadout/DataAnalysis processes with no output and File entities produced by no process — each issue names the entity and the `link`/`draft_file` fix. Run it after wiring processes to confirm the Sample→TestSystemPreparation→Exposure→EndpointReadout→DataAnalysis chain is connected.",
         "parameters": {
             "type": "object",
             "properties": {},
