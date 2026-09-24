@@ -1458,9 +1458,11 @@ document directly via `rocrate_validator.services.validate_metadata_as_dict` —
 **no crate is written to disk and nothing is re-read** (the old
 `build_crate`→`validate` round-trip touched disk on every ReAct iteration).
 Whenever the ISA pass runs, `verify_isa_reachability` runs beside it: its
-findings sit in `issues` under profile `isa` and fail `conformance["isa"]`, so
-the in-loop `ok`, the write-back and the export gate all carry the one REQUIRED
-question the ISA shapes cannot ask of themselves (#738, see §11). It
+findings sit in `issues` under profile `isa`, name the entity and no property
+(the missing edge is on whatever should point at it), and fail
+`conformance["isa"]`, so the in-loop `ok`, the write-back, the export gate and
+`assess_gaps` all carry the one REQUIRED question the ISA shapes cannot ask of
+themselves (#738, see §11). It
 returns issues keyed to the entity/property that failed so the agent can route
 a fix to a specific field:
 
@@ -2414,10 +2416,12 @@ at the files it produced counts as connected though nothing points at it. Entiti
 absolute URI are described here and live elsewhere, the same line `verify_payload` draws, and are
 excluded while everything in the crate they link to is reached (a cell-line Sample's `sampleType`
 term is, through the samples in use); one that links to an unreached node, as the AOP head does to
-its KeyEvents, is the root of an island. The check runs inside `build_and_validate` beside the ISA
-pass, so the in-loop verdict, the write-back and `export_crate`'s `validation.ok` all carry it and
-no verdict predates it; `isa_reachability_checked` records that something asked, and
-`ensure_validated` re-runs a verdict that never did.
+its KeyEvents, is the root of an island. `fold_isa_reachability` asks it beside the ISA pass in
+both in-memory producers, `build_and_validate` and the gap engine, so the in-loop verdict, the
+write-back, the guidance summary and `export_crate`'s `validation.ok` all carry it and no verdict
+predates it; export runs its own wiring backstop first, so that `ok` describes the crate written.
+`isa_reachability_checked` records that something asked, and `ensure_validated` re-runs a verdict
+that never did (`reason: "reachability-unasked"`).
 
 **Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
 because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row

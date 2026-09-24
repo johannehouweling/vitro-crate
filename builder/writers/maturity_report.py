@@ -1365,7 +1365,8 @@ def _backbone_caveat(val: ValidationReport) -> str:
     REQUIRED, and unaskable by the profile: its rules target a class inferred
     from the very edge whose absence is the defect, so a detached process is
     skipped rather than failed and the silence reads as a pass. A verdict from
-    the in-memory gate never asked. Export asks and clears it.
+    the disk validator, or one that never ran the ISA pass, never asked;
+    ``build_and_validate`` asks beside the ISA pass and clears it.
 
     Rendered on the same terms as :func:`_payload_caveat`, and for the same
     reason: a verdict clean at REQUIRED is exactly where the green pill

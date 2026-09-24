@@ -382,7 +382,11 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
     # "optional" gates in REQUIRED + RECOMMENDED + OPTIONAL (the widest sweep).
     # The assembled document is captured alongside the verdict so the MIT matcher
     # can score against the SAME assembly rather than building the crate twice.
-    from builder.tools.validation import _assemble_and_validate, _synthesize_fix
+    from builder.tools.validation import (
+        _assemble_and_validate,
+        _synthesize_fix,
+        fold_isa_reachability,
+    )
 
     try:
         metadata_doc, results = _assemble_and_validate(
@@ -406,6 +410,7 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
             for issue in r.issues
         ],
     }
+    fold_isa_reachability(metadata_doc, conformance, result["issues"])
 
     gaps: list[Gap] = []
     for issue in result.get("issues", []):
