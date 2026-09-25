@@ -34,6 +34,7 @@ from builder.tools.builder import export_crate
 from builder.tools.validation import (
     apply_validation_result,
     build_and_validate,
+    ensure_validated,
     verify_isa_reachability,
 )
 from tests.fixtures.vhps_golden_crates import vhps_fixture_state
@@ -294,7 +295,7 @@ class TestTheInLoopVerdictCarriesReachability:
     replaced ``required_issues`` wholesale and recorded zero.
     """
 
-    def test_build_and_validate_names_the_detached_process_and_is_not_ok(
+    def test_the_in_loop_verdict_is_not_ok_and_its_write_back_keeps_the_finding(
         self, tmp_path: Path
     ) -> None:
         state = _state_with_a_detached_process(tmp_path)
@@ -305,20 +306,6 @@ class TestTheInLoopVerdictCarriesReachability:
         assert any(
             i["profile"] == "isa" and "proc_orphan" in i["entity_id"] for i in result["issues"]
         ), result["issues"]
-
-    def test_export_reports_the_detached_backbone_as_not_ok(self, tmp_path: Path) -> None:
-        state = _state_with_a_detached_process(tmp_path)
-
-        result = export_crate(state, str(tmp_path / "crate"))
-
-        assert result["success"], result["error"]
-        assert result["validation"]["ok"] is False
-
-    def test_the_next_in_loop_verdict_keeps_the_finding(self, tmp_path: Path) -> None:
-        state = _state_with_a_detached_process(tmp_path)
-        export_crate(state, str(tmp_path / "crate"))
-
-        result = build_and_validate(state, profile="all")
         apply_validation_result(state, "build_and_validate", result)
 
         assert any("proc_orphan" in issue for issue in state.validation.required_issues), (
@@ -345,8 +332,6 @@ class TestTheInLoopVerdictCarriesReachability:
 
     def test_a_current_verdict_that_never_asked_is_re_run(self, tmp_path: Path) -> None:
         """A disk `validate` report covers every tier and never asked (#738)."""
-        from builder.tools.validation import ensure_validated
-
         state = _state_with_a_detached_process(tmp_path)
         state.validation = ValidationReport(
             base_passed=True,
@@ -373,6 +358,7 @@ class TestExportRefusesToCallADetachedBackboneClean:
         result = export_crate(state, str(tmp_path / "crate"))
 
         assert result["success"], result["error"]
+        assert result["validation"]["ok"] is False
         assert any("proc_orphan" in issue for issue in state.validation.required_issues), (
             state.validation.required_issues
         )
