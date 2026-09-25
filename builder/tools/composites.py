@@ -728,7 +728,7 @@ def materialize_aop_subgraph(
     The AOP is wired onto a Study via the ``aop`` reference (an alias of
     ``schema:mentions``), connecting the study to the pathway it investigates —
     mirroring the gold crate (Issue #180): the Study ``study_id`` names, or the
-    sole Study in the crate when none is named. With two Studies and no name it
+    sole Study in the crate when none is named. With several Studies and no name it
     refuses to guess and wires nothing; the subgraph is then an island the ISA
     reachability check reports (#738).
 
@@ -744,7 +744,7 @@ def materialize_aop_subgraph(
     """
     from builder.tools.lookups import lookup_aop
 
-    if study_id is None:
+    if not study_id:
         studies = state.list_entities("Study")
         if len(studies) == 1:
             study_id = studies[0].entity_id

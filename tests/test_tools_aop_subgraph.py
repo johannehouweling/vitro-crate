@@ -275,14 +275,15 @@ class TestMaterializeStudyWiring:
         result = materialize_aop_subgraph(state, "610", study_id="nonexistent")
         assert result["aop_id"] == "610"
 
-    def test_the_sole_study_is_wired_without_being_named(self):
+    @pytest.mark.parametrize("unnamed", [{}, {"study_id": ""}])
+    def test_the_sole_study_is_wired_without_being_named(self, unnamed):
         # (#738) 2 of the 28 recorded sessions called this without `study_id`
         # and shipped 36 nodes attached to nothing. One Study is not a guess.
         state = CrateState()
         inv = draft_investigation(state, {"name": "Inv"})
         study = draft_study(state, inv.entity_id, {"name": "Study"})
 
-        result = materialize_aop_subgraph(state, "610")
+        result = materialize_aop_subgraph(state, "610", **unnamed)
 
         assert result["wired_to_study"] == study.entity_id
         ids = [r.get("@id") if isinstance(r, dict) else r for r in study.fields["aop"]]
