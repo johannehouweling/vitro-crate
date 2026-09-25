@@ -5,7 +5,26 @@ Extracted from generate_crate.py for reuse in crate_builder.py and any other
 module that creates an ROCrate with the ISA-Tox profile.
 """
 
+import json
+from pathlib import Path
+
+from rocrate.model.metadata import DEFAULT_VERSION
+
 from profiles.ontology_iris import PREFIXES, iri
+
+
+def ro_crate_context_terms() -> frozenset[str]:
+    """Every term the RO-Crate context a built crate declares defines.
+
+    ro-crate-py puts ``https://w3id.org/ro/crate/<DEFAULT_VERSION>/context`` first
+    in every crate's ``@context``; the copy read here is the one
+    :mod:`profiles.validator` serves offline in place of that URL, so the
+    builder's notion of a term and the validator's are the same file.
+    """
+    contexts = Path(__file__).resolve().parent / "contexts"
+    path = contexts / f"ro-crate-{DEFAULT_VERSION}-context.jsonld"
+    return frozenset(json.loads(path.read_text(encoding="utf-8"))["@context"])
+
 
 # Bioschemas splits its vocabulary by kind: types at the bare namespace,
 # properties beneath /properties/. Both the ISA-RO-Crate shapes and Bioschemas

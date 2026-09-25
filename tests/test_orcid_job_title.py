@@ -96,15 +96,12 @@ class TestThePersonCarriesIt:
         assert "jobTitle" not in person.fields
 
     def test_the_field_name_survives_the_context_filter(self):
-        """`_scalar_props` drops snake_case fields that are not context terms.
+        """The Person is written under the context's term `jobTitle`, not the lookup's key."""
+        from builder.tools._crate_mapping import _context_terms
 
-        `jobTitle` is camelCase so it is never dropped — but the lookup's key is
-        `job_title`, and writing THAT onto the entity would have been silently
-        discarded at build time.
-        """
         state = CrateState()
         person = _ensure_person_for_orcid(
             state, "0000-0003-4766-7358", {"familyName": "W", "job_title": "Postdoc"}
         )
-        assert "_" not in "jobTitle"
+        assert "jobTitle" in _context_terms()
         assert "job_title" not in person.fields

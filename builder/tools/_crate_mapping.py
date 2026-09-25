@@ -620,16 +620,18 @@ def _build_identifier_pvs(
 
 @lru_cache(maxsize=1)
 def _context_terms() -> frozenset[str]:
-    """Every term name the ISA-Tox ``@context`` defines.
+    """Every term the crate's ``@context`` defines: RO-Crate's base context plus ISA-Tox's.
 
-    The authority for "is this a real property?" — checked instead of guessing
-    from the key's shape, so the snake_case AOP-Wiki vocabulary survives while a
-    caller's invented ``release_date`` still does not.
+    The authority for "is this a real property?". A key outside it ships as a
+    bare JSON-LD key the base pass rejects, whatever its shape: ``bioassay`` is
+    as absent as ``release_date``, and the snake_case AOP-Wiki vocabulary is as
+    present as ``hasPart``.
     """
-    from profiles.context import ISA_TOX_CONTEXT
+    from profiles.context import ISA_TOX_CONTEXT, ro_crate_context_terms
 
     blocks = ISA_TOX_CONTEXT if isinstance(ISA_TOX_CONTEXT, list) else [ISA_TOX_CONTEXT]
-    return frozenset(key for block in blocks if isinstance(block, dict) for key in block)
+    isa_tox = frozenset(key for block in blocks if isinstance(block, dict) for key in block)
+    return ro_crate_context_terms() | isa_tox
 
 
 def _identifier_terms() -> tuple[str, ...]:
@@ -695,12 +697,16 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
     anything that had a home — what reaches here is what nothing else could
     place.
     """
+    root = crate.root_dataset
     for entity in state.list_entities():
+        node = idx.get(f"{entity.type}:{entity.entity_id}") or idx.get(entity.entity_id)
         # A field a process constructor consumes is NOT unowned: the constructor
         # mints the parameter. Scoped to LabProcess, because the same name on
         # another entity really is unowned — `detection_instrument` on a File is
         # consumed by nothing and must still be kept (#677).
         consumed = _process_constructor_fields() if entity.type == "LabProcess" else frozenset()
+        if node is root and _is_root_contact(root, entity.fields.get("contact"), idx):
+            consumed = frozenset({"contact"})  # the sole Investigation's, stated once
         leftovers = {
             key: value
             for key, value in entity.fields.items()
@@ -710,7 +716,6 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
         }
         if not leftovers:
             continue
-        node = idx.get(f"{entity.type}:{entity.entity_id}") or idx.get(entity.entity_id)
         if node is None:
             # No built node to attach to — nothing to do, and inventing one to
             # hold a stray field would put an entity in the crate that the crate
@@ -785,40 +790,40 @@ def _process_constructor_fields() -> frozenset[str]:
 def field_would_be_dropped(field: str) -> bool:
     """Whether :func:`_scalar_props` would DELETE *field* rather than emit it.
 
-    The drop rule, asked as a question so the two places that need to know —
-    :mod:`builder.tools.rehome`, which moves such a field to the entity that
-    consumes it, and :func:`_preserve_unowned_fields`, which keeps whatever is
-    left as a PropertyValue — cannot hold their own copy of it and drift.
+    The one copy of the drop rule, asked as a question: ``_scalar_props`` itself,
+    :mod:`builder.tools.rehome` (which moves such a field to the entity that
+    consumes it) and :func:`_preserve_unowned_fields` (which keeps whatever is
+    left as a PropertyValue) all consult it, so none can drift from the others.
 
-    Mirrors the branch in ``_scalar_props`` exactly: a snake_case key that no
-    context term defines under either spelling, and that the reference/structural
-    pipelines do not already consume.
+    A field is dropped when no term of the crate's ``@context`` defines it under
+    its own spelling or its camelCase one, and the reference/structural pipelines
+    do not consume it. The key's shape plays no part.
     """
-    if field.startswith("@") or field in (_REF_FIELDS | _STRUCT_FIELDS):
-        return False
-    if "_" not in field or field in _context_terms():
+    owned = _REF_FIELDS | _STRUCT_FIELDS
+    if field.startswith("@") or field in owned or field in _context_terms():
         return False
     renamed = _camel_case(field)
-    return renamed not in _context_terms() and renamed not in (_REF_FIELDS | _STRUCT_FIELDS)
+    return renamed not in _context_terms() and renamed not in owned
 
 
 def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     """Plain-value properties of an entity (references/discriminators removed).
 
-    Snake_case survivors are DROPPED **unless the context defines them**. Almost
-    every term in the RO-Crate and ISA-Tox contexts is camelCase, so an
-    underscored key that reached this point is usually a field a caller invented
-    (``release_date`` instead of ``releaseDate``, ``measurement_method`` instead
-    of ``measurementMethod``). Emitting one produced a bare JSON-LD key absent
-    from the ``@context``, which fails BASE with "not allowed in the compacted
-    JSON-LD context" — a failure the agent cannot fix by editing the crate,
-    because the invalid key is regenerated from state on every build.
+    A key is emitted only when the crate's ``@context`` defines it
+    (:func:`_context_terms`), whatever its shape: the snake_case AOP-Wiki
+    vocabulary (``has_molecular_initiating_event``, ``upstream_event``, …) is
+    kept, and an invented single word (``bioassay``, ``endpoint``) is not.
+    Emitting an undefined key produces a bare JSON-LD key that fails BASE with
+    "not allowed in the compacted format" — a failure the agent cannot fix by
+    editing the crate, because the key is regenerated from state on every build.
+    :func:`field_would_be_dropped` is the rule; :func:`_preserve_unowned_fields`
+    keeps such a value as a PropertyValue on the same entity.
 
-    The exception is real: the AOP-Wiki vocabulary is snake_case
-    (``has_molecular_initiating_event``, ``has_key_event_relationship``,
-    ``upstream_event``, …). Those ARE context terms, so the test is membership in
-    the context, not the presence of an underscore — a purely syntactic rule
-    silently emptied every materialised AOP subgraph.
+    A key the context defines only under its camelCase spelling is renamed to it:
+    ``measurement_method`` IS ``measurementMethod``, and dropping it threw away an
+    answer the crate then reported as missing. An explicit camelCase value already
+    on the entity wins, since that one was written deliberately. A ``None`` value
+    says nothing and is not emitted.
 
     The mapper's OWN snake_case inputs (``pubchem_cid``, ``dest_path``,
     ``process_type``, ``cell_seeding_density``, …) never reach here: they are
@@ -828,47 +833,29 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     drop = _REF_FIELDS | _STRUCT_FIELDS | set(skip)
     props: dict[str, Any] = {}
     for key, value in entity.fields.items():
-        if key in drop or key.startswith("@"):
+        if key in drop or key.startswith("@") or value is None:
             continue
-        if "_" in key and key not in _context_terms():
-            # Almost every context term is camelCase, so a snake_case key is
-            # usually the same property spelled the way an agent says it out
-            # loud. `measurement_method` IS `measurementMethod`, and dropping it
-            # threw away an answer to a finding the crate then went on to report
-            # as missing — the agent had said what the assay measures and the
-            # build deleted it. Rename rather than drop whenever the camelCase
-            # form is a real term; an explicit camelCase value already on the
-            # entity wins, since that one was written deliberately.
-            renamed = _camel_case(key)
-            if renamed in drop:
-                # A real term the build holds back, and its alias with it: the
-                # reference pipeline owns it (it resolves the value to an entity,
-                # drops prose that names nothing, and reads the alias where the
-                # reference is wired), or the caller's `skip` excludes it
-                # (`dsstoxId` on a Study or Assay, #739). Emitting it here as a
-                # scalar would smuggle a literal past either rule.
-                continue
-            if renamed in _context_terms():
-                if renamed not in entity.fields:
-                    props.setdefault(renamed, value)
-                continue
-            # No context term under either spelling: the field is a caller's
-            # invention, and emitting a bare JSON-LD key fails BASE conformance
-            # ("not allowed in the compacted JSON-LD context") in a way the agent
-            # cannot fix by editing the crate, because the invalid key is
-            # regenerated from state on every build.
-            # NOT "dropped" any more, and the message must not say so: the key
-            # cannot be emitted as JSON-LD (the context does not define it, and a
-            # bare key fails BASE), but `_preserve_unowned_fields` keeps the
-            # VALUE as a PropertyValue on this same entity. A log line claiming
-            # data loss that did not happen sends the reader looking for a bug.
+        if field_would_be_dropped(key):
             logger.debug(
                 "%r is not a JSON-LD term; keeping it on %s as a PropertyValue",
                 key,
                 entity.entity_id,
             )
             continue
-        props[key] = value
+        if key in _context_terms():
+            props[key] = value
+            continue
+        renamed = _camel_case(key)
+        if renamed in drop:
+            # A real term the build holds back, and its alias with it: the
+            # reference pipeline owns it (it resolves the value to an entity,
+            # drops prose that names nothing, and reads the alias where the
+            # reference is wired), or the caller's `skip` excludes it
+            # (`dsstoxId` on a Study or Assay, #739). Emitting it here as a
+            # scalar would smuggle a literal past either rule.
+            continue
+        if renamed not in entity.fields:
+            props.setdefault(renamed, value)
     return props
 
 
@@ -2586,6 +2573,24 @@ _GENERATOR_METRICS: tuple[tuple[str, str, str | None], ...] = (
 )
 
 
+def _is_root_contact(root: Any, value: Any, idx: dict[str, Any]) -> bool:
+    """Whether *value* is one contact, and the one the root's ``contactPoint`` names.
+
+    *value* is wired the way :func:`_wire_root_attribution` wires a contact, so an
+    entity id, a bare IRI and ``{"@id"}`` compare by the ``@id`` they resolve to,
+    whichever source filled the root's contactPoint. A value that resolves to
+    nothing (an email, a name, an ORCID without its URL) or names several contacts
+    is not it.
+    """
+    if isinstance(value, list):
+        return False
+    wired: dict[str, Any] = {}
+    _wire_reference(wired, "contactPoint", value, idx)
+    ref = wired.get("contactPoint")
+    ref_id = ref.get("@id") if isinstance(ref, dict) else getattr(ref, "id", None)
+    return ref_id is not None and root.as_jsonld().get("contactPoint") == {"@id": ref_id}
+
+
 def _wire_root_attribution(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
     """Put crate-level attribution on the Root Data Entity.
 
@@ -2596,12 +2601,22 @@ def _wire_root_attribution(state: CrateState, crate: ROCrate, idx: dict[str, Any
 
     Each value is an entity id or a resolvable IRI (ORCID / ROR), wired through
     the shared resolver so a bare identifier still emits a proper reference.
+
+    The contact is the metadata slot, or failing that the sole Investigation's
+    ``contactPoint`` / ``contact_point`` / ``contact`` — the entity the root stands
+    for, and where an agent writes it — so an ORCID the fold copied as a string
+    becomes a reference. No context term takes ``contact``, so
+    :func:`_preserve_unowned_fields` keeps it as a PropertyValue unless it is the
+    contactPoint wired here.
     """
     m = state.metadata
+    investigations = state.list_entities("Investigation")
+    sole = investigations[0].fields if len(investigations) == 1 else {}
+    inv_contact = _first_of(sole, ("contactPoint", "contact_point", "contact"))
     for prop, value in (
         ("publisher", m.publisher),
         ("creator", m.creator),
-        ("contactPoint", m.contact),
+        ("contactPoint", m.contact or inv_contact),
     ):
         if value:
             _wire_reference(crate.root_dataset, prop, value, idx)
