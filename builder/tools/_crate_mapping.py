@@ -632,24 +632,12 @@ def _context_terms() -> frozenset[str]:
     return frozenset(key for block in blocks if isinstance(block, dict) for key in block)
 
 
-@lru_cache(maxsize=1)
 def _identifier_terms() -> tuple[str, ...]:
-    """Every context term that expands to ``schema:identifier`` (``accession``, ``dsstoxId``, …).
-
-    The Study and Assay emitters skip them all: their ISA shapes cap
-    ``schema:identifier`` at one (``sh:maxCount 1``; the Investigation shape does
-    not), and the minted :func:`_isa_identifier` is that one. A second one fails
-    the upstream message "MUST have a non-empty identifier of type string", which
-    reads as *missing* while the cause is *two*.
-    """
+    """Every context term that expands to ``schema:identifier`` (``accession``, ``dsstoxId``, …)."""
     from profiles.context import ISA_TOX_CONTEXT
 
-    return tuple(
-        term
-        for block in ISA_TOX_CONTEXT
-        for term, iri in block.items()
-        if iri == "http://schema.org/identifier"
-    )
+    ident = "http://schema.org/identifier"
+    return tuple(term for block in ISA_TOX_CONTEXT for term, v in block.items() if v == ident)
 
 
 def _preserved_name(field: str) -> str:
@@ -853,12 +841,12 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
             # entity wins, since that one was written deliberately.
             renamed = _camel_case(key)
             if renamed in drop:
-                # A real term, but one the reference pipeline owns (it resolves
-                # the value to an entity and drops prose that names nothing).
-                # Emitting it here as a scalar would smuggle a literal past that
-                # machinery — and past the explicit camelCase value, which is
-                # also held back for it. The alias is read where the reference
-                # is wired instead.
+                # A real term the build holds back, and its alias with it: the
+                # reference pipeline owns it (it resolves the value to an entity,
+                # drops prose that names nothing, and reads the alias where the
+                # reference is wired), or the caller's `skip` excludes it
+                # (`dsstoxId` on a Study or Assay, #739). Emitting it here as a
+                # scalar would smuggle a literal past either rule.
                 continue
             if renamed in _context_terms():
                 if renamed not in entity.fields:
@@ -2080,12 +2068,14 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             _append_unique(root, "hasPart", node)
 
     root_ident = root.get("identifier") or "./"
+    # ISA caps a Study's or Assay's schema:identifier at one: the minted one (#739).
+    isa_skip = (*_AGENT_REFERENCE_FIELDS, *_identifier_terms())
 
     for st in state.list_entities("Study"):
         props = {
             "@type": "Dataset",
             "additionalType": "Study",
-            **_scalar_props(st, skip=(*_AGENT_REFERENCE_FIELDS, *_identifier_terms())),
+            **_scalar_props(st, skip=isa_skip),
         }
         props["identifier"] = _isa_identifier(st, root_ident, "study")
         node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
@@ -2097,7 +2087,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
         props = {
             "@type": "Dataset",
             "additionalType": "Assay",
-            **_scalar_props(asy, skip=(*_AGENT_REFERENCE_FIELDS, *_identifier_terms())),
+            **_scalar_props(asy, skip=isa_skip),
         }
         parent = _resolve_one(idx, asy.fields.get("study_id")) or root
         props["identifier"] = _isa_identifier(asy, parent.get("identifier") or root_ident, "assay")
