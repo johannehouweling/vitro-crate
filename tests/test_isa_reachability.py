@@ -19,8 +19,7 @@ our side instead: a structural entity this crate mints must be reachable from th
 root by a directed walk — "referenced by something" is not enough, because an
 island references its own members (#738). An entity named by an absolute URI is
 described here but lives elsewhere, the same line #530 draws for the payload, so
-it is excluded while everything in the crate it links to is reached; one that
-links to an unreached node roots an island.
+it is excluded — except the AOP head, which stands for the subgraph under it.
 """
 
 from __future__ import annotations
@@ -146,9 +145,9 @@ class TestVerifyIsaReachability:
         Fifteen of the S-VHPS22 builds in `output/` carry such a Sample with
         nothing pointing at it. That is a record of an external thing, not a
         hole in this crate's backbone — the same line #530 draws for the
-        payload. Its one local edge, ``sampleType``, points at the ``cell line``
-        term the walk already reached through the sample in use, so it roots no
-        island; the AOP head, whose KeyEvents nothing else reaches, does (#738).
+        payload — and a characteristic it carries (a passage, a cell type) is
+        its own description, reached through it alone. Only the AOP head, which
+        stands for the subgraph the crate mints under it, is the exception (#738).
         """
         term = "http://purl.obolibrary.org/obo/NCIT_C16403"
         doc = _doc(
@@ -161,7 +160,9 @@ class TestVerifyIsaReachability:
                 "@type": "Sample",
                 "name": "MO3.13",
                 "sampleType": {"@id": term},
+                "additionalProperty": {"@id": "#param_passage"},
             },
+            {"@id": "#param_passage", "@type": "PropertyValue", "name": "passage", "value": "12"},
         )
 
         assert verify_isa_reachability(doc) == []

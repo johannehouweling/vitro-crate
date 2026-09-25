@@ -236,11 +236,9 @@ def verify_payload(crate: Any) -> list[dict[str, Any]]:
     return issues
 
 
-# The classes this crate MINTS a structural entity for. Each carries a rule-set
-# in the upstream profile that only applies once something references the
-# entity, so each is a class whose whole rule-set can go silent (#537). The AOP
-# head is the root of a subgraph `materialize_aop_subgraph` mints whole, so it
-# stands for its KeyEvents and relationships: one finding names the island (#738).
+# The ISA classes here carry a rule-set in the upstream profile that only
+# applies once something references the entity (#537); the AOP head stands for
+# the subgraph `materialize_aop_subgraph` mints whole (#738).
 _ISA_STRUCTURAL_TYPES = frozenset({"LabProcess", "Sample", "LabProtocol", "AdverseOutcomePathway"})
 
 # Keys that describe the node rather than point away from it. `@type`'s values
@@ -277,12 +275,11 @@ def verify_isa_reachability(
 
     Entities identified by an absolute URI are described here and live
     elsewhere — a Cellosaurus cell line is a record of an external thing, not a
-    hole in this crate's backbone — so one that links to nothing the walk left
-    unreached is not reported, the same line :func:`verify_payload` draws for
-    the payload: a cell-line Sample whose one local edge is ``sampleType`` to
-    the ``cell line`` term every sample in use already reaches. One that links
-    to an unreached node is the root of an island (the AOP head, to its
-    KeyEvents) and is reported like any local entity.
+    hole in this crate's backbone — so they are not reported, the same line
+    :func:`verify_payload` draws for the payload. The AOP head is the
+    exception: named by its AOP-Wiki IRI, it stands for the KeyEvents and
+    relationships ``materialize_aop_subgraph`` mints under it, so an unreached
+    one is an island.
 
     :func:`fold_isa_reachability` asks it beside the ISA pass, so every
     in-memory verdict that ran the pass carries the answer (#738). O(V+E).
@@ -300,15 +297,12 @@ def verify_isa_reachability(
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
     nodes = {str(node["@id"]): node for node in graph if isinstance(node, dict) and node.get("@id")}
 
-    def _local_refs(node: dict[str, Any]) -> list[str]:
-        keys = tuple(key for key in node if key not in _NON_REFERENCE_KEYS)
-        return [ref for ref in _refs(node, keys) if ref in nodes and ref != node.get("@id")]
-
     reached = {"./"}
     frontier = ["./"]
     while frontier:
-        for ref in _local_refs(nodes.get(frontier.pop(), {})):
-            if ref not in reached:
+        node = nodes.get(frontier.pop(), {})
+        for ref in _refs(node, tuple(key for key in node if key not in _NON_REFERENCE_KEYS)):
+            if ref in nodes and ref not in reached:
                 reached.add(ref)
                 frontier.append(ref)
 
@@ -317,7 +311,7 @@ def verify_isa_reachability(
         kinds = _types(node) & _ISA_STRUCTURAL_TYPES
         if not kinds or entity_id in reached:
             continue
-        if entity_id.startswith(("http://", "https://")) and reached.issuperset(_local_refs(node)):
+        if entity_id.startswith(("http://", "https://")) and "AdverseOutcomePathway" not in kinds:
             continue
         kind = ", ".join(sorted(kinds))
         issues.append(
@@ -328,8 +322,7 @@ def verify_isa_reachability(
                 "property": None,
                 "message": (
                     f"Nothing the crate's root reaches references the {kind} "
-                    f"{entity_id!r}, so it is detached from the ISA backbone and every "
-                    "profile rule for its class is skipped rather than passed"
+                    f"{entity_id!r}, so it is detached from the ISA backbone"
                 ),
                 "fix": (
                     f"Reference `{entity_id}` from the entity it belongs to — a process "
@@ -707,8 +700,6 @@ def build_and_validate(
             len(citations),
         )
 
-    # After the citation split on purpose — a detached entity is one the crate
-    # describes, by construction, so the finding is never vocabulary.
     fold_isa_reachability(metadata_doc, conformance, issues)
 
     if memo_key:
