@@ -521,9 +521,11 @@ def _record_root_attribution(engine: AgentEngine, gap: Gap, person_id: str) -> b
     The root Data Entity has no state node, so a root person gap used to be
     considered satisfied by minting the Person alone — on the assumption that the
     builder auto-wires every Person onto the root. It does, but only as
-    ``author``. ``publisher`` / ``creator`` / ``contactPoint`` are wired
-    exclusively from ``CrateMetadata`` by
-    :func:`~builder.tools._crate_mapping._wire_root_attribution`, so answering
+    ``author``. ``publisher`` / ``creator`` / ``contactPoint`` are wired from
+    ``CrateMetadata`` (``contactPoint`` falling back to the sole Investigation's
+    ``contactPoint`` / ``contact_point`` / ``contact``) by
+    :func:`~builder.tools._crate_mapping._wire_root_attribution`,
+    never from a minted Person, so answering
     "who should be credited as the publisher?" wrote nothing that could close
     ``./ schema:publisher``.
 

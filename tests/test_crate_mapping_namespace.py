@@ -215,13 +215,13 @@ class TestSnakeCaseFieldsAreCheckedAgainstTheContext:
     def test_a_key_that_is_no_term_either_way_is_dropped(self) -> None:
         from builder.tools._crate_mapping import _camel_case, _context_terms, _scalar_props
 
-        for invented in ("works_for", "test_type"):
+        for invented in ("dose_group", "test_type"):
             assert invented not in _context_terms()
             assert _camel_case(invented) not in _context_terms()
 
-        entity = _entity("p1", "Person", works_for="Utrecht", test_type="in vitro", name="Ada")
+        entity = _entity("p1", "Person", dose_group="high", test_type="in vitro", name="Ada")
         props = _scalar_props(entity)
-        assert "works_for" not in props and "worksFor" not in props
+        assert "dose_group" not in props and "doseGroup" not in props
         assert "test_type" not in props and "testType" not in props
         assert props.get("name") == "Ada", "a real term beside an invented one still ships"
 

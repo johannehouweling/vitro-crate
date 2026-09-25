@@ -623,7 +623,12 @@ turning a transient blip into red CI and violating #59's "runs offline" criterio
 - **Pinned local contexts, deny-by-default for everything else (SSRF guard, #168).**
   `profiles/contexts/ro-crate-1.1-context.jsonld` and
   `ro-crate-1.2-context.jsonld` are committed copies of the RO-Crate JSON-LD
-  contexts. `_install_offline_context_loader()` (run at import) intercepts the
+  contexts. The copy of the context a built crate declares (ro-crate-py's default
+  version) is also the builder's term authority: `profiles.context.ro_crate_context_terms()`
+  unioned with the ISA-Tox context is `_crate_mapping._context_terms()`, and
+  `_scalar_props` emits a key only when that set defines it — whatever the key's
+  shape — so no build ships a key the validator's own context rejects (#737).
+  `_install_offline_context_loader()` (run at import) intercepts the
   `HttpRequester` GET/HEAD proxy (and `fetch_fresh`) and serves these well-known
   context URLs from disk, so both resolution paths get the bundled copy and never
   touch the wire. Any **other** outbound dereference — a crafted `@context` (or any
