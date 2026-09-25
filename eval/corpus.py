@@ -266,7 +266,7 @@ def _drafting_state() -> CrateState:
             assay_id="assay",
             samples="cell",
             chemicals="compound",
-            protocol_id="protocol",
+            labprotocol="protocol",
             # The tox profile requires each of Exposure / EndpointReadout /
             # DataAnalysis to carry at least one schema:additionalProperty, and
             # `_pv` no longer publishes "unknown" to satisfy it. A corpus case
@@ -410,7 +410,8 @@ def _arbitrary_tox_folder_state() -> CrateState:
             process_type="TestSystemPreparation",
             assay_id="assay",
             samples="cell",
-            protocol_id="protocol",
+            labprotocol="protocol",
+            culture_medium="Coon's modified Ham's F-12 + 5% calf serum",
         )
     )
     state.add_entity(
@@ -422,7 +423,7 @@ def _arbitrary_tox_folder_state() -> CrateState:
             assay_id="assay",
             samples="cell",
             chemicals="compound",
-            protocol_id="protocol",
+            labprotocol="protocol",
             # The tox profile requires each of Exposure / EndpointReadout /
             # DataAnalysis to carry at least one schema:additionalProperty, and
             # `_pv` no longer publishes "unknown" to satisfy it. A corpus case
@@ -439,7 +440,7 @@ def _arbitrary_tox_folder_state() -> CrateState:
             assay_id="assay",
             samples="cell",
             output="raw",  # the raw measurement File (schema:result MUST)
-            protocol_id="protocol",
+            labprotocol="protocol",
             detection_instrument="Amplex Red fluorescence plate reader",
         )
     )
@@ -452,7 +453,7 @@ def _arbitrary_tox_folder_state() -> CrateState:
             assay_id="assay",
             input="raw",  # raw data consumed (schema:object MUST)
             output="proc",  # processed-data File produced (schema:result MUST)
-            protocol_id="protocol",
+            labprotocol="protocol",
             data_processing="Four-parameter logistic dose-response fit (IC50)",
         )
     )
