@@ -1456,13 +1456,7 @@ which a cell-line `CellLineSample` materialises as a `cell line` `DefinedTerm`).
 crate from `CrateState` **in memory** and validates the generated JSON-LD
 document directly via `rocrate_validator.services.validate_metadata_as_dict` —
 **no crate is written to disk and nothing is re-read** (the old
-`build_crate`→`validate` round-trip touched disk on every ReAct iteration).
-Whenever the ISA pass runs, `verify_isa_reachability` runs beside it: its
-findings sit in `issues` under profile `isa`, name the entity and no property
-(the missing edge is on whatever should point at it), and fail
-`conformance["isa"]`, so the in-loop `ok`, the write-back, the export gate and
-`assess_gaps` all carry the one REQUIRED question the ISA shapes cannot ask of
-themselves (#738, see §11). It
+`build_crate`→`validate` round-trip touched disk on every ReAct iteration). It
 returns issues keyed to the entity/property that failed so the agent can route
 a fix to a specific field:
 
@@ -1478,6 +1472,8 @@ a fix to a specific field:
 
 `conformance` is keyed to the passes actually run: all three layers for
 `profile="all"`, or just the scoped layer when a single `profile` is given.
+Whenever the ISA pass runs, `issues` and `conformance["isa"]` also carry
+`verify_isa_reachability`'s findings (`property: None`; §11).
 
 `severity` (`required`|`recommended`|`optional`) is the gate that decides which
 SHACL checks run — `required` (the default) is fastest. `profile`
@@ -2402,22 +2398,14 @@ way, and our `tox/7_assay_key_event.ttl` rides on `isa-ro-crate:Assay`, so the b
 general: a missing structural edge switches off the whole rule-set for that layer, and the crate
 reports conformant precisely when its structure is most broken. The upstream shapes are not ours to
 restructure, so `verify_isa_reachability` asserts the invariant on our side, the one way an absent
-edge cannot game: a **directed** walk from `./` over every reference in the graph, and a structural
-entity — a `LabProcess`, `Sample`, `LabProtocol`, or an `AdverseOutcomePathway` head standing for
-the subgraph minted with it — the walk never visits is detached, whatever the profile could
-evaluate. "Referenced by something" is not that test: an AOP subgraph minted without a Study
-references its own KeyEvents, and all 36 of its nodes passed it while none was attached (#738).
-Neither is `provenance_dag.build_crate_graph`'s *undirected* orphan flag, where a process pointing
-at the files it produced counts as connected though nothing points at it. Entities named by an
-absolute URI are described here and live elsewhere, the same line `verify_payload` draws, and are
-excluded while everything in the crate they link to is reached (a cell-line Sample's `sampleType`
-term is, through the samples in use); one that links to an unreached node, as the AOP head does to
-its KeyEvents, is the root of an island. `fold_isa_reachability` asks it beside the ISA pass in
-both in-memory producers, `build_and_validate` and the gap engine, so the in-loop verdict, the
-write-back, the guidance summary and `export_crate`'s `validation.ok` all carry it and no verdict
-predates it; export runs its own wiring backstop first, so that `ok` describes the crate written.
-`isa_reachability_checked` records that something asked, and `ensure_validated` re-runs a verdict
-that never did (`reason: "reachability-unasked"`).
+edge cannot game: a **directed** walk from `./` over every reference, and a structural entity (a
+`LabProcess`, `Sample`, `LabProtocol`, or an `AdverseOutcomePathway` head standing for its
+subgraph) the walk never visits is detached, whatever the profile could evaluate — "referenced by
+something" is a weaker test an island passes, since it references its own members (#738). An entity
+named by an absolute URI is described here and lives elsewhere, the same line `verify_payload`
+draws, so it is excluded — except the AOP head. `provenance_dag`'s orphan flag is undirected and is
+not this test. `fold_isa_reachability` runs it beside the ISA pass in `build_and_validate` and the
+gap engine; `isa_reachability_checked` records that it ran.
 
 **Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
 because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row
