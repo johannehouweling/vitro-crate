@@ -422,29 +422,32 @@ class TestEveryStepExecutesOneProtocolRecord:
         assert by_id["assay/SOP.docx"]["@type"] == ["File", "LabProtocol"]
 
     def test_the_deposit_outranks_what_was_named(self, tmp_path):
-        """#789: the deposit's documents for a step outrank what the drafter named,
-        which is used only where the scan places nothing. A drafted protocol the
-        deposit outranks wherever it was named is left out of the crate."""
+        """#789: a record is based on the deposit's documents for its step, and on a
+        document the drafter named only where the deposit places none. What the lab
+        stated about a step fills that step's record; it is no node of its own."""
         state = self._state()
-        state.add_entity(_ent("outranked", "LabProtocol", name="Readout procedure"))
-        state.add_entity(_ent("fallback", "LabProtocol", name="Analysis procedure"))
-        state.get_entity("p_read").fields["labprotocol"] = ["outranked", "fallback"]
-        state.get_entity("p_da").fields["labprotocol"] = "fallback"
+        state.add_entity(
+            _ent("stated", "LabProtocol", name="Readout procedure", description="Read at 450 nm.")
+        )
+        state.get_entity("p_read").fields["labprotocol"] = "stated"
+        state.get_entity("p_da").fields["labprotocol"] = "sop"
         _, by_id = _build(state, tmp_path)
-        assert _documents(by_id, "#LabProcess_p_read") == ["assay/SOP.docx"]
-        assert _documents(by_id, "#LabProcess_p_da") == ["#LabProtocol_fallback"]
-        assert "#LabProtocol_outranked" not in by_id
+        read = by_id[_ids(by_id["#LabProcess_p_read"]["executesLabProtocol"])[0]]
+        assert _ids(read.get("isBasedOn")) == ["assay/SOP.docx"]
+        assert (read["name"], read["description"]) == ("Readout procedure", "Read at 450 nm.")
+        assert _documents(by_id, "#LabProcess_p_da") == ["assay/SOP.docx"]
+        assert not [i for i in by_id if i.startswith("#LabProtocol_")]
 
     def test_a_record_never_replaces_an_entity_holding_its_id(self, tmp_path):
         """``<process>_protocol`` can already be taken: by a step drafted as
-        "Exposure protocol" beside "Exposure", or by a protocol drafted under the
-        id a finding reported. The record steps aside instead of replacing it."""
+        "Exposure protocol" beside "Exposure", or by an entity drafted under the id
+        a finding reported. The record steps aside instead of replacing it."""
         state = self._state()
         state.add_entity(
             _ent("p_exp_protocol", "LabProcess", name="Exposure protocol",
                  process_type="EndpointReadout", assay_id="assay_1")
         )
-        state.add_entity(_ent("#LabProcess_p_read_protocol", "LabProtocol", name="Drafted"))
+        state.add_entity(_ent("#LabProcess_p_read_protocol", "Sample", name="Drafted"))
         _, by_id = _build(state, tmp_path)
         assert "LabProcess" in str(by_id["#LabProcess_p_exp_protocol"]["@type"])
         assert by_id["#LabProcess_p_read_protocol"]["name"] == "Drafted"
@@ -1087,17 +1090,21 @@ class TestTheCultureProtocolIsStudyLevel:
 
     def test_a_line_takes_its_own_document_before_the_named_protocol(self, tmp_path):
         """#789, per line: a line the deposit holds a document for is based on it
-        alone; a line it holds none for falls back to what the drafter named, and
-        never to another line's document."""
+        alone, never on another line's; what the lab stated about the culture fills
+        each line's record."""
         state = self._two_assays(docs=self.CULTURE_DOCS[:1])
-        state.add_entity(_ent("named", "LabProtocol", name="Culture procedure"))
+        state.add_entity(
+            _ent("named", "LabProtocol", name="Culture procedure", description="DMEM, 37 °C.")
+        )
         state.list_entities("LabProcess")[0].set_fields_from_dict(
             {"cell_line": ["cell_a", "cell_b"], "labprotocol": "named"}, source="llm"
         )
         _, by_id = _build(state, tmp_path)
         (own,) = _documents(by_id, "#LabProcess_proc_1_SK-N-AS")
         assert "SK-N-AS" in own, own
-        assert _documents(by_id, "#LabProcess_proc_1_H4") == ["#LabProtocol_named"]
+        assert _documents(by_id, "#LabProcess_proc_1_H4") == []
+        (h4,) = _ids(by_id["#LabProcess_proc_1_H4"]["executesLabProtocol"])
+        assert by_id[h4]["name"] == "Culture procedure"
 
     def test_a_culture_of_two_lines_follows_one_document_per_line(self, tmp_path):
         """One document per cell line, never a composite: the deposit holds no

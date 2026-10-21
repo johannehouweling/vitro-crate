@@ -494,9 +494,7 @@ def populate_crate(
         include_all_scanned=include_all_scanned,
     )
     _add_structural(state, crate, idx)
-    outranked = _add_processes(
-        state, crate, idx, output_dir, materialize_payload=materialize_payload
-    )
+    _add_processes(state, crate, idx, output_dir, materialize_payload=materialize_payload)
     # After the index is complete, so publisher/creator/contact can point at any
     # Person or Organization in the crate (or at a bare ORCID/ROR IRI).
     _wire_root_attribution(state, crate, idx)
@@ -505,8 +503,6 @@ def populate_crate(
     _wire_dataset_aliases(state, crate, idx)
     _preserve_unowned_fields(state, crate, idx)
     _mirror_profile_predicates(crate)
-    # Last, so every pass that can reference a protocol has run (#789).
-    _drop_outranked_protocols(crate, outranked)
 
 
 # ---------------------------------------------------------------------------
@@ -1537,15 +1533,17 @@ def _protocol_record(
     documents: list[Any],
     reagents: list[Any],
     reserved: frozenset[str] = frozenset(),
+    stated: dict[str, Any] | None = None,
 ) -> LabProtocol | None:
     """The one protocol a step executes: a record of what the deposit states (D17).
 
     ``intendedUse`` is the step's protocol type (:data:`_STEP_PROTOCOL_TYPES`),
     ``isBasedOn`` the step's *documents*, and ``reagent`` the compounds an Exposure
-    applied, each listed once. Nothing else is written: a description is the lab's
-    to give, and a builder sentence would satisfy the checks that ask for one
-    (#670). ``None`` for an untyped step that names no document, which has nothing
-    to state.
+    applied, each listed once. *stated* is what the lab stated about the step, a
+    protocol the drafter recorded from the deposit: its name, description and url
+    fill the record (#789). Nothing else is written: a builder sentence would
+    satisfy the checks that ask for a description (#670). ``None`` for an untyped
+    step with no document and nothing stated.
 
     The record sits at ``<pid>_protocol`` unless an entity already holds that id or
     a step in *reserved* will: a step drafted as "Exposure protocol" beside
@@ -1553,7 +1551,8 @@ def _protocol_record(
     ``crate.add`` replaces silently, so the record takes ``<pid>_protocol_<n>``.
     """
     curie, term = _STEP_PROTOCOL_TYPES.get(ptype, (None, None))
-    if curie is None and not documents:
+    stated = stated or {}
+    if curie is None and not documents and not stated:
         return None
     intended_use = None
     if curie is not None:
@@ -1566,10 +1565,12 @@ def _protocol_record(
     return LabProtocol(
         crate,
         record_id,
-        f"{name} protocol",
+        stated.get("name") or f"{name} protocol",
         intended_use=intended_use,
         is_based_on=list({d.id: d for d in documents}.values()),
         reagents=list({r.id: r for r in reagents}.values()),
+        description=stated.get("description"),
+        url=stated.get("url"),
     )
 
 
@@ -1757,18 +1758,6 @@ def _add_leaves(
             ),
         )
 
-    for proto in state.list_entities("LabProtocol"):
-        _idx_add(
-            idx,
-            proto,
-            crate.add(
-                ContextEntity(
-                    crate,
-                    _mint_id(proto),
-                    properties={"@type": "LabProtocol", **_scalar_props(proto)},
-                )
-            ),
-        )
 
     # Samples / CellLineSamples auto-add themselves (AutoAddContextEntity).
     lineage: list[tuple[Entity, Any]] = []
@@ -3307,9 +3296,7 @@ def _add_processes(
     output_dir: Path | None,
     *,
     materialize_payload: bool = True,
-) -> dict[str, Any]:
-    """Build every LabProcess with its protocol record, and return the drafted
-    protocols the deposit outranked on some step (see `_drop_outranked_protocols`)."""
+) -> None:
     # (assay, process_type, built node) for the chaining pass below. A process is
     # built in isolation — it cannot see its neighbours — so making each step
     # consume what the previous one produced has to happen once every step exists.
@@ -3335,7 +3322,11 @@ def _add_processes(
     )
     # Every id a drafted step mints, so that no protocol record takes one.
     reserved = frozenset(_mint_id(p) for p in ordered)
-    outranked: dict[str, Any] = {}
+    # What the lab stated about a step: the protocols the drafter recorded. They are
+    # no crate nodes of their own; each fills the record of the step that names it.
+    stated_idx: dict[str, Any] = {}
+    for protocol in state.list_entities("LabProtocol"):
+        _idx_add(stated_idx, protocol, protocol)
     for proc in ordered:
         f = proc.fields
         ptype = f.get("process_type") or f.get("additionalType") or ""
@@ -3348,9 +3339,13 @@ def _add_processes(
         # stub each process pointed at, and the actual SOP nobody referenced.
         # Same failure as `data_processing` / `computational_tool` below; same
         # answer, accept both spellings.
-        # The step's record is based on the documents the deposit places on it; what
-        # the drafter named counts only where the deposit places none (D17, #789).
+        # The step's record is based on the documents the deposit places on it; a
+        # document the drafter named counts only where the deposit places none, and
+        # what the lab stated fills the record (D17, #789).
         named = _resolve_many(idx, _first_of(f, _PROTOCOL_ALIASES))
+        stated = next(
+            (p.fields for p in _resolve_many(stated_idx, _first_of(f, _PROTOCOL_ALIASES))), None
+        )
         if ptype == "TestSystemPreparation":
             # Culturing is study-level, so documents are keyed on the CELL LINE
             # rather than the assay — every assay growing SK-N-AS follows the one
@@ -3388,8 +3383,6 @@ def _add_processes(
                 per_line = _culture_protocols(
                     state, crate, [line], idx, materialize_payload=materialize_payload
                 )
-                if per_line:
-                    outranked.update((doc.id, doc) for doc in named)
                 nodes.append(
                     _build_process(
                         crate,
@@ -3402,6 +3395,7 @@ def _add_processes(
                         output_dir,
                         materialize_payload=materialize_payload,
                         reserved=reserved,
+                        stated=stated,
                         cell_lines=[line],
                         # Only the first part may claim the drafter's output
                         # Sample; the rest synthesize their own, so nothing
@@ -3423,10 +3417,9 @@ def _add_processes(
                     materialize_payload=materialize_payload,
                     cultures=cultures_by_assay.get(assay_key),
                     reserved=reserved,
+                    stated=stated,
                 )
             ]
-            if deposited:
-                outranked.update((doc.id, doc) for doc in named)
         if ptype == "TestSystemPreparation":
             cultures_by_assay.setdefault(assay_key, []).extend(nodes)
         for node in nodes:
@@ -3446,33 +3439,7 @@ def _add_processes(
     _place_protocols(state, idx, protocol_use)
     _chain_processes(built)
     _floor_readout_objects(crate, built)
-    return outranked
 
-
-def _drop_outranked_protocols(crate: ROCrate, outranked: dict[str, Any]) -> None:
-    """Leave out a drafted protocol the deposit outranked wherever it was named (#789).
-
-    A step's record is based on the deposit's documents for it, and on what the
-    drafter named only where the deposit places none. A protocol drafted for steps
-    the deposit already covers is then referenced by nothing, and the reachability
-    check would report it detached although no edit could attach it. A deposited
-    document is payload and stays, and so does anything still referenced.
-    """
-    referenced = {
-        item["@id"]
-        for entity in crate.get_entities()
-        for value in entity.properties().values()
-        for item in (value if isinstance(value, list) else [value])
-        if isinstance(item, dict) and "@id" in item
-    }
-    crate.delete(
-        *(
-            node
-            for node_id, node in outranked.items()
-            if node_id not in referenced and not _is_file_node(node)
-            and "LabProtocol" in (node.type if isinstance(node.type, list) else [node.type])
-        )
-    )
 
 
 def _place_protocols(
@@ -3576,6 +3543,7 @@ def _build_process(
     keep_drafted_result: bool = True,
     cultures: list[Any] | None = None,
     reserved: frozenset[str] = frozenset(),
+    stated: dict[str, Any] | None = None,
 ) -> Any:
     """Build ONE process node, and the protocol record it executes.
 
@@ -3597,6 +3565,8 @@ def _build_process(
         but their material, the Exposure consumes where they ended.
     ``reserved``
         The ids every drafted step mints, which the record must not take.
+    ``stated``
+        What the lab stated about the step, which fills its record.
     """
     # input/object/samples are interchangeable aliases for the consumed inputs,
     # result/output for the produced outputs (see PROVENANCE_RELATIONS and the
@@ -3607,7 +3577,7 @@ def _build_process(
     obj = _resolve_many(idx, f.get("object")) or _resolve_many(idx, f.get("input"))
     result = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
     chems = _resolve_many(idx, f.get("chemicals")) if ptype == "Exposure" else []
-    protocol = _protocol_record(crate, pid, ptype, name, documents, chems, reserved)
+    protocol = _protocol_record(crate, pid, ptype, name, documents, chems, reserved, stated)
 
     if ptype == "TestSystemPreparation":
         # TestSystemPreparation MUST take a cell-line Sample as object; synthesize a

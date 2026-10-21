@@ -310,7 +310,7 @@ _ANALYSIS_PROJECT_SUFFIXES = frozenset({".prism", ".pzfx", ".pzf"})
 _PUBLICATION_NAME = ("et al", "doi", "pmid", "preprint", "manuscript", "supplementary")
 _METADATA_NAME = (
     "readme", "metadata", "sample sheet", "samplesheet", "plate map", "platemap",
-    "data dictionary", "codebook", "manifest", "condition table",
+    "data dictionary", "codebook", "manifest", "condition table", "template",
 )
 _PROTOCOL_NAME = ("protocol", "sop", "standard operating", "procedure", "work instruction")
 # Only for a document format. "Assay" names half the files in a deposit and says
@@ -393,10 +393,10 @@ _DECISIVE_COVERAGE_RATIO = 1.5
 def _prose_class(text: str) -> tuple[str, str] | None:
     """A document's class from the vocabulary its prose covers, or ``None``.
 
-    Coverage, not presence: one incidental "assay" is not a protocol. A README
-    describing what a folder holds is metadata; one describing how the assay was
-    run is a protocol, and only the words decide which — when they say enough to
-    decide at all.
+    Coverage, not presence: one incidental "assay" is not a protocol, and only
+    the words decide — when they say enough to decide at all. A README or a
+    template restating the method is still metadata; :func:`classify_file`
+    vetoes that verdict on the filename (#789).
     """
     (share, name), (runner_up, _) = sorted(
         (
@@ -461,7 +461,9 @@ def classify_file(filename: str, preview: str, relative_path: str = "") -> tuple
     """``(class, reason)`` for one file — content first, then name, then folder.
 
     A script is the exception: its extension decides first, because its text is
-    code, not prose (#786).
+    code, not prose (#786). A README or template name vetoes a content verdict
+    of protocol: restating the method, it still describes a folder or a form,
+    never the procedure a step follows (#789).
 
     Args:
         filename: The file's base name; its suffix decides which content rules
@@ -489,7 +491,9 @@ def classify_file(filename: str, preview: str, relative_path: str = "") -> tuple
             if evidence_kind(filename, preview) == KIND_TABULAR
             else _prose_class(text)
         )
-        if decided:
+        if decided and not (
+            decided[0] == CLASS_PROTOCOL and _hits(_normalise(Path(filename).stem), _METADATA_NAME)
+        ):
             return decided
     if decided := _filename_class(Path(filename).stem, suffix):
         return decided

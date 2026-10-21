@@ -7,6 +7,7 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState
 from builder.tools._crate_mapping import populate_crate
+from builder.tools.provenance import draft_file
 from builder.tools.drafters import (
     draft_assay,
     draft_cell_line_sample,
@@ -297,7 +298,7 @@ class TestDraftProtocol:
     def test_creates_entity_with_correct_type_and_auto_id(self):
         """draft_protocol creates a LabProtocol entity with auto-generated entity_id."""
         state = CrateState()
-        entity = draft_protocol(state, {"name": "MTT Assay Protocol"})
+        entity = draft_protocol(state, {"name": "MTT Assay Protocol", "description": "MTT."})
 
         assert entity.type == "LabProtocol"
         assert entity.entity_id.startswith("proto_")
@@ -327,18 +328,31 @@ class TestDraftProtocol:
 
         assert entity._provenance.created_by == "llm"
 
-    def test_defaults_to_untitled(self):
-        """draft_protocol uses 'Untitled Protocol' when no name is given."""
-        state = CrateState()
-        entity = draft_protocol(state, {})
+    def test_a_name_alone_is_refused(self):
+        """#789: without a deposited document, a protocol is what the lab stated,
+        a name and a description; a name alone is a stub no procedure stands behind."""
+        with pytest.raises(ValueError):
+            draft_protocol(CrateState(), {"name": "Test Protocol"})
+        with pytest.raises(ValueError):
+            draft_protocol(CrateState(), {})
 
-        assert entity.fields.get("name") == "Untitled Protocol"
-        assert entity.entity_id.startswith("proto_")
+    def test_a_deposited_document_is_the_protocol(self):
+        """#789: given the deposited document, draft_protocol returns that File
+        co-typed LabProtocol and mints nothing; a file the deposit lacks is refused."""
+        state = CrateState()
+        sop = draft_file(state, "SOP.docx", path="assay/SOP.docx")
+        entity = draft_protocol(state, {"source_file": sop.entity_id, "name": "Readout SOP"})
+
+        assert entity is sop
+        assert "LabProtocol" in sop.fields["additional_types"]
+        assert not state.list_entities("LabProtocol")
+        with pytest.raises(ValueError):
+            draft_protocol(state, {"source_file": "assay/missing.docx"})
 
     def test_entity_added_to_state(self):
         """draft_protocol adds the entity to the state."""
         state = CrateState()
-        entity = draft_protocol(state, {"name": "Test Protocol"})
+        entity = draft_protocol(state, {"name": "Test Protocol", "description": "Steps."})
 
         retrieved = state.get_entity(entity.entity_id)
         assert retrieved is entity
@@ -540,7 +554,7 @@ class TestDraftersDoNotLeakReservedKeys:
             draft_property_value(state, "pH", {"value": "7", **reserved}),
             draft_person(state, "Ada Lovelace", dict(reserved)),
             draft_organization(state, "ACME", dict(reserved)),
-            draft_protocol(state, {"name": "Proto", **reserved}),
+            draft_protocol(state, {"name": "Proto", "description": "Steps.", **reserved}),
             draft_sample(state, {"name": "Sample", **reserved}),
             draft_publication(state, "10.1/x", dict(reserved)),
         ]
