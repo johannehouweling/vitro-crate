@@ -2,9 +2,10 @@
 
 These pin the contract from profiles/docs/isa_tox.md: Study/Assay as
 Dataset+additionalType linked by hasPart, LabProcess subtypes discriminated by
-additionalType with executesLabProtocol and input/output (→ schema:object/result
-via the context), protocol synthesis, Exposure object carrying the compounds,
-conformsTo gating on validation, and the #-fragment / resolvable-URI id scheme.
+additionalType with input/output (→ schema:object/result via the context), one
+protocol record per step based on the deposit's documents, the Exposure's
+compounds as its record's reagents, conformsTo gating on validation, and the
+#-fragment / resolvable-URI id scheme.
 """
 
 from __future__ import annotations
@@ -51,6 +52,12 @@ def _ids(value):
         return []
     items = value if isinstance(value, list) else [value]
     return [v.get("@id") if isinstance(v, dict) else v for v in items]
+
+
+def _documents(by_id, pid):
+    """What a step's protocol record is based on; each step executes exactly one (#783)."""
+    (record,) = _ids(by_id[pid].get("executesLabProtocol"))
+    return _ids(by_id[record].get("isBasedOn"))
 
 
 class TestStructuralDatasets:
@@ -184,20 +191,21 @@ class TestTheAssayProtocolReachesItsStep:
     Only TestSystemPreparation ever got a protocol. EndpointReadout and DataAnalysis fell
     through to nothing, so S-VHPS22's nine assay-scoped documents — the
     transporter assay, Bradford, deiodinase activity, the UPLC run, RNA
-    isolation, cDNA/qPCR — were carried in the payload and executed by no step.
+    isolation, cDNA/qPCR — were carried in the payload and followed by no step.
 
-    Three rules, each pinned below:
+    Three rules, each pinned below, on what the step's protocol record is based on:
 
     * **The default is EndpointReadout.** Measuring is what an assay's SOP
       describes; culture and analysis are reached only by an explicit cue, or,
       for analysis, by being source code (#786).
-    * **A step executes ALL of its documents, not one.** Every assay in the
-      deposit ships two to four (assay_04 has three sequential ones: RNA
+    * **A step's record is based on ALL of its documents, not one.** Every assay
+      in the deposit ships two to four (assay_04 has three sequential ones: RNA
       isolation, DNase, cDNA/qPCR). The single-hit D5 rule still governs the
       culture lookup, where a *cell line* has to disambiguate; here there is no
       subject to be ambiguous about, and picking one of four would be a silent
       choice rather than an honest list.
-    * **Nothing is minted.** A step with no document keeps none (D17).
+    * **Nothing is minted.** A step with no document has a record based on
+      nothing (D17).
     """
 
     ASSAY_DIR = "assay_02_deiodinase"
@@ -238,27 +246,27 @@ class TestTheAssayProtocolReachesItsStep:
             )
         return state
 
-    def test_the_readout_executes_the_assays_protocol(self, tmp_path):
+    def test_the_readouts_record_is_based_on_the_assays_protocol(self, tmp_path):
         _, by_id = _build(self._state(), tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
-        assert executed, "the readout executes none of its assay's protocols"
+        executed = _documents(by_id, "#LabProcess_proc_read")
+        assert executed, "the readout's record is based on none of its assay's protocols"
         assert any("Deiodinase" in e for e in executed), executed
 
     def test_the_protocol_is_the_document_itself(self, tmp_path):
         _, by_id = _build(self._state(), tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        executed = _documents(by_id, "#LabProcess_proc_read")
         assert executed and not executed[0].startswith("#"), (
             f"a protocol's @id must be its file path, not a minted stub: {executed}"
         )
         assert self.ASSAY_DIR in executed[0], executed
 
-    def test_every_protocol_the_assay_ships_is_executed(self, tmp_path):
+    def test_the_record_is_based_on_every_protocol_the_assay_ships(self, tmp_path):
         """Two to four per assay is the norm; one-of-four would be a silent pick."""
         state = self._state(
             docs=("4.1 Deiodinase activity assay.docx", "3.3 Bradford protocol.xlsx")
         )
         _, by_id = _build(state, tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        executed = _documents(by_id, "#LabProcess_proc_read")
         assert sum("Deiodinase" in e for e in executed) == 1, executed
         assert sum("Bradford" in e for e in executed) == 1, executed
 
@@ -275,7 +283,7 @@ class TestTheAssayProtocolReachesItsStep:
         def _paths(pid):
             return [
                 e.replace("%20", " ")
-                for e in _ids(by_id[pid].get("executesLabProtocol"))
+                for e in _documents(by_id, pid)
             ]
 
         readout = _paths("#LabProcess_proc_read")
@@ -295,25 +303,25 @@ class TestTheAssayProtocolReachesItsStep:
             steps=(("proc_read", "EndpointReadout"), ("proc_ana", "DataAnalysis")),
         )
         _, by_id = _build(state, tmp_path)
-        assert _ids(by_id["#LabProcess_proc_ana"].get("executesLabProtocol")) == [
+        assert _documents(by_id, "#LabProcess_proc_ana") == [
             f"{self.ASSAY_DIR}/plot.py"
         ]
         assert not any(
-            "plot.py" in e for e in _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+            "plot.py" in e for e in _documents(by_id, "#LabProcess_proc_read")
         )
 
-    def test_an_analysis_with_no_document_of_its_own_executes_none(self, tmp_path):
+    def test_an_analysis_with_no_document_of_its_own_is_based_on_none(self, tmp_path):
         """DataAnalysis comes up empty on the real deposit, and that is correct.
 
         No S-VHPS22 document describes the analysis step, so the honest output is
-        the ISA "SHOULD have a protocol" warning — not a stub that silences it
-        with a procedure nobody wrote (D17).
+        a record based on nothing — not a stub document standing in for a
+        procedure nobody wrote (D17).
         """
         state = self._state(
             steps=(("proc_read", "EndpointReadout"), ("proc_ana", "DataAnalysis"))
         )
         _, by_id = _build(state, tmp_path)
-        assert _ids(by_id["#LabProcess_proc_ana"].get("executesLabProtocol")) == []
+        assert _documents(by_id, "#LabProcess_proc_ana") == []
         assert not any(str(i).startswith("#protocol_") for i in by_id), (
             f"a stub was minted: {[i for i in by_id if str(i).startswith('#protocol_')]}"
         )
@@ -333,10 +341,119 @@ class TestTheAssayProtocolReachesItsStep:
         state.add_entity(_ent("assay_2", "Assay", name="A2", study_id="study_1",
                               hasPart=["doc_other"]))
         _, by_id = _build(state, tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        executed = _documents(by_id, "#LabProcess_proc_read")
         assert not any("UPLC" in e for e in executed), (
             f"assay_02's readout borrowed assay_03's protocol: {executed}"
         )
+
+
+class TestEveryStepExecutesOneProtocolRecord:
+    """#783 / #799 — every ISA-Tox step executes exactly one protocol record.
+
+    Bioschemas LabProcess and ISA-JSON give a process ONE protocol. The build
+    writes it: a LabProtocol at ``<process>_protocol`` whose ``intendedUse`` is
+    the step's protocol type as an ontology term, which is ``isBasedOn`` the
+    documents the deposit places on the step, or what the drafter named where it
+    places none, and whose ``reagent``s, on the Exposure, are the compounds applied. It carries no
+    description of the builder's own: that is the lab's to state (#670).
+    """
+
+    TERMS = {
+        "#LabProcess_p_tsp": "EFO:0003789",
+        "#LabProcess_p_exp": "EFO:0003969",
+        "#LabProcess_p_read": "BAO:0000523",
+        "#LabProcess_p_da": "OBI:0200000",
+    }
+
+    def _state(self):
+        state = CrateState()
+        state.add_entity(_ent("study_1", "Study", name="S"))
+        state.add_entity(
+            _ent("sop", "File", name="SOP.docx", path="assay/SOP.docx",
+                 additional_types=["LabProtocol"])
+        )
+        state.add_entity(_ent("assay_1", "Assay", name="A", study_id="study_1", hasPart=["sop"]))
+        state.add_entity(_ent("cell", "CellLineSample", name="HepG2", accession="CVCL_0027"))
+        state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
+        state.add_entity(_ent("raw", "File", name="raw.csv", path="assay/raw.csv"))
+        state.add_entity(_ent("out", "File", name="out.csv", path="assay/out.csv"))
+        state.add_entity(
+            _ent("p_tsp", "LabProcess", name="Culture", process_type="TestSystemPreparation",
+                 assay_id="assay_1", cell_line="cell", culture_medium="DMEM")
+        )
+        state.add_entity(
+            _ent("p_exp", "LabProcess", name="Exposure", process_type="Exposure",
+                 assay_id="assay_1", chemicals="chem_1", duration="24 h", labprotocol="sop")
+        )
+        state.add_entity(
+            _ent("p_read", "LabProcess", name="Readout", process_type="EndpointReadout",
+                 assay_id="assay_1", result="raw", detection_instrument="plate reader")
+        )
+        state.add_entity(
+            _ent("p_da", "LabProcess", name="Analysis", process_type="DataAnalysis",
+                 assay_id="assay_1", object="raw", result="out", software="Prism")
+        )
+        return state
+
+    def test_each_step_executes_its_typed_record(self, tmp_path):
+        from profiles.ontology_iris import iri
+
+        _, by_id = _build(self._state(), tmp_path)
+        for pid, curie in self.TERMS.items():
+            executed = _ids(by_id[pid].get("executesLabProtocol"))
+            assert executed == [f"{pid}_protocol"], (pid, executed)
+            record = by_id[executed[0]]
+            types = record["@type"] if isinstance(record["@type"], list) else [record["@type"]]
+            assert "LabProtocol" in types and "File" not in types, types
+            assert "description" not in record, record
+            assert record.get("name") == f"{by_id[pid]['name']} protocol", record
+            assert record.get("intendedUse") == {"@id": iri(curie)}, record
+            term = by_id[iri(curie)]
+            assert term["@type"] == "DefinedTerm" and term["termCode"] == curie
+            assert term["name"]
+
+    def test_the_exposure_record_names_its_compounds_and_its_sop(self, tmp_path):
+        graph, by_id = _build(self._state(), tmp_path)
+        record = by_id["#LabProcess_p_exp_protocol"]
+        assert _ids(record.get("reagent")) == ["#MolecularEntity_chem_1"], record
+        assert _ids(record.get("isBasedOn")) == ["assay/SOP.docx"], record
+        executed = {i for n in graph for i in _ids(n.get("executesLabProtocol"))}
+        assert "assay/SOP.docx" not in executed, "only records are executed"
+        assert by_id["assay/SOP.docx"]["@type"] == ["File", "LabProtocol"]
+
+    def test_the_deposit_outranks_what_was_named(self, tmp_path):
+        """#789: the deposit's documents for a step outrank what the drafter named,
+        which is used only where the scan places nothing. A drafted protocol the
+        deposit outranks wherever it was named is left out of the crate."""
+        state = self._state()
+        state.add_entity(_ent("outranked", "LabProtocol", name="Readout procedure"))
+        state.add_entity(_ent("fallback", "LabProtocol", name="Analysis procedure"))
+        state.get_entity("p_read").fields["labprotocol"] = ["outranked", "fallback"]
+        state.get_entity("p_da").fields["labprotocol"] = "fallback"
+        _, by_id = _build(state, tmp_path)
+        assert _documents(by_id, "#LabProcess_p_read") == ["assay/SOP.docx"]
+        assert _documents(by_id, "#LabProcess_p_da") == ["#LabProtocol_fallback"]
+        assert "#LabProtocol_outranked" not in by_id
+
+    def test_a_record_never_replaces_an_entity_holding_its_id(self, tmp_path):
+        """``<process>_protocol`` can already be taken: by a step drafted as
+        "Exposure protocol" beside "Exposure", or by a protocol drafted under the
+        id a finding reported. The record steps aside instead of replacing it."""
+        state = self._state()
+        state.add_entity(
+            _ent("p_exp_protocol", "LabProcess", name="Exposure protocol",
+                 process_type="EndpointReadout", assay_id="assay_1")
+        )
+        state.add_entity(_ent("#LabProcess_p_read_protocol", "LabProtocol", name="Drafted"))
+        _, by_id = _build(state, tmp_path)
+        assert "LabProcess" in str(by_id["#LabProcess_p_exp_protocol"]["@type"])
+        assert by_id["#LabProcess_p_read_protocol"]["name"] == "Drafted"
+        for pid in ("#LabProcess_p_exp", "#LabProcess_p_read"):
+            (record,) = _ids(by_id[pid].get("executesLabProtocol"))
+            assert record != f"{pid}_protocol", record
+            assert "LabProtocol" in str(by_id[record]["@type"]), by_id[record]
+        (exp_record,) = _ids(by_id["#LabProcess_p_exp"]["executesLabProtocol"])
+        assert _ids(by_id[exp_record].get("reagent")) == ["#MolecularEntity_chem_1"]
 
 
 class TestLabProcessSubtypes:
@@ -367,10 +484,9 @@ class TestLabProcessSubtypes:
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
         assert proc["additionalType"] == "TestSystemPreparation"
-        # No protocol is invented: this deposit holds no culture document, and a
-        # step with none has none (#650). `executesLabProtocol` is a SHOULD, so
-        # the honest gap costs a recommendation.
-        assert not proc.get("executesLabProtocol")
+        # No document is invented: this deposit holds no culture document, so the
+        # step's record is based on nothing (D17).
+        assert _documents(by_id, "#LabProcess_proc_1") == []
         # input → schema:object, output → schema:result (via the @context).
         # An accession-backed CellLineSample carries its Cellosaurus IRI as @id,
         # and the process wiring must follow it.
@@ -380,9 +496,8 @@ class TestLabProcessSubtypes:
     def test_exposure_object_is_cells_result_is_the_exposed_sample(self, tmp_path):
         # ISA forbids a MolecularEntity as a process object (objects MUST be
         # File/Sample/BioSample). The compound is therefore NOT in `object`; it
-        # reaches the process as a `reagent` of the condition table, which the
-        # Exposure executes as its layout protocol. The Exposure's own result is
-        # the exposed Sample (#650).
+        # reaches the process as a `reagent` of the Exposure's protocol record
+        # (#783). The Exposure's own result is the exposed Sample (#650).
         state = self._state_with_process(
             "Exposure",
             samples="sample_cult",
@@ -413,24 +528,12 @@ class TestLabProcessSubtypes:
             "the exposed Sample must derive from the cultured one"
         )
 
-        # the condition table is the layout protocol the exposure follows, and the
-        # compound reaches the process as one of its reagents
-        protocol_ids = _ids(proc.get("executesLabProtocol"))
-        tables = [
-            by_id[i]
-            for i in protocol_ids
-            if "csvw:Table"
-            in (
-                by_id[i]["@type"]
-                if isinstance(by_id[i]["@type"], list)
-                else [by_id[i]["@type"]]
-            )
-        ]
-        assert tables, f"no condition table among the protocols: {protocol_ids}"
-        tt = tables[0]["@type"]
-        assert "File" in tt and "csvw:Table" in tt and "LabProtocol" in tt
-        assert "#MolecularEntity_chem_1" in _ids(tables[0].get("reagent"))
-        assert "#MolecularEntity_chem_1" in _ids(tables[0].get("about"))
+        # the compound reaches the process as a reagent of its protocol record,
+        # and the condition table names it too
+        (record,) = _ids(proc.get("executesLabProtocol"))
+        assert "#MolecularEntity_chem_1" in _ids(by_id[record].get("reagent"))
+        table = next(n for i, n in by_id.items() if str(i).endswith("condition_table.csv"))
+        assert "#MolecularEntity_chem_1" in _ids(table.get("about"))
 
     def test_exposure_condition_table_is_typed_csvw(self, tmp_path):
         # Issue #94 / #180: the condition table must be typed CSVW — a linked
@@ -446,12 +549,7 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("sample_cult", "Sample", name="cultured"))
         state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
         _, by_id = _build(state, tmp_path)
-        proc = by_id["#LabProcess_proc_1"]
-        table = next(
-            by_id[i]
-            for i in _ids(proc.get("executesLabProtocol"))
-            if str(i).endswith("condition_table.csv")
-        )
+        table = next(n for i, n in by_id.items() if str(i).endswith("condition_table.csv"))
 
         # the table is linked to a schema entity via conformsTo (not a bare key)
         schema_ids = [s for s in _ids(table.get("conformsTo")) if "schema" in s]
@@ -481,6 +579,35 @@ class TestLabProcessSubtypes:
         # entity-resolving columns carry references to the resolved entities
         assert "#MolecularEntity_chem_1" in str(by_title["compound"].get("valueUrl"))
         assert "#Sample_sample_cult" in str(by_title["cell_line"].get("valueUrl"))
+
+    def test_the_condition_table_is_data_about_the_exposed_sample(self, tmp_path):
+        """#783 — the table is the registry of the exposed units, not a protocol.
+
+        One row per well, so it is ``about`` the exposed Sample(s) the Exposure
+        produced. It is data of its assay, nested there and kept in the root's
+        ``hasPart`` (#532), and no step executes it.
+        """
+        state = self._state_with_process(
+            "Exposure", samples="sample_cult", chemicals="chem_1", duration="24h"
+        )
+        state.add_entity(_ent("sample_cult", "Sample", name="cultured"))
+        state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
+        graph, by_id = _build(state, tmp_path)
+        table = next(n for n in graph if str(n["@id"]).endswith("condition_table.csv"))
+        assert table["@type"] == ["File", "csvw:Table"]
+        assert "reagent" not in table and "intendedUse" not in table, table
+        exposed = [
+            i
+            for i in _ids(by_id["#LabProcess_proc_1"].get("output"))
+            if "Sample" in str(by_id[i]["@type"])
+        ]
+        about = _ids(table.get("about"))
+        assert exposed and set(exposed) <= set(about), (exposed, about)
+        assert "#Sample_sample_cult" not in about, "the cultured Sample is not what it lists"
+        assert table["@id"] in _ids(by_id["#Assay_assay_1"].get("hasPart"))
+        assert table["@id"] in _ids(by_id["./"].get("hasPart"))
+        executed = {i for n in graph for i in _ids(n.get("executesLabProtocol"))}
+        assert table["@id"] not in executed
 
     def test_endpoint_readout_result_is_file(self, tmp_path):
         state = self._state_with_process(
@@ -527,28 +654,28 @@ class TestLabProcessSubtypes:
         assert "#LabProcess_proc_1" in _ids(by_id["#Assay_assay_1"].get("about"))
 
     def test_no_protocol_is_invented_when_the_deposit_has_none(self, tmp_path):
-        """A stub protocol claims a procedure nobody wrote.
+        """A stub document claims a procedure nobody wrote.
 
         This used to synthesize `#protocol_<assay>` for every step that named no
-        protocol of its own. That silenced the ISA "Process entity SHOULD have a
-        protocol" warning with a fabrication — an assertion that cannot fail is
-        not a check (#620) — and put an entity in the crate whose `@id` was a
-        fragment rather than a file anyone deposited.
+        protocol of its own — an assertion that cannot fail is not a check (#620)
+        — and put an entity in the crate whose `@id` was a fragment rather than a
+        file anyone deposited.
 
-        A protocol entity IS its file. With no such document, the process carries
-        no protocol and the warning reports the real gap.
+        A deposited protocol IS its file. With no such document, the step's record
+        is based on nothing, and the gap stays visible (D17).
         """
         state = self._state_with_process("TestSystemPreparation", cell_line="cell_1")
         state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
         graph, by_id = _build(state, tmp_path)
-        assert not by_id["#LabProcess_proc_1"].get("executesLabProtocol")
+        assert _documents(by_id, "#LabProcess_proc_1") == []
         invented = [
             n["@id"] for n in graph if str(n.get("@id", "")).startswith("#protocol_")
         ]
         assert invented == [], f"no protocol entity may be minted: {invented}"
 
     def test_an_attached_protocol_is_the_file_itself(self, tmp_path):
-        """The protocol entity IS the deposited document — @id is its path.
+        """A deposited protocol IS its document — @id is its path — and the step's
+        record is based on it.
 
         No `schema:HowTo` companion is added here, and that is right: the supertype
         pass exists so every entity carries a type in the schema.org namespace, and
@@ -568,8 +695,8 @@ class TestLabProcessSubtypes:
             )
         )
         _, by_id = _build(state, tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
-        assert executed, "the deposited culture protocol must be executed"
+        executed = _documents(by_id, "#LabProcess_proc_1")
+        assert executed, "the culture's record must be based on the deposited protocol"
         assert not executed[0].startswith("#"), (
             f"a protocol's @id must be its file path, not a minted fragment: {executed}"
         )
@@ -694,6 +821,22 @@ class TestIdentifiersAndConformance:
         _, by_id = _build(state, tmp_path)
         desc_conforms = _ids(by_id["ro-crate-metadata.json"].get("conformsTo"))
         assert desc_conforms == ["https://w3id.org/ro/crate/1.2"]
+
+    def test_every_protocol_record_is_a_result_of_the_build(self, tmp_path):
+        """#783 — the build's CreateAction states it wrote each protocol record
+        from what the deposit holds, beside the crate itself."""
+        state = CrateState()
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
+        state.add_entity(
+            _ent("proc_1", "LabProcess", name="Culture", process_type="TestSystemPreparation",
+                 assay_id="assay_1", cell_line="cell_1", culture_medium="DMEM")
+        )
+        graph, _ = _build(state, tmp_path)
+        records = {i for n in graph for i in _ids(n.get("executesLabProtocol"))}
+        assert records, "no step executes a record — this pins nothing"
+        action = next(n for n in graph if n.get("@type") == "CreateAction")
+        assert {"./"} | records <= set(_ids(action.get("result"))), action.get("result")
 
 
 class TestTheCultureRecordsEveryCellLine:
@@ -873,8 +1016,9 @@ class TestTheCultureProtocolIsStudyLevel:
     with exactly one document per line — H4, MO3.13, SK-N-AS — and none for any
     combination.
 
-    A protocol entity IS its file: `@id` is the document's path, with `name` and
-    `intendedUse` derived on top. Nothing is minted.
+    A deposited protocol IS its file: `@id` is the document's path, with `name`
+    derived on top, and each culture's protocol record is based on it (#783).
+    Nothing is minted.
     """
 
     CULTURE_DOCS = (
@@ -918,8 +1062,8 @@ class TestTheCultureProtocolIsStudyLevel:
 
     def test_two_assays_growing_one_line_share_a_protocol(self, tmp_path):
         _, by_id = _build(self._two_assays(), tmp_path)
-        first = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
-        second = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        first = _documents(by_id, "#LabProcess_proc_1")
+        second = _documents(by_id, "#LabProcess_proc_2")
         assert first and set(first) == set(second), (
             "two assays culturing SK-N-AS follow ONE document; "
             f"got {first} and {second}"
@@ -927,7 +1071,7 @@ class TestTheCultureProtocolIsStudyLevel:
 
     def test_the_protocol_is_the_document_itself(self, tmp_path):
         _, by_id = _build(self._two_assays(), tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        executed = _documents(by_id, "#LabProcess_proc_1")
         assert executed and not executed[0].startswith("#"), (
             f"a protocol's @id must be its file path, not a minted fragment: {executed}"
         )
@@ -935,19 +1079,33 @@ class TestTheCultureProtocolIsStudyLevel:
 
     def test_cultures_of_different_lines_do_not_share(self, tmp_path):
         _, by_id = _build(self._two_assays(second_line="cell_b"), tmp_path)
-        first = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
-        second = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        first = _documents(by_id, "#LabProcess_proc_1")
+        second = _documents(by_id, "#LabProcess_proc_2")
         assert first and second and set(first) != set(second), (
             f"different cell lines are different procedures: {first} vs {second}"
         )
 
-    def test_a_culture_of_two_lines_executes_one_protocol_per_line(self, tmp_path):
+    def test_a_line_takes_its_own_document_before_the_named_protocol(self, tmp_path):
+        """#789, per line: a line the deposit holds a document for is based on it
+        alone; a line it holds none for falls back to what the drafter named, and
+        never to another line's document."""
+        state = self._two_assays(docs=self.CULTURE_DOCS[:1])
+        state.add_entity(_ent("named", "LabProtocol", name="Culture procedure"))
+        state.list_entities("LabProcess")[0].set_fields_from_dict(
+            {"cell_line": ["cell_a", "cell_b"], "labprotocol": "named"}, source="llm"
+        )
+        _, by_id = _build(state, tmp_path)
+        (own,) = _documents(by_id, "#LabProcess_proc_1_SK-N-AS")
+        assert "SK-N-AS" in own, own
+        assert _documents(by_id, "#LabProcess_proc_1_H4") == ["#LabProtocol_named"]
+
+    def test_a_culture_of_two_lines_follows_one_document_per_line(self, tmp_path):
         """One document per cell line, never a composite: the deposit holds no
         document for any combination of lines.
 
-        Since #678 the two lines are two cultures, so "one protocol per line"
-        means each part executes its own single document rather than one part
-        executing two. The document itself is still shared by identity — a
+        Since #678 the two lines are two cultures, so "one document per line"
+        means each part's record is based on its own single document rather than
+        one part's on two. The document itself is still shared by identity — a
         protocol is study-level, and the same SK-N-AS procedure serves every
         assay that grows SK-N-AS.
         """
@@ -964,22 +1122,22 @@ class TestTheCultureProtocolIsStudyLevel:
         ]
         assert len(parts) == 2, f"a culture of two lines is two cultures: {parts}"
         for part in parts:
-            executed = _ids(part.get("executesLabProtocol"))
+            executed = _documents(by_id, part["@id"])
             assert len(executed) == 1, (
                 f"{part['@id']} follows {executed} — one line, one document"
             )
-        mixed = {e for part in parts for e in _ids(part.get("executesLabProtocol"))}
+        mixed = {e for part in parts for e in _documents(by_id, part["@id"])}
         assert len(mixed) == 2, (
             f"two lines follow two distinct documents, not a composite: {mixed}"
         )
-        single = _ids(by_id["#LabProcess_proc_2"].get("executesLabProtocol"))
+        single = _documents(by_id, "#LabProcess_proc_2")
         assert set(single) <= mixed, (
             f"the SK-N-AS document must be the SAME entity in both: {mixed} / {single}"
         )
 
     def test_no_protocol_is_invented_when_the_deposit_has_none(self, tmp_path):
         graph, by_id = _build(self._two_assays(docs=()), tmp_path)
-        assert not by_id["#LabProcess_proc_1"].get("executesLabProtocol")
+        assert _documents(by_id, "#LabProcess_proc_1") == []
         invented = [
             n["@id"] for n in graph if str(n.get("@id", "")).startswith("#protocol_")
         ]
@@ -992,14 +1150,14 @@ class TestTheCultureProtocolIsStudyLevel:
         culturing.
 
         A file classified as a protocol and naming SK-N-AS may still describe the
-        deiodinase readout. Executing it as the TestSystemPreparation's protocol would
+        deiodinase readout. Basing the TestSystemPreparation's protocol on it would
         assert it explains how that line was grown, which nobody checked.
         """
         state = self._two_assays(
             docs=(), extra_docs=(("proto_assay", "4.1 Deiodinase assay protocol SK-N-AS.docx"),)
         )
         _, by_id = _build(state, tmp_path)
-        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        executed = _documents(by_id, "#LabProcess_proc_1")
         assert not any("Deiodinase" in str(i) for i in executed), (
             "an assay protocol that merely names the cell line must not be "
             f"claimed as the culture protocol: {executed}"
@@ -1009,10 +1167,10 @@ class TestTheCultureProtocolIsStudyLevel:
         )
 
     def test_the_culture_protocol_is_linked_to_the_study(self, tmp_path):
-        """Executed by its process AND hung off the Study it governs — a protocol
+        """Followed by its process AND hung off the Study it governs — a protocol
         shared by several assays is a study-level document."""
         _, by_id = _build(self._two_assays(), tmp_path)
-        executed = set(_ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol")))
+        executed = set(_documents(by_id, "#LabProcess_proc_1"))
         study = by_id["#Study_study_1"]
         linked = set(_ids(study.get("hasPart"))) | set(_ids(study.get("mentions")))
         assert executed and executed <= linked, (
@@ -1055,7 +1213,7 @@ class TestTheCultureProtocolIsStudyLevel:
             )
         ]
         graph, by_id = _build(state, tmp_path / "out")
-        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
+        executed = _documents(by_id, "#LabProcess_proc_1")
         assert executed, "the deposit's own culture protocol must be attached"
         assert "cell_line_protocols" in executed[0], executed
         attached = by_id[executed[0]]
@@ -1065,10 +1223,31 @@ class TestTheCultureProtocolIsStudyLevel:
             else [attached["@type"]]
         )
         assert "File" in types and "LabProtocol" in types, types
-        assert attached.get("intendedUse") == "Cell culture", attached.get("intendedUse")
+        # What kind of protocol it is belongs to the culture's record (#783).
+        assert "intendedUse" not in attached, attached
         assert not any(
             str(n.get("@id", "")).startswith("#protocol_") for n in graph
         ), "nothing may be minted alongside the real document"
+
+    def test_the_builder_writes_no_free_text_intended_use(self, tmp_path):
+        """A step's protocol type is an ontology term on its record (#783, #799).
+
+        The builder used to stamp its own sentences — "Cell culture", "Per-well
+        exposure layout" — on the documents and the condition table.
+        """
+        from profiles.ontology_iris import iri
+
+        state = self._two_assays()
+        state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
+        state.add_entity(
+            _ent("proc_exp", "LabProcess", name="Exposure", process_type="Exposure",
+                 assay_id="assay_1", chemicals="chem_1", duration="24h")
+        )
+        graph, by_id = _build(state, tmp_path)
+        assert by_id["#LabProcess_proc_1_protocol"]["intendedUse"] == {
+            "@id": iri("EFO:0003789")
+        }
+        assert not [n["@id"] for n in graph if isinstance(n.get("intendedUse"), str)]
 
 
 class TestSynthesizedSamplesCarryTheirType:

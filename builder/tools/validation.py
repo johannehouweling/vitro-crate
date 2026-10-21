@@ -326,9 +326,10 @@ def verify_isa_reachability(
                 ),
                 "fix": (
                     f"Reference `{entity_id}` from the entity it belongs to — a process "
-                    "from its Assay's `about`, a protocol or sample from the process that "
-                    "uses it, a pathway from its Study's `aop` — or drop it so the crate "
-                    "stops describing a step it does not connect."
+                    "from its Assay's `about`, a protocol from the `labprotocol` of the "
+                    "step that follows it, a sample from the process that uses it, a "
+                    "pathway from its Study's `aop` — or drop it so the crate stops "
+                    "describing a step it does not connect."
                 ),
                 "severity": "required",
                 "profile": "isa",
@@ -397,7 +398,26 @@ _FIX_TEMPLATES: dict[str, str] = {
     "license": "Add a `license` to `{entity}`.",
     "author": "Add an `author` to `{entity}`.",
     "datePublished": "Add a `datePublished` to `{entity}`.",
+    "chemicals": "Set `chemicals` on `{entity}` to the compound(s) the cells were exposed to.",
+    "labprotocol": (
+        "Set `labprotocol` on `{entity}` to the deposited analysis script its protocol "
+        "record is based on."
+    ),
 }
+
+
+def answering_field(message: str, prop: str | None) -> str | None:
+    """The field that answers a finding: the property SHACL reports, except for the
+    two rules that reach through a step's protocol record, which the build fills
+    from the step's `chemicals` and `labprotocol` (D17).
+
+    Each is matched on its rule's own words: a bare "reagent" also matched a
+    detached protocol whose id contains the word."""
+    if "whose reagents include" in message:
+        return "chemicals"
+    if "deposited analysis script" in message:
+        return "labprotocol"
+    return prop
 
 
 def _local_name(iri: str | None) -> str:
@@ -410,7 +430,7 @@ def _local_name(iri: str | None) -> str:
 def _synthesize_fix(issue: RoutableIssue) -> str:
     """Build a short, actionable fix hint for a routable issue."""
     entity = issue.entity_id or "the affected entity"
-    prop = _local_name(issue.property)
+    prop = _local_name(answering_field(issue.message, issue.property))
     if prop in _FIX_TEMPLATES:
         return _FIX_TEMPLATES[prop].format(entity=entity)
     if prop:

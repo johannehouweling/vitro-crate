@@ -1,0 +1,37 @@
+# Every ISA-Tox LabProcess executes one LabProtocol: its protocol record, which
+# carries the step's protocol type (intendedUse) and is based on the documents the
+# deposit holds for the step (#783, #799). Bioschemas LabProcess and ISA-JSON both
+# give a process ONE protocol.
+#
+# Two node shapes, not one: with the Violation and the Warning on one path in a
+# single node shape, rocrate-validator reports only the Violation.
+
+@prefix bioschemas-prop: <https://bioschemas.org/properties/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
+
+tox:LabProcessExecutesAProtocol a sh:NodeShape ;
+    sh:name "LabProcess executes a protocol" ;
+    sh:description "An ISA-Tox LabProcess MUST execute a LabProtocol" ;
+    sh:targetClass tox:LabProcessTestSystemPreparation , tox:LabProcessExposure ,
+        tox:LabProcessEndpointReadout , tox:LabProcessDataAnalysis ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path bioschemas-prop:executesLabProtocol ;
+        sh:minCount 1 ;
+        sh:message "An ISA-Tox LabProcess MUST execute a LabProtocol (its protocol record)" ;
+        sh:severity sh:Violation ;
+    ] .
+
+tox:LabProcessExecutesOneProtocol a sh:NodeShape ;
+    sh:name "LabProcess SHOULD execute one protocol" ;
+    sh:description "An ISA-Tox LabProcess SHOULD execute exactly one LabProtocol" ;
+    sh:targetClass tox:LabProcessTestSystemPreparation , tox:LabProcessExposure ,
+        tox:LabProcessEndpointReadout , tox:LabProcessDataAnalysis ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path bioschemas-prop:executesLabProtocol ;
+        sh:maxCount 1 ;
+        sh:message "An ISA-Tox LabProcess SHOULD execute at most one LabProtocol" ;
+        sh:severity sh:Warning ;
+    ] .

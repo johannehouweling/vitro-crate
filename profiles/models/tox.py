@@ -73,13 +73,11 @@ class LabProcessExposure(LabProcess):
     object  = the cultured cell ``Sample``(s) being exposed.
     result  = the exposed cell ``Sample``(s) the step produces.
     executesLabProtocol
-            = the procedural SOP (if any) and the run-specific CSVW condition
-              table (``File`` + ``csvw:Table`` + ``LabProtocol``) recording per
-              well the cell line / compound / concentration / duration — the
-              layout the run FOLLOWS, not what it emits
-              (profiles/shapes/tox/8_condition_table_csvw.ttl). The compounds
-              are that table's ``reagent``s, never ``schema:object`` (the base
-              ISA shape allows only File/Sample/BioSample there).
+            = the step's protocol record, whose ``reagent``s are the test and
+              control compounds — never ``schema:object`` (the base ISA shape
+              allows only File/Sample/BioSample there). The run-specific CSVW
+              condition table is a data file ``about`` the exposed Samples
+              (profiles/shapes/tox/8_condition_table_csvw.ttl).
     """
 
     def __init__(
@@ -90,7 +88,7 @@ class LabProcessExposure(LabProcess):
         cell_seeding_density: str | None,
         microplate: str | None,
         samples: list[Sample],
-        labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
+        labprotocol: LabProtocol | None,
         name: str = "Exposure",
         result: list[Sample | File] | Sample | File | None = None,
         units: dict[str, str] | None = None,
@@ -148,7 +146,7 @@ class LabProcessEndpointReadout(LabProcess):
         crate: ROCrate,
         identifier: str,
         samples: list[Sample] | None,
-        labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
+        labprotocol: LabProtocol | None,
         result: list[File],
         detection_instrument: str | None,
         instrument_manufacturer: str | None,
@@ -248,7 +246,7 @@ class LabProcessTestSystemPreparation(LabProcess):
         cell_line: Sample | list[Sample],
         culture_medium: str | None,
         result: Sample,
-        labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
+        labprotocol: LabProtocol | None,
         properties: dict | None = None,
         add: bool = True,
     ):
@@ -298,7 +296,7 @@ class LabProcessDataAnalysis(LabProcess):
         identifier: str,
         object: list[File],  # raw-data inputs being analysed
         result: list[File],  # processed-data outputs
-        labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
+        labprotocol: LabProtocol | None,
         data_processing: str | None = None,
         software: str | None = None,
         acceptance_criteria: str | None = None,

@@ -72,8 +72,10 @@ class TestPipelineAgentWiring:
         verdict = reaches_isa_tox_conformance(outcome.state)
         assert verdict["conformance"]["base"] is True
         assert verdict["conformance"]["isa"] is True
+        # An empty deposit states no parameters and no exposed compound (#783).
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
+            or "reagent" in str(issue.get("message", ""))
             for issue in verdict["issues"]
         ), verdict["issues"]
 

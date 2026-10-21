@@ -47,7 +47,7 @@ def reader_compatible(cls):
     The read path does not need the rich classes — it needs not to crash. So a
     third positional argument that is a ``dict`` is taken as the reader's
     ``properties`` and handed to ``ContextEntity`` directly. That test is
-    unambiguous rather than merely convenient: across all eleven affected classes
+    unambiguous rather than merely convenient: across all twelve affected classes
     the third parameter is a ``str``, a ``list`` or a ``LabProtocol``, and not one
     of them accepts a mapping, so no legitimate write-path call can be mistaken
     for a read.
@@ -145,13 +145,10 @@ class LabProcess(AutoAddContextEntity):
       to establish correspondence with inputs (both lists should have the same length).
     - ``agent``: schema.org/Person
       The performer.
-    - ``executesLabProtocol``: bioschemas.org/LabProtocol | File | list thereof
-      A step may follow more than one: a procedural SOP states *how*, while a
-      generated per-well condition table supplies the layout the SOP leaves out.
-      A plain ``File`` is accepted because a protocol entity is often exactly
-      that — a deposited document co-typed ``LabProtocol`` rather than built
-      through this class.
-      The protocol executed.
+    - ``executesLabProtocol``: bioschemas.org/LabProtocol
+      The protocol executed: the step's one protocol record
+      (:class:`LabProtocol`), which is ``isBasedOn`` the deposited documents
+      rather than being one of them.
     - ``parameterValue``: schema.org/PropertyValue
       Parameter value(s) of the experimental process, typically key-value pairs using ontology terms.
     - ``endTime``: DateTime
@@ -172,7 +169,7 @@ class LabProcess(AutoAddContextEntity):
         self,
         crate: ROCrate,
         identifier: str,
-        labprotocol: LabProtocol | File | list[LabProtocol | File] | None,
+        labprotocol: LabProtocol | None,
         name: str | None = None,
         object: Sample | File | list[Sample | File] | None = None,
         result: Sample | File | list[Sample | File] | None = None,
@@ -187,13 +184,13 @@ class LabProcess(AutoAddContextEntity):
             "result": result,
         }
         # User properties override defaults; then whatever is absent is OMITTED,
-        # never emitted as null or []. A protocol is a SHOULD, not a MUST, and a
-        # step with no deposited document has none — the crate says nothing
-        # rather than saying "null" or naming a stub (#650). A subtype whose every
-        # parameter was declined (:func:`profiles.models.tox._pv`) states no
-        # parameter rather than an empty list: the shape's "MUST have at least
-        # one additionalProperty" fires on the missing key just the same, and a
-        # reader meets one spelling of "absent", not two (#740).
+        # never emitted as null or []. An untyped step that names no document has
+        # no protocol record, and the crate says nothing rather than "null" (#783).
+        # A subtype whose every parameter was declined
+        # (:func:`profiles.models.tox._pv`) states no parameter rather than an
+        # empty list: the shape's "MUST have at least one additionalProperty" fires
+        # on the missing key just the same, and a reader meets one spelling of
+        # "absent", not two (#740).
         merged_properties = {
             k: v
             for k, v in (default_properties | (properties or {})).items()
@@ -208,10 +205,14 @@ class LabProcess(AutoAddContextEntity):
         )
 
 
-class LabProtocol(AutoAddFile):
-    """Bioschemas LabProtocol mapping of an ISA-JSON Protocol.
+@reader_compatible
+class LabProtocol(AutoAddContextEntity):
+    """Bioschemas LabProtocol mapping of an ISA-JSON Protocol: a step's protocol record.
 
     This entity uses the Bioschemas type `https://bioschemas.org/LabProtocol`.
+    Every ISA-Tox LabProcess executes exactly one, written by the build from what
+    the deposit states. No file stands behind it: a deposited document is a
+    ``File`` co-typed ``LabProtocol`` that the record is ``isBasedOn`` (#783, #799).
 
     Properties
     ----------
@@ -219,23 +220,26 @@ class LabProtocol(AutoAddFile):
     Required
     ^^^^^^^^
     - ``@id``: Text | URL
-      For file-based protocols, this will typically be the file entity identifier
-      (often derived from ``dest_path``) or a URL if ``source`` is remote.
+      ``<process @id>_protocol``: one record per step.
     - ``@type``: Text
       MUST be ``https://bioschemas.org/LabProtocol``.
-    - ``intendedUse``: schema.org/DefinedTerm | Text | URL
-      Protocol type as an ontology term. DECISION BY AUTHOR to ELEVATE
 
     Recommended
     ^^^^^^^^^^^
+    - ``intendedUse``: schema.org/DefinedTerm
+      The protocol type as an ontology term (an ISA Warning when absent). The build
+      writes it from the step's type (``_crate_mapping._STEP_PROTOCOL_TYPES``).
     - ``name``: Text
       Main title of the LabProtocol.
     - ``description``: Text
-      Short description (e.g., abstract).
-
+      Short description (e.g., abstract). Only what the lab stated (#670).
 
     Optional
     ^^^^^^^^
+    - ``isBasedOn``: schema.org/CreativeWork
+      The deposited documents the protocol follows, or what the drafter named
+      where the deposit holds none. ISA-JSON has no equivalent, so the link is
+      lost on conversion to ISA-JSON.
     - ``comment``: schema.org/Comment
       Comment.
     - ``computationalTool``: schema.org/DefinedTerm | schema.org/PropertyValue (Component) | schema.org/SoftwareApplication
@@ -247,111 +251,36 @@ class LabProtocol(AutoAddFile):
       ``LabProtocol_v0.6-DRAFT``; ``ChemicalSubstance`` and ``MolecularEntity``
       were missing from it, which mattered — a test compound is a
       ``MolecularEntity``, so this is the property that carries it. The compounds
-      of an exposure are ``reagent``s of the run-specific condition table the
-      Exposure executes, because the bundled ISA process shape restricts
-      ``schema:object`` to File/Sample/BioSample at Violation severity (#650).
+      of an exposure are ``reagent``s of the protocol record the Exposure
+      executes, because the bundled ISA process shape restricts
+      ``schema:object`` to File/Sample/BioSample at Violation severity (#783).
     - ``url``: URL
       Pointer to protocol resources external to the ISA-Tab / ISA-JSON.
     - ``version``: Number | Text
       Version identifier for protocol tracking.
-
-    File parameters
-    --------------
-    These are inherited from `rocrate.model.file.File` and control how the protocol is
-    represented as a file in the crate.
-
-    - ``source``:
-      Local path/handle (e.g. a `Path`) or a URL. If provided, the file can be added/copied
-      into the crate (or referenced remotely, depending on options).
-    - ``dest_path``:
-      Path *inside the crate* (e.g. ``"protocols/wetlab/protocol_a.md"``). If omitted,
-      `ro-crate-py` may derive it from the source filename.
-    - ``fetch_remote``:
-      If ``source`` is a remote URL and this is True, fetch the content into the crate.
-      If False, keep it as a remote reference.
-    - ``validate_url``:
-      If True and ``source`` is a URL, validate it (may involve a network call).
-    - ``record_size``:
-      If True, compute and store file size metadata.
-
-    Notes
-    -----
-    - This class sets `@type` automatically to `https://bioschemas.org/LabProtocol` and merges
-      any additional properties you pass in.
     """
 
     def __init__(
         self,
         crate: ROCrate,
-        intendeduse: str,
-        source=None,
-        dest_path=None,
-        fetch_remote: bool = False,
-        validate_url: bool = False,
-        properties: dict | None = None,
-        record_size: bool = False,
-        add: bool = True,
+        identifier: str,
+        name: str,
+        intended_use: ContextEntity | None = None,
+        is_based_on: list | None = None,
+        reagents: list | None = None,
     ):
-        if isinstance(source, list):
-            raise ValueError(
-                "LabProtocol expects a single source. Use LabProtocol.from_sources(...) "
-                "to create multiple instances."
-            )
-
-        merged_properties = self.make_properties(intendeduse, source, properties)
+        properties = {
+            "@type": "LabProtocol",
+            "name": name,
+            "intendedUse": intended_use,
+            "isBasedOn": is_based_on,
+            "reagent": reagents,
+        }
         super().__init__(
-            crate=crate,
-            source=source,
-            dest_path=dest_path,
-            fetch_remote=fetch_remote,
-            validate_url=validate_url,
-            properties=merged_properties,
-            record_size=record_size,
-            add=add,
+            crate,
+            identifier=identifier,
+            properties={k: v for k, v in properties.items() if v is not None and v != []},
         )
-
-    @classmethod
-    def from_sources(
-        cls,
-        crate: ROCrate,
-        intendeduse: str,
-        sources: list[Path],
-        dest_path=None,
-        fetch_remote: bool = False,
-        validate_url: bool = False,
-        properties: dict | None = None,
-        record_size: bool = False,
-        add: bool = True,
-    ):
-        return [
-            cls(
-                crate=crate,
-                intendeduse=intendeduse,
-                source=source,
-                dest_path=dest_path,
-                fetch_remote=fetch_remote,
-                validate_url=validate_url,
-                properties=properties,
-                record_size=record_size,
-                add=add,
-            )
-            for source in sources
-        ]
-
-    def make_properties(self, intendeduse, source, properties):
-        default_properties = (
-            {
-                "@type": "LabProtocol",
-                "intendedUse": intendeduse,
-                "name": source.name,
-            }
-            if isinstance(source, Path)
-            else {
-                "@type": "LabProtocol",
-                "intendedUse": intendeduse,
-            }
-        )
-        return default_properties | (properties or {})
 
 
 # Parameter defines the specific settings or values used in a protocol (e.g., temperature, duration, operator).

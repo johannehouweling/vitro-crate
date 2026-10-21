@@ -752,7 +752,9 @@ _AOP_KEYS = (
 # Remaining reference-bearing predicates that reach a contextual node.
 _CONTACT_KEYS = ("contactPoint", "http://schema.org/contactPoint")
 _PROPERTYURL_KEYS = ("propertyUrl", "http://www.w3.org/ns/csvw#propertyUrl")
-_MEASTECH_KEYS = ("measurementTechnique", "measurementMethod", "intendedUse")
+_MEASTECH_KEYS = ("measurementTechnique", "measurementMethod")
+# A protocol's type: each step's protocol record points at its DefinedTerm (D17).
+_INTENDED_USE_KEYS = ("intendedUse",)
 # The licence the Root Data Entity declares. Now that a recognised licence is a
 # described CreativeWork rather than a bare URL, `schema:license` is a real edge
 # from the root — and a predicate missing from this vocabulary is reported as an
@@ -821,6 +823,7 @@ _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_LICENSE_KEYS, "license", False),
     (_ROLE_KEYS, "jobTitle", False),
     (_MEASTECH_KEYS, "measurementTechnique", False),
+    (_INTENDED_USE_KEYS, "intendedUse", False),
     (_PARAM_KEYS, "parameter", False),
     (_IDENTIFIER_REL_KEYS, "identifier", False),
     (_AOP_KEYS, "aopEvent", False),

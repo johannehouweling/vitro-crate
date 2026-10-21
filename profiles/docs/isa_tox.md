@@ -16,6 +16,7 @@
     * [LabProcess - Exposure](#labprocess---exposure)
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
     * [LabProcess - Data Analysis](#labprocess---data-analysis)
+    * [LabProtocol - Protocol record](#labprotocol---protocol-record)
   * [Example ro-crate-metadata.json](#example-ro-crate-metadatajson)
 
 ## Overview
@@ -80,10 +81,13 @@ BioSample --derivesFrom--> BioSample
 BioSample --sampleType--> ont
 BioSample --additionalProperty--> prop
 
-Protocol --purpose---> ont
+DataFile --about--> BioSample
+
+Protocol --intendedUse---> ont
 Protocol --labEquipment---> ont
 Protocol --reagent---> ont
 Protocol --reagent--> Mol
+Protocol --isBasedOn--> DataFile
 
 ```
 
@@ -259,7 +263,7 @@ from its source cells, such as its maintenance in culture. `"CellCulture"` is a 
 |object|MUST|[bioschemas.org/Sample](isa.md#sample)|The input source sample(s): a cell line or primary cells. At least one.|
 |result|MUST|[bioschemas.org/Sample](isa.md#sample)|The output (cultured) sample(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Process parameter(s); see expected values below. At least one.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD).|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended
@@ -273,16 +277,17 @@ for this step:
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
 ([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent exposing the cell-based test system to
-the chemical(s). It captures the experimental design: it takes the cultured cell [Sample](isa.md#sample)
-as its `object`, follows — via `executesLabProtocol` — a run-specific condition table (CSVW) in which each row records
-a single well (cell line, compound, concentration, exposure duration), and emits the exposed cell
-[Sample](isa.md#sample)(s) as its `result`.
+the chemical(s). It takes the cultured cell [Sample](isa.md#sample) as its `object`, executes a protocol record naming
+the compounds it applied, and emits the exposed cell [Sample](isa.md#sample)(s) as its `result`. The experimental design
+is a run-specific condition table (CSVW): a data file `about` those exposed Samples, in which each row records a single
+well (cell line, compound, concentration, exposure duration).
 
 > **Where the compound goes.** The [MolecularEntity](#molecularentity---chemical) compound is **not** a process
 > `object`: the inherited ISA [LabProcess](isa.md#labprocess) shape restricts `schema:object` (and `schema:result`)
 > to `File`/`Sample`/`BioSample`, so a `MolecularEntity` there fails validation. The compound is a `reagent` of the
-> run-specific condition table, which the Exposure follows via `executesLabProtocol`. The procedural SOPs name no
-> compound, so the assay stays executable with other chemicals: a re-run needs a new condition table and the same SOPs.
+> Exposure's [protocol record](#labprotocol---protocol-record), which MUST name at least one. The procedural SOPs name no
+> compound and are what the record `isBasedOn`, so the assay stays executable with other chemicals: a re-run needs a new
+> record and condition table and the same SOPs.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -292,8 +297,8 @@ a single well (cell line, compound, concentration, exposure duration), and emits
 |name|MUST|Text|The name of the process, e.g. "Exposure".|
 |object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one. (A `MolecularEntity` is **not** allowed here — see note above.)|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
-|result|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The exposed sample(s) the step produces. At least one. The condition table is **not** a result — it is the per-well layout the run follows, and it is reached via `executesLabProtocol` below.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol(s) this step executes: the procedural SOP, and the per-well condition table supplying the plate layout the SOP leaves out.|
+|result|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The exposed sample(s) the step produces. At least one. The condition table is **not** a result: it is a `File` + `csvw:Table` `about` the exposed Samples, and each exposure SHOULD have one.|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD), whose `reagent`s MUST include at least one test or control compound (a MolecularEntity).|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended
@@ -319,7 +324,7 @@ Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.
 |object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s) (the cultured Sample in an assay with no exposure), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Measurement parameter(s); see expected values below. At least one.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol this step executes.|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD).|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended
@@ -356,7 +361,7 @@ Statistics* module of the Minimal Information Table.
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](isa.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Analysis parameter(s); see expected values below. At least one.|
-|executesLabProtocol|SHOULD|[bioschemas.org/LabProtocol](isa.md#labprotocol)|The protocol(s) this step executes; at least one SHOULD be the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD), which SHOULD be `isBasedOn` the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`).|
 
 **Expected `parameterValue` items.** Each is a Parameter [PropertyValue](isa.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). The profile requires at least one `parameterValue`; the following are recommended
@@ -368,6 +373,32 @@ for this step (drawn from OHT 201's *Data & Analysis* module):
 |Computational Tool|SHOULD|
 |Acceptance Criteria|MAY|
 |Evaluation Criteria|MAY|
+
+### LabProtocol - Protocol record
+
+Is based on the Bioschemas [bioschemas.org/LabProtocol](https://bioschemas.org/LabProtocol) type
+([ISA LabProtocol](isa.md#labprotocol)). Each LabProcess above executes exactly one: a record of the protocol its step
+follows, present whether or not the lab deposited a document for it, because its `intendedUse` says what kind of step
+it is. A deposited SOP or script stays a `File` co-typed `LabProtocol` (the RO-Crate 1.2 multi-type idiom) and is what
+the record is `isBasedOn`, so one document can serve several steps, each record carrying its own type. ISA-JSON has no
+`isBasedOn` on a protocol, so that link is lost on conversion to ISA-JSON.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|One record per step, e.g. the process `@id` followed by `_protocol`.|
+|@type|MUST|Text|MUST be '[bioschemas.org/LabProtocol](https://bioschemas.org/LabProtocol)'|
+|intendedUse|SHOULD|[schema.org/DefinedTerm](isa.md#definedterm)|The protocol type of its step, from the table below, written as `{"@id": …}` and described once in the graph.|
+|name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
+|description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
+|reagent|MUST|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|On the Exposure's record: the test and control compounds it applied, at least one.|
+|isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
+
+| Step | intendedUse |
+|------|-------------|
+|Test System Preparation|[EFO:0003789](http://www.ebi.ac.uk/efo/EFO_0003789) *growth protocol*|
+|Exposure|[EFO:0003969](http://www.ebi.ac.uk/efo/EFO_0003969) *treatment protocol*|
+|Endpoint Readout|[BAO:0000523](http://www.bioassayontology.org/bao#BAO_0000523) *assay protocol*|
+|Data Analysis|[OBI:0200000](http://purl.obolibrary.org/obo/OBI_0200000) *data transformation*: no protocol-type term exists, so the OBI process class stands in, as ISA's reference dataset BII-I-1 does for extraction|
 
 ## Example ro-crate-metadata.json
 

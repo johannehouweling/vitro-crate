@@ -50,7 +50,7 @@ def lanes() -> list[dict]:
 class TestCompoundsReachTheProcessViews:
     """#650/#686: the exposure's compounds are the substances under test.
 
-    They hang off the condition table the exposure executes, because ISA
+    They are reagents of the protocol record the exposure executes, because ISA
     restricts ``schema:object`` to File/Sample/BioSample at Violation severity,
     so a MolecularEntity can never be a process input directly. The selection
     follows that second hop rather than the crate being remodelled around it.
@@ -61,10 +61,10 @@ class TestCompoundsReachTheProcessViews:
         assert "#compound-a1" in selected, sorted(selected)
         assert "#compound-a2" in selected, sorted(selected)
 
-    def test_the_compound_arrives_with_the_table_that_links_it(self, crate):
+    def test_the_compound_arrives_with_the_protocol_that_links_it(self, crate):
         """A compound with no edge to any work is the opposite of the point."""
         selected = _select_processes(crate)
-        assert "#conditions-a" in selected
+        assert "#exposure-protocol-a" in selected
 
     def test_a_compound_of_an_undrawn_protocol_stays_out(self, crate):
         """The rule is 'follow', not 'collect every reagent edge in the crate'."""
@@ -117,7 +117,7 @@ class TestTheLaneDrawsOneAssay:
         lane = _select_assay_lane(crate, "#assay-a")
         band = {
             "#culture-protocol-a",
-            "#conditions-a",
+            "#exposure-protocol-a",
             "#readout-protocol-a",
             "#analysis-protocol-a",
         }

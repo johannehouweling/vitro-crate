@@ -1770,8 +1770,7 @@ def _materialize_plan(
       hand-rolled JSON-LD) with the canonical ISA-Tox reference fields: every
       resolved ``MolecularEntity`` → the **Exposure** LabProcess via ``chemicals``
       (ISA forbids a MolecularEntity as a process object, so the build makes each
-      compound a ``reagent`` of the run-specific CSVW condition table the Exposure
-      executes), the resolved
+      compound a ``reagent`` of the Exposure's protocol record), the resolved
       ``CellLineSample`` → the **TestSystemPreparation** LabProcess via ``cell_line`` (its
       consumed input, replacing the synthesized generic ``..._input``), and BOTH
       onto the scaffolded Study via ``schema:mentions`` (``chemicals`` /
@@ -1780,12 +1779,13 @@ def _materialize_plan(
       ``set_fields`` writes the same deterministic ids, so re-running mints no dups.
     * each ``protocols[]`` → ``draft_protocol`` (a ``LabProtocol`` from the
       name/description only — D5: no identifier) which is then linked to the
-      ``LabProcess`` it governs via the ``labprotocol`` reference field (resolved
-      to ``executesLabProtocol`` at build time, isa_tox.md). The plan's optional
-      free-text ``process_hint`` is matched conservatively (by ``process_type``,
-      then by step name) to choose the process; with no match it attaches to the
-      central exposure/assay step, and an unresolvable link is left for the
-      guidance loop rather than guessed (:func:`_select_process_for_protocol`).
+      ``LabProcess`` it governs via the ``labprotocol`` reference field (the
+      step's protocol record is based on it where the deposit places no document
+      of its own, AGENTS.md D17). The plan's optional free-text ``process_hint`` is
+      matched conservatively (by ``process_type``, then by step name) to choose the
+      process; with no match it attaches to the central exposure/assay step, and an
+      unresolvable link is left for the guidance loop rather than guessed
+      (:func:`_select_process_for_protocol`).
     * **process chain — ALWAYS, regardless of provider (#262).** ONE
       :func:`draft_process_chain` lays the standard in-vitro chain (TestSystemPreparation →
       Exposure → EndpointReadout → DataAnalysis) onto the scaffolded Assay
@@ -2010,7 +2010,7 @@ def _materialize_plan(
     #   * each MolecularEntity → the Exposure LabProcess via `chemicals`. ISA
     #     forbids a MolecularEntity as a process object (objects MUST be
     #     File/Sample/BioSample), so the build makes it a `reagent` of the
-    #     condition table the Exposure executes (_crate_mapping._synth_condition_table).
+    #     Exposure's protocol record (_crate_mapping._protocol_record).
     #   * the CellLineSample → the TestSystemPreparation LabProcess via `cell_line` (its
     #     consumed input), replacing the synthesized generic `..._input` placeholder.
     #   * both also surface on the Study via schema:mentions (`chemicals` /
@@ -2077,8 +2077,9 @@ def _materialize_plan(
     # is what the protocol linking below uses.
 
     # --- protocols: draft a LabProtocol from the name/description (D5 — no id) and
-    # link the LabProcess(es) it governs via the `labprotocol` ref field, which the
-    # crate mapping resolves to `executesLabProtocol` (isa_tox.md). The plan may
+    # link the LabProcess(es) it governs via the `labprotocol` ref field; the step's
+    # protocol record is based on it where the deposit places no document of its own
+    # (AGENTS.md D17). The plan may
     # carry a free-text `process_hint`; we map it to a process conservatively (by
     # process_type, then by step name) and, when nothing matches, fall back to the
     # central exposure/assay step. An unresolvable hint links nothing and is left
@@ -2107,8 +2108,8 @@ def _materialize_plan(
         if target_process_id is None:
             continue
         try:
-            # `labprotocol` is a reference field on LabProcess (-> executesLabProtocol);
-            # set_fields wires it, the crate mapping resolves it at build time.
+            # `labprotocol` is a reference field on LabProcess (-> its protocol
+            # record's isBasedOn); set_fields wires it, the build resolves it.
             engine.run_tool(
                 "set_fields",
                 entity_id=target_process_id,

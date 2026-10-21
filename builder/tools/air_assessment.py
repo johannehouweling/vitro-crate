@@ -283,9 +283,10 @@ def _check_software_in_repository(state: CrateState, graph: Graph) -> Verdict | 
 
     Only software a step from :func:`_transformation_steps` uses counts: its
     ``instrument``, what it consumes (``object``/``input``, how ``link`` wires a script),
-    the protocol it executes when that protocol is itself software (a script), and that
-    protocol's ``computationalTool``. The application that packaged the crate is the
-    build record's instrument, so it never counts.
+    the protocol it executes when that protocol is itself software (a script), and what
+    that protocol is based on (a deposited script, D17) or names as its
+    ``computationalTool``. The application that packaged the crate is the build
+    record's instrument, so it never counts.
     """
     if needs_graph(graph):
         return None
@@ -297,7 +298,11 @@ def _check_software_in_repository(state: CrateState, graph: Graph) -> Verdict | 
             ref_id(v) for k in ("object", "input", "instrument") for v in _listed(step.get(k))
         }
         for protocol in protocols:
-            used |= {ref_id(v) for v in _listed(by_id.get(protocol, {}).get("computationalTool"))}
+            used |= {
+                ref_id(v)
+                for k in ("isBasedOn", "computationalTool")
+                for v in _listed(by_id.get(protocol, {}).get(k))
+            }
     software = [by_id[i] for i in used if node_types(by_id.get(i, {})) & _SOFTWARE_TYPES]
     hosted = [
         s

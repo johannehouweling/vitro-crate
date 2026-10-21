@@ -70,6 +70,36 @@ class TestBuildAndValidateRouting:
         assert issue["severity"] == "required"
         assert issue["fix"], "a synthesized fix hint must be present"
 
+    def test_the_compound_rule_is_answered_with_chemicals(self):
+        """#783: the Exposure's compounds are its protocol record's reagents, which
+        the build writes from the step's ``chemicals``. SHACL reports the rule on
+        ``executesLabProtocol``, a field nobody sets, so the fix names the one
+        that answers it."""
+        from builder.tools.validation import answering_field
+
+        report = build_and_validate(_exposure_state())
+        compound = [i for i in report["issues"] if "reagent" in i["message"]]
+        assert [i["severity"] for i in compound] == ["required"], report["issues"]
+        assert "`chemicals`" in compound[0]["fix"], compound[0]
+        assert answering_field(compound[0]["message"], compound[0]["property"]) == "chemicals"
+        assert answering_field("Assay entity SHOULD have a creator", "creator") == "creator"
+
+    def test_only_the_record_rules_change_the_answering_field(self):
+        """The analysis-script rule is answered by the step's ``labprotocol``, which
+        its record is based on. A finding that merely contains the word, such as a
+        detached protocol whose id mentions reagents, keeps its own property."""
+        from builder.tools.validation import answering_field, verify_isa_reachability
+
+        script = (
+            "DataAnalysis SHOULD execute a protocol based on a deposited analysis "
+            "script (schema:SoftwareSourceCode)"
+        )
+        assert answering_field(script, "executesLabProtocol") == "labprotocol"
+        (detached,) = verify_isa_reachability(
+            [{"@id": "./", "@type": "Dataset"}, {"@id": "#proto_reagents", "@type": "LabProtocol"}]
+        )
+        assert answering_field(detached["message"], detached["property"]) is None
+
     def test_conformance_base_passes_isa_fails_for_minimal(self):
         report = build_and_validate(CrateState())
         assert report["conformance"]["base"] is True

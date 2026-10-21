@@ -59,6 +59,8 @@ def valid_doc(tmp_path_factory):
             culture_medium="CT medium",
         )
     )
+    # The compound the Exposure applies: its protocol record MUST name one (#783).
+    state.add_entity(_ent("chem_1", "MolecularEntity", name="Iopanoic acid"))
     state.add_entity(
         _ent(
             "proc_exp",
@@ -66,6 +68,7 @@ def valid_doc(tmp_path_factory):
             name="2-hour D3 activity exposure",
             process_type="Exposure",
             assay_id="assay_1",
+            chemicals="chem_1",
             duration="2 hours",
         )
     )
@@ -226,11 +229,21 @@ def _with_readout(doc, *, consumes):
             "value": "T3 conversion",
         }
     )
+    # Every step executes one protocol record (#783).
+    doc["@graph"].append(
+        {
+            "@id": "#LabProcess_proc_read_protocol",
+            "@type": ["LabProtocol", "schema:HowTo"],
+            "name": "D3 deiodinase activity readout protocol",
+            "intendedUse": {"@id": "http://www.bioassayontology.org/bao#BAO_0000523"},
+        }
+    )
     readout = {
         "@id": "#LabProcess_proc_read",
         "@type": ["LabProcess", "schema:Action"],
         "additionalType": "EndpointReadout",
         "name": "D3 deiodinase activity readout",
+        "executesLabProtocol": {"@id": "#LabProcess_proc_read_protocol"},
         "output": [{"@id": "data/raw_measurements.csv"}],
         "additionalProperty": [{"@id": "#param_Endpoint_test"}],
         "parameterValue": [{"@id": "#param_Endpoint_test"}],

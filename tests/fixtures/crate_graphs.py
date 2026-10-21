@@ -381,7 +381,7 @@ def assay_lane_graph() -> dict[str, Any]:
     The shape the lane view draws: cell line -> culture -> cultured sample ->
     exposure -> exposed sample -> readout -> raw files -> analysis -> processed
     file, with a protocol under each step and the exposure's compounds hanging
-    off its condition table by ``reagent``.
+    off its protocol record by ``reagent``.
 
     Two assays rather than one, because a lane must exclude the *other* assay's
     steps, and a fixture with a single assay cannot tell "scoped to this assay"
@@ -454,12 +454,12 @@ def assay_lane_graph() -> dict[str, Any]:
                 "name": "Exposure",
                 "object": {"@id": "#cultured-a"},
                 "result": {"@id": "#exposed-a"},
-                "executesLabProtocol": {"@id": "#conditions-a"},
+                "executesLabProtocol": {"@id": "#exposure-protocol-a"},
             },
             {
-                "@id": "#conditions-a",
+                "@id": "#exposure-protocol-a",
                 "@type": "LabProtocol",
-                "name": "Condition table",
+                "name": "Exposure protocol",
                 "reagent": [{"@id": "#compound-a1"}, {"@id": "#compound-a2"}],
             },
             {
@@ -557,12 +557,12 @@ def assay_lane_graph() -> dict[str, Any]:
                 "name": "Exposure",
                 "object": {"@id": "#cultured-b"},
                 "result": {"@id": "#exposed-b"},
-                "executesLabProtocol": {"@id": "#conditions-b"},
+                "executesLabProtocol": {"@id": "#exposure-protocol-b"},
             },
             {
-                "@id": "#conditions-b",
+                "@id": "#exposure-protocol-b",
                 "@type": "LabProtocol",
-                "name": "Condition table",
+                "name": "Exposure protocol",
                 "reagent": [{"@id": "#compound-b1"}],
             },
             {
@@ -646,12 +646,12 @@ def assay_lane_real_shapes_graph() -> dict[str, Any]:
             "name": "Transport exposure",
             "object": [{"@id": f"#cultured-c-{k}"} for k, _ in lines_c],
             "result": [{"@id": f"#exposed-c-{k}"} for k, _ in lines_c],
-            "executesLabProtocol": {"@id": "#conditions-c"},
+            "executesLabProtocol": {"@id": "#exposure-protocol-c"},
         },
         {
-            "@id": "#conditions-c",
+            "@id": "#exposure-protocol-c",
             "@type": "LabProtocol",
-            "name": "Condition table",
+            "name": "Exposure protocol",
             "reagent": [{"@id": "#compound-c1"}, {"@id": "#compound-c2"}],
         },
         {"@id": "#compound-c1", "@type": "MolecularEntity", "name": "Amiodarone"},

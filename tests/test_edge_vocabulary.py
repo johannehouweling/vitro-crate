@@ -35,6 +35,12 @@ class TestEveryRelationNamesARealProperty:
         assert terms["executes"] == "bioschemas:executesLabProtocol"
         assert terms["reagent"] == "bioschemas:reagent"
 
+    def test_a_protocols_type_edge_names_its_own_property(self):
+        """A step's protocol record points at its protocol type through
+        ``intendedUse`` (#783), a Bioschemas LabProtocol property — not a
+        measurement technique."""
+        assert relation_terms()["intendedUse"] == "bioschemas:intendedUse"
+
     def test_no_primary_relation_keeps_an_internal_word(self):
         """The defect, stated generally: `input` and `executes` are this
         codebase's names for edges, not anyone's predicates."""

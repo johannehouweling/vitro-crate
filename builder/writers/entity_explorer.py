@@ -243,8 +243,9 @@ def _reagents_of(crate: _Crate, processes: set[str]) -> set[str]:
     modelling gap: ISA restricts ``schema:object`` to File/Sample/BioSample at
     Violation severity, so a ``MolecularEntity`` can never be a process input
     directly, and ``reagent`` is a LabProtocol property ranging over it. The
-    crate's route — exposure executes a condition table, the table lists its
-    reagents — is the correct representation, so the selection follows it (#650).
+    crate's route — each step executes its protocol record, and the Exposure's
+    record lists its reagents (#783) — is the correct representation, so the
+    selection follows it.
 
     Anchored on the protocols *these* steps execute, never on every ``reagent``
     edge in the crate: a compound with no edge to any drawn work is the opposite

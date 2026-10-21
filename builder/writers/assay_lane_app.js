@@ -392,7 +392,7 @@
       svg.appendChild(caption);
 
       // At rest one connector per anchor is drawn, so twelve compounds under one
-      // table do not read as a comb. A selection always reveals its own.
+      // protocol do not read as a comb. A selection always reveals its own.
       var seen = {};
       var hangs = el('g', { fill: 'none' });
       drawing.band.forEach(function (hang) {

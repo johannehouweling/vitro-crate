@@ -878,7 +878,8 @@ def _check_provenance(state: CrateState, graph: Graph = None) -> Verdict | None:
     """RDA-R1.2-01M — provenance information according to community-specific standards.
 
     RO-Crate's community standard for provenance is a ``CreateAction`` naming the
-    ``instrument`` that produced the crate and pointing its ``result`` at the root.
+    ``instrument`` that produced the crate and listing the root among its ``result``s,
+    beside the protocol records the build wrote (D17).
     The old check read ``entity._provenance.created_by``, a session-only attribute
     that never reaches the crate: it recorded who told *us* about an entity, which is
     not the same claim, and no reader could reproduce it.
@@ -893,7 +894,7 @@ def _check_provenance(state: CrateState, graph: Graph = None) -> Verdict | None:
     for node in _nodes(graph):
         if "CreateAction" not in _node_types(node):
             continue
-        if node.get("instrument") and _ref_id(node.get("result")) == root_id:
+        if node.get("instrument") and root_id in _ref_ids(node, "result"):
             return Verdict(True, f"CreateAction {node.get('@id')} records the build")
     return Verdict(False, "no CreateAction records how the crate was produced")
 
@@ -2070,20 +2071,21 @@ def _check_standard_identifiers(state: CrateState, graph: Graph = None) -> Verdi
     standardised and assigned unique Standard Identifiers.
 
     The subjects are the domain entities the crate's **datasets** report, gathered from
-    the three independent places the crate states them: a field value that resolves to
-    one (``csvw:Column.valueUrl``), a table that says what it is about
-    (``csvw:Table.about``), and the process that produced the table saying what went into
-    it (``LabProcess.input`` / ``object``).
+    every place the crate states them: a field value that resolves to one
+    (``csvw:Column.valueUrl``: the cell lines and compounds), a table that says what it
+    is about (``csvw:Table.about``: a condition table's exposed Samples and compounds),
+    and a process whose result is a table saying what went into it
+    (``LabProcess.input`` / ``object``). A built crate states the first two; no process
+    lists its condition table as a result, but another crate's may.
 
-    **Three sources, because one is gameable.** A denominator built from ``valueUrl``
+    **Several sources, because one is gameable.** A denominator built from ``valueUrl``
     alone and filtered through a closed list of expected types lets a crate retype its
     process-output ``Sample`` nodes from ``["Sample", "Thing"]`` to bare ``Thing`` and
     earn the indicator by typing its cell-line values *less*. There is no type allowlist
     here at all: whatever the datasets name is a subject, and a subject that is absent,
-    untyped or unexpected counts as unidentified rather than disappearing. And because
-    the same entity is named in three places, no single deletion removes it from the
-    denominator; removing it from all three deletes the crate's record of which
-    biological material the assay used.
+    untyped or unexpected counts as unidentified rather than disappearing. A compound
+    is named in two places, so no single deletion removes it from the denominator; a
+    cell line is named only by its column's ``valueUrl``.
 
     **Crate parts leave the denominator by their type, never by their position.** A
     subject is dropped only when the node it resolves to is typed ``File``, ``Dataset`` or

@@ -125,6 +125,36 @@ class TestTheLicenceIndicatorsGradeTheCrate:
         assert _effective_license(CrateState(), None) == ''
 
 
+class TestTheBuildRecordIsCreditedBesideTheRecordsItWrote:
+    """RDA-R1.2-01M reads the build's CreateAction. Its ``result`` is the crate and
+    every protocol record the build wrote (#783), so the root is one result among
+    several and the check is membership, not equality."""
+
+    def test_provenance_is_credited_when_the_root_is_one_of_the_results(self):
+        from rocrate.rocrate import ROCrate
+
+        from builder.tools._crate_mapping import populate_crate
+        from builder.tools.fair_assessment import _check_provenance
+        from profiles.context import ISA_TOX_CONTEXT
+
+        state = CrateState()
+        for eid, type_, fields in (
+            ("assay_1", "Assay", {"name": "A"}),
+            ("cell_1", "CellLineSample", {"name": "HepG2"}),
+            ("proc_1", "LabProcess", {"name": "Culture", "process_type": "TestSystemPreparation",
+                                      "assay_id": "assay_1", "cell_line": "cell_1"}),
+        ):
+            state.add_entity(Entity(eid, type_, fields, _provenance=EntityProvenance(created_by="llm")))
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, None, materialize_payload=False)
+        graph = crate.metadata.generate()
+        action = next(n for n in graph["@graph"] if n.get("@type") == "CreateAction")
+        assert isinstance(action["result"], list) and len(action["result"]) > 1, action
+        verdict = _check_provenance(state, graph)
+        assert verdict is not None and verdict.value is True, verdict
+
+
 class TestAssessFairMaturity:
     """Tests for assess_fair_maturity — assesses FAIR maturity from CrateState."""
 
