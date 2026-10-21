@@ -191,9 +191,9 @@ _SAMPLE_PRODUCERS = frozenset({"TestSystemPreparation"})
 # crate with no exposed-sample entity at all and every downstream step hanging off
 # the culture instead: the star this fixed.
 #
-# The compounds do not ride on the output. They are reagents of the per-well
-# condition table, which the build attaches as a protocol the exposure EXECUTES —
-# the layout a procedural SOP leaves out — not as something it produces.
+# The compounds do not ride on the output. They are reagents of the Exposure's
+# protocol record, and the per-well condition table is data about the exposed
+# Samples the build emits (#783).
 #
 # So we leave these steps' output to the build: the chain still flows downstream
 # via the step's inputs (``upstream_output = outputs or inputs``).
@@ -2542,7 +2542,7 @@ TOOL_REGISTRY.register(
 # but it stays an ORPHAN until something references it: ISA forbids a compound as
 # a process object, so a compound reaches the experiment only through the
 # Exposure's `chemicals` field (which the build turns into `reagent`s of the
-# condition table the Exposure executes). The pipeline arm wires this at
+# Exposure's protocol record). The pipeline arm wires this at
 # one moment, conditional on holding the ids then; the ReAct arm relies on the
 # model remembering to pass `hints={'chemicals': ...}`. Neither is a backstop, and
 # a real 22-compound crate shipped with `chemicals=None` on every process.

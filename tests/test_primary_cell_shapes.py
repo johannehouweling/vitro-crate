@@ -59,6 +59,8 @@ def _build(tmp_path_factory, **primary_fields) -> dict:
             culture_medium="expansion medium",
         )
     )
+    # The compound the Exposure applies: its protocol record MUST name one (#783).
+    state.add_entity(_ent("chem_1", "MolecularEntity", name="Tacrolimus"))
     state.add_entity(
         _ent(
             "proc_exp",
@@ -66,6 +68,7 @@ def _build(tmp_path_factory, **primary_fields) -> dict:
             name="Tacrolimus exposure",
             process_type="Exposure",
             assay_id="assay_1",
+            chemicals="chem_1",
             duration="24 hours",
         )
     )

@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 # two different states and a model alternating between them looks like progress
 # forever (observed: a string/list flip every ~6s for a full minute).
 #
-# Deliberately an allow-list: the single-valued references (``labprotocol``,
-# ``cell_line``, ``study_id``, ``measurementMethod``, …) go through
+# Deliberately an allow-list: the single-valued references (``cell_line``,
+# ``study_id``, ``measurementMethod``, …) go through
 # ``_wire_reference``, which resolves ONE value — wrapping those in a list would
 # silently break them. An unrecognised reference field keeps its shape.
 _COLLECTION_REF_FIELDS: frozenset[str] = frozenset(

@@ -486,8 +486,9 @@ class TestProtocolTypingAgainstTheShapes:
     ``ProtocolShouldHave{Name,Description,IntendedUse}`` shapes apply.
 
     So the co-typing is inert to SHACL as long as nothing points a process at
-    the document — which is today's crate, where processes still execute the
-    separate fileless stub. This pins that, because the shapes are a dependency
+    the document — which is every crate this builder writes, where a step
+    executes its protocol record and the record is based on the document
+    (#783). This pins that, because the shapes are a dependency
     nobody here controls: a profile release that dropped the ``sh:condition``
     would start reporting every protocol document in every crate, and the
     failure would surface as a mysterious conformance drop rather than as this
@@ -697,10 +698,11 @@ class TestASampleInTheAnalysisSlotIsReported:
 class TestADataAnalysisShouldFollowAnAnalysisScript:
     """#786 — an analysis done by hand deposits no re-runnable step, and says so.
 
-    v32's shape: every DataAnalysis executes the wet-lab SOP its readout does, and
-    the software is a "GraphPad Prism" PropertyValue. The ISA "Process SHOULD have
-    a protocol" warning is satisfied by that SOP, so nothing reported the missing
-    script. Warning, not Violation, for the reason the Sample check above gives.
+    v32's shape: every DataAnalysis follows the wet-lab SOP its readout does, and
+    the software is a "GraphPad Prism" PropertyValue, so a protocol is present and
+    no script is. The analysis's protocol record SHOULD be based on a deposited
+    script (#783). Warning, not Violation, for the reason the Sample check above
+    gives.
 
     Driven through ``attach_files``, the way both arms place a deposit's files.
     """
@@ -750,10 +752,10 @@ class TestADataAnalysisShouldFollowAnAnalysisScript:
 
     def test_a_deposited_script_clears_it(self) -> None:
         state = self._state(self.SOP, self.SCRIPT)
-        analysis = _by_id(_graph(state), "#LabProcess_proc_da")
-        assert analysis is not None
-        executed = _ids(analysis.get("executesLabProtocol"))
-        assert [Path(unquote(e)).name for e in executed] == [self.SCRIPT], executed
+        record = _by_id(_graph(state), "#LabProcess_proc_da_protocol")
+        assert record is not None
+        based_on = _ids(record.get("isBasedOn"))
+        assert [Path(unquote(e)).name for e in based_on] == [self.SCRIPT], based_on
         assert self._script_findings(state) == []
 
     def test_conformance_is_not_withdrawn(self) -> None:

@@ -2,11 +2,13 @@
 # A bioschemas:LabProcess discriminated by additionalType "Exposure". Takes the
 # cultured cell Sample as input and emits the EXPOSED Sample as its result.
 #
-# The per-well condition table is what the exposure FOLLOWS, not what it produces:
-# it is attached via executesLabProtocol, supplying the plate layout a procedural
-# SOP leaves out, and carries the compounds as its reagents (#650).
+# The compounds are the reagents of the protocol record the Exposure executes: ISA
+# restricts schema:object to File/Sample/BioSample, so a MolecularEntity cannot be
+# the process input (#783). The per-well condition table is a data file about the
+# exposed Samples (8_condition_table_csvw.ttl).
 
 @prefix bioschemas: <https://bioschemas.org/> .
+@prefix bioschemas-prop: <https://bioschemas.org/properties/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -30,7 +32,7 @@ tox:FindExposureProcesses a sh:NodeShape, validator:HiddenShape ;
 
 tox:ExposureRequirements a sh:NodeShape ;
     sh:name "Exposure process requirements" ;
-    sh:description "An exposure process MUST declare its input cells, exposed-sample result, and parameters" ;
+    sh:description "An exposure process MUST declare its input cells, exposed-sample result, parameters, and the compounds it applied" ;
     sh:targetClass tox:LabProcessExposure ;
     sh:property [
         a sh:PropertyShape ;
@@ -51,5 +53,21 @@ tox:ExposureRequirements a sh:NodeShape ;
         sh:path schema:additionalProperty ;
         sh:minCount 1 ;
         sh:message "Exposure process MUST have at least one schema:additionalProperty (e.g. Exposure Duration, Cell Seeding Density)" ;
+        sh:severity sh:Violation ;
+    ] ;
+    # It is not toxicology if nothing was exposed to a chemical. Nested rather than
+    # a sequence path, so the finding names executesLabProtocol, not a blank node.
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path bioschemas-prop:executesLabProtocol ;
+        sh:qualifiedValueShape [
+            sh:property [
+                sh:path bioschemas-prop:reagent ;
+                sh:qualifiedValueShape [ sh:class bioschemas:MolecularEntity ] ;
+                sh:qualifiedMinCount 1 ;
+            ] ;
+        ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Exposure process MUST execute a protocol whose reagents include at least one test or control compound (MolecularEntity)" ;
         sh:severity sh:Violation ;
     ] .

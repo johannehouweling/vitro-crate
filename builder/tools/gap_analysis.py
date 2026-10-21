@@ -385,6 +385,7 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
     from builder.tools.validation import (
         _assemble_and_validate,
         _synthesize_fix,
+        answering_field,
         fold_isa_reachability,
     )
 
@@ -416,7 +417,7 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
     for issue in result.get("issues", []):
         severity = issue.get("severity", "required")
         tier = _SEVERITY_TO_TIER.get(severity, "MUST")
-        prop = issue.get("property")
+        prop = answering_field(issue.get("message", ""), issue.get("property"))
         auto = _shacl_auto_fixable(state, issue)
         # Resolve the entity type for context (best-effort).
         entity_type: str | None = None

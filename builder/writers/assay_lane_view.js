@@ -18,6 +18,9 @@
  *   band          +- protocol        +- protocol      +- protocol
  *                                    +- compounds (reagent of that protocol)
  *
+ * Each step's protocol is its record (#783); the documents a record is based on
+ * have no tier here (#806).
+ *
  * Two consequences the old module had to work for, and this one gets for free:
  *
  *   * A rank is a COLUMN. Two preparation steps stack; they cannot coincide, because
@@ -60,8 +63,8 @@
   // band, so "below the chain" and "below a protocol" read as two relations
   // rather than one column of four things.
   var BAND_DROP = 42;
-  // A protocol is a filename and runs long, so its box is wider than a chain
-  // box and sits a little left of it; a compound is one word and three fit
+  // A protocol is named for its step and runs long, so its box is wider than a
+  // chain box and sits a little left of it; a compound is one word and three fit
   // across the space one chain box leaves.
   var PROTO_W = 164, PROTO_H = 26, PROTO_DX = -7;
   var COMP_W = 100, COMP_H = 19, COMP_COLS = 3, COMP_DX = -16, COMP_DROP = 34;

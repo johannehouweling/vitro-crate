@@ -151,14 +151,10 @@ def test_condition_table_value_urls_resolve_to_entities():
 def test_a_declared_exposure_result_does_not_displace_the_condition_table():
     """A drafter-supplied result never costs the Exposure its condition table (#531).
 
-    The condition table is not decoration: ISA forbids a MolecularEntity as a
-    LabProcess object, so a compound reaches the experiment only *through* the
-    table, as one of its ``reagent``s. Losing the table to a declared result
-    would sever that route silently — the crate keeps its compounds and loses
-    every link to them.
-
-    The table is always among the Exposure's ``executesLabProtocol`` — the
-    per-well layout is what the run follows, not what it emits (#650) — and a
+    The table is the registry of the exposed units — one row per well, naming
+    the compound and dose each received — so losing it to a declared result
+    would leave the crate with its compounds and no statement of which well got
+    which. It is a data file ``about`` the exposed Sample(s) (#783), and a
     declared result is kept beside the exposed Sample, never dropped.
     """
     state = _exposure_state()
@@ -174,16 +170,16 @@ def test_a_declared_exposure_result_does_not_displace_the_condition_table():
         e for e in graph if str(e.get("@id", "")).endswith("LabProcess_proc_exp")
     )
     results = _ids(process.get("output"))
-    protocols = _ids(process.get("executesLabProtocol"))
+    tables = [i for i in by_id if i.endswith("condition_table.csv")]
 
-    assert any(r.endswith("condition_table.csv") for r in protocols), (
-        f"the condition table was not built: protocols={protocols}"
-    )
+    assert tables, "the condition table was not built"
     assert any("declared" in r for r in results), (
         f"the declared result was dropped: {results}"
     )
+    table = by_id[tables[0]]
+    exposed = [r for r in results if "Sample" in str(by_id[r].get("@type"))]
+    assert exposed and set(exposed) <= set(_ids(table.get("about"))), (exposed, table)
     # …and the table's compound column still resolves to the compound.
-    table = by_id[next(r for r in protocols if r.endswith("condition_table.csv"))]
     schema = by_id[[s for s in _ids(table.get("conformsTo")) if "schema" in str(s)][0]]
     cols = {by_id[cid]["titles"]: by_id[cid] for cid in _ids(schema.get("columns"))}
     assert "#MolecularEntity_chem_1" in str(cols["compound"].get("valueUrl"))
@@ -195,11 +191,13 @@ def test_an_exposure_without_a_declared_result_still_gets_the_table():
     process = next(
         e for e in graph if str(e.get("@id", "")).endswith("LabProcess_proc_exp")
     )
-    assert [
-        r
-        for r in _ids(process.get("executesLabProtocol"))
-        if r.endswith("condition_table.csv")
-    ]
+    about = {
+        i
+        for e in graph
+        if str(e.get("@id", "")).endswith("condition_table.csv")
+        for i in _ids(e.get("about"))
+    }
+    assert set(_ids(process.get("output"))) & about, "no table is about the exposed Sample"
 
 
 # --- (b) the readout's result is what it measured ---------------------------
@@ -390,19 +388,15 @@ class TestEmptyConditionTableSaysSo:
 
 
 class TestTheCsvwShapeLooksWhereTheTableIs:
-    """The tox CSVW shape must read the edge the table is actually on (#650).
+    """The tox CSVW shape must read the edge the table is actually on (#650, #783).
 
-    The Exposure's CSVW shape (``tox:ExposureShouldFollowCsvwConditionTable``)
-    was written when the condition table was the Exposure's ``schema:result``.
-    #650 moved it to ``executesLabProtocol`` — the per-well layout is what the run
-    follows, not what it emits — and the shape was not moved with it. The Warning
-    then fired on **every** exposure, including ones that follow a perfectly good
-    table: a false gap, and worse than a missing check because it reports a
-    defect that is not there.
-
-    Nothing caught it. No test in the suite asserted on this shape, so a
-    recommended-severity finding could invert its meaning without turning CI
-    red. Both directions are pinned here so the next move breaks a test.
+    The condition table is a data file ``about`` the exposed Samples the Exposure
+    produces, so ``tox:ExposureShouldHaveCsvwConditionTable`` walks the Exposure's
+    ``schema:result`` back through ``schema:about``. Once, the shape read an edge
+    the table had moved off, and the Warning fired on **every** exposure,
+    including ones with a perfectly good table: a false gap, and worse than a
+    missing check because it reports a defect that is not there. Both directions
+    are pinned here so the next move breaks a test.
     """
 
     @staticmethod
@@ -430,7 +424,7 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
             if "condition table" in str(getattr(issue, "message", "")).lower()
         ]
 
-    def test_an_exposure_that_follows_the_table_is_not_reported(self):
+    def test_an_exposure_with_a_table_about_its_result_is_not_reported(self):
         doc = self._document(_exposure_state())
         assert any(
             str(e.get("@id", "")).endswith("condition_table.csv")
@@ -439,7 +433,7 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
 
         findings = self._condition_table_findings(doc)
         assert findings == [], (
-            "the exposure follows a CSVW condition table, so the shape must not "
+            "a CSVW condition table is about the exposure's result, so the shape must not "
             f"report one missing; got {findings}"
         )
 
@@ -452,37 +446,94 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
         of the synthesis path.
         """
         doc = self._document(_exposure_state())
-        table_ids = {
-            str(e.get("@id", ""))
+        exposed = {
+            i
             for e in doc["@graph"]
-            if str(e.get("@id", "")).endswith("condition_table.csv")
+            if e.get("additionalType") == "Exposure"
+            for i in _ids(e.get("output"))
         }
-        assert table_ids, "fixture produced no table to detach"
+        tables = [
+            e for e in doc["@graph"] if str(e.get("@id", "")).endswith("condition_table.csv")
+        ]
+        assert tables and exposed, "fixture produced no table or no exposed Sample"
 
-        detached = 0
-        for entity in doc["@graph"]:
-            if entity.get("additionalType") != "Exposure":
-                continue
-            for key in ("executesLabProtocol", "result"):
-                value = entity.get(key)
-                if value is None:
-                    continue
-                items = value if isinstance(value, list) else [value]
-                kept = [
-                    it
-                    for it in items
-                    if not (
-                        isinstance(it, dict) and str(it.get("@id")) in table_ids
-                    )
-                ]
-                if len(kept) != len(items):
-                    detached += 1
-                entity[key] = kept
-        assert detached, "no exposure edge pointed at the table — nothing was cut"
+        for table in tables:
+            about = _ids(table.get("about"))
+            table["about"] = [{"@id": i} for i in about if i not in exposed]
+            assert len(table["about"]) < len(about), "the table was about no exposed Sample"
 
         assert self._condition_table_findings(doc), (
             "an exposure that reaches no CSVW condition table must be reported"
         )
+
+
+class TestTheExposureProtocolShapes:
+    """#783 — the protocol record rules, both directions, on a built document.
+
+    Every ISA-Tox step MUST execute a protocol and SHOULD execute one; the
+    Exposure's MUST name a test or control compound among its reagents, because
+    it is not toxicology if nothing was exposed to a chemical. The built crate
+    satisfies all three, so each is broken on the assembled document.
+    """
+
+    @staticmethod
+    def _document() -> dict:
+        state = _exposure_state()
+        state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
+        state.add_entity(
+            _ent("proc_tsp", "LabProcess", name="Culture", process_type="TestSystemPreparation",
+                 assay_id="assay_1", cell_line="cell_1", culture_medium="DMEM")
+        )
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, None, materialize_payload=False)
+        return crate.metadata.generate()
+
+    @staticmethod
+    def _findings(doc: dict, needle: str) -> list:
+        from profiles.validator import validate_crate_dict
+
+        return [
+            issue
+            for result in validate_crate_dict(doc, severity="optional", profile="tox")
+            for issue in result.issues
+            if needle in issue.message
+        ]
+
+    def test_a_record_without_a_compound_is_a_violation(self):
+        doc = self._document()
+        assert self._findings(doc, "reagent") == [], "the built record names its compound"
+        record = _by_id(doc["@graph"])["#LabProcess_proc_exp_protocol"]
+        del record["reagent"]
+        found = self._findings(doc, "reagent")
+        assert [(i.severity, str(i.entity_id).endswith("#LabProcess_proc_exp")) for i in found] == [
+            ("required", True)
+        ], found
+        assert str(found[0].property).endswith("executesLabProtocol"), found[0].property
+        exposure = _by_id(doc["@graph"])["#LabProcess_proc_exp"]
+        record["reagent"] = exposure.get("input") or exposure.get("object")
+        assert record["reagent"], exposure
+        found = self._findings(doc, "reagent")
+        assert [(i.severity, str(i.entity_id).endswith("#LabProcess_proc_exp")) for i in found] == [
+            ("required", True)
+        ], "a reagent that is not a MolecularEntity names no compound"
+
+    def test_a_second_protocol_warns_and_none_violates(self):
+        doc = self._document()
+        assert not self._findings(doc, "LabProtocol"), "the built crate executes one each"
+        by_id = _by_id(doc["@graph"])
+        exposure, culture = by_id["#LabProcess_proc_exp"], by_id["#LabProcess_proc_tsp"]
+        exposure["executesLabProtocol"] = [
+            exposure["executesLabProtocol"], culture.pop("executesLabProtocol")
+        ]
+        at_most = self._findings(doc, "at most one LabProtocol")
+        must = self._findings(doc, "MUST execute a LabProtocol")
+        assert [(i.severity, str(i.entity_id).endswith("proc_exp")) for i in at_most] == [
+            ("recommended", True)
+        ], at_most
+        assert [(i.severity, str(i.entity_id).endswith("proc_tsp")) for i in must] == [
+            ("required", True)
+        ], must
 
 
 def test_property_url_stays_an_id_reference_not_a_bare_string():

@@ -582,6 +582,54 @@ class TestRealInputPipeline:
             "the LabProtocol must be linked to a LabProcess"
         )
 
+    def test_every_step_follows_one_protocol_record(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#783 / #799, pipeline arm: each step executes exactly one protocol record
+        the build wrote, typed by its step, and no deposited file is executed. The
+        Exposure's record lists the compounds the run resolved as its reagents, and
+        the readout's is based on the deposit's own SOP."""
+        from urllib.parse import unquote
+
+        from builder.agents.pipeline.pipeline import run_pipeline
+        from builder.tools.builder import assemble_crate
+        from profiles.ontology_iris import iri
+
+        _install_offline_seams(monkeypatch)
+        engine = _scanning_engine(FIXTURE_DIR)
+        run_pipeline(engine)
+        crate = assemble_crate(engine.state, output_dir=None, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+        by_id = {n["@id"]: n for n in graph}
+
+        def types(node: dict) -> list:
+            return node["@type"] if isinstance(node["@type"], list) else [node["@type"]]
+
+        def ids(value: Any) -> list[str]:
+            return [v["@id"] for v in (value if isinstance(value, list) else [value]) if v]
+
+        expected = {
+            "TestSystemPreparation": "EFO:0003789",
+            "Exposure": "EFO:0003969",
+            "EndpointReadout": "BAO:0000523",
+            "DataAnalysis": "OBI:0200000",
+        }
+        steps = [n for n in graph if "LabProcess" in types(n)]
+        assert sorted(n.get("additionalType") for n in steps) == sorted(expected), steps
+        records = {}
+        for step in steps:
+            executed = ids(step.get("executesLabProtocol"))
+            assert len(executed) == 1, (step["@id"], executed)
+            record = by_id[executed[0]]
+            assert "LabProtocol" in types(record) and "File" not in types(record), record
+            assert record.get("intendedUse") == {"@id": iri(expected[step["additionalType"]])}
+            records[step["additionalType"]] = record
+
+        compounds = {n["@id"] for n in graph if "MolecularEntity" in types(n)}
+        assert compounds and set(ids(records["Exposure"].get("reagent"))) == compounds
+        sop = _SOP.relative_to(FIXTURE_DIR).as_posix()
+        assert sop in [unquote(i) for i in ids(records["EndpointReadout"].get("isBasedOn"))]
+
     def test_a_deposit_with_no_design_table_still_yields_a_populated_one(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

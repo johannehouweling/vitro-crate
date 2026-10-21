@@ -1,10 +1,10 @@
 """Guard test for the LabProcess requirement tables in ``profiles/docs/isa_tox.md``.
 
-The spec states a requirement level for each subtype's ``object`` / ``result``;
-the tox SHACL shapes enforce one. A row reads MUST exactly when a tox shape
-targeting that subtype sets ``sh:minCount`` of at least 1 at ``sh:Violation`` on
-that path, so the page cannot tell a reader a slot is optional while the
-validator fails the crate without it (#783).
+The spec states a requirement level for each subtype's ``object`` / ``result`` /
+``executesLabProtocol``; the tox SHACL shapes enforce one. A row reads MUST
+exactly when a tox shape targeting that subtype sets ``sh:minCount`` of at least
+1 at ``sh:Violation`` on that path, so the page cannot tell a reader a slot is
+optional while the validator fails the crate without it (#783).
 """
 
 from __future__ import annotations
@@ -19,14 +19,19 @@ _ROOT = Path(__file__).resolve().parent.parent
 _SCHEMA = Namespace("http://schema.org/")
 _TOX = Namespace("https://w3id.org/ro/crate/isa-tox/1.0/")
 
-# `### LabProcess - Test System Preparation` up to the next heading, and its object/result rows.
+# `### LabProcess - Test System Preparation` up to the next heading, and its checked rows.
 _SECTION_RE = re.compile(r"^### LabProcess - (.+?)\n(.*?)(?=^#{2,3} )", re.M | re.S)
-_ROW_RE = re.compile(r"^\|(object|result)\|(MUST|SHOULD|MAY)\|", re.M)
+_ROW_RE = re.compile(r"^\|(object|result|executesLabProtocol)\|(MUST|SHOULD|MAY)\|", re.M)
+_PATHS = {
+    "object": _SCHEMA.object,
+    "result": _SCHEMA.result,
+    "executesLabProtocol": Namespace("https://bioschemas.org/properties/").executesLabProtocol,
+}
 
 
 def _required_at_violation(shapes: Graph, subtype: str, path: str) -> bool:
     return any(
-        (prop, SH.path, _SCHEMA[path]) in shapes
+        (prop, SH.path, _PATHS[path]) in shapes
         and shapes.value(prop, SH.severity, default=SH.Violation) == SH.Violation
         and int(str(shapes.value(prop, SH.minCount) or 0)) >= 1
         for shape in shapes.subjects(SH.targetClass, _TOX[f"LabProcess{subtype}"])
@@ -34,7 +39,7 @@ def _required_at_violation(shapes: Graph, subtype: str, path: str) -> bool:
     )
 
 
-def test_labprocess_object_and_result_levels_match_the_tox_shapes() -> None:
+def test_labprocess_requirement_levels_match_the_tox_shapes() -> None:
     shapes = Graph()
     for ttl in sorted((_ROOT / "profiles" / "shapes" / "tox").glob("*.ttl")):
         shapes.parse(ttl, format="turtle")
@@ -44,7 +49,7 @@ def test_labprocess_object_and_result_levels_match_the_tox_shapes() -> None:
         for title, body in _SECTION_RE.findall(spec)
         for path, level in _ROW_RE.findall(body)
     }
-    assert len(rows) == 8, f"expected object + result rows for four subtypes: {rows}"
+    assert len(rows) == 12, f"expected object, result and protocol rows for four subtypes: {rows}"
 
     drift = {
         key: level

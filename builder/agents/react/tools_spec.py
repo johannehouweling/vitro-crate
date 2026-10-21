@@ -887,7 +887,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_protocol",
-        "description": "Create a LabProtocol entity that a LabProcess can follow. Example: draft_protocol(hints={'name': 'MTT viability protocol', 'url': 'https://protocols.io/...'}).",
+        "description": "Create a LabProtocol entity that a step's protocol record can be based on. Example: draft_protocol(hints={'name': 'MTT viability protocol', 'url': 'https://protocols.io/...'}).",
         "parameters": {
             "type": "object",
             "properties": {"hints": draft_hints_schema("LabProtocol")},

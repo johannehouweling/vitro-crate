@@ -508,7 +508,7 @@ class TestPipelineE2EConformanceAndFidelity:
         }
 
         # #222: a LabProtocol is minted from the plan and linked to the process it
-        # governs (executesLabProtocol) — the per-type corpus floor demands >= 1.
+        # governs (its record's isBasedOn) — the per-type corpus floor demands >= 1.
         protos = state.list_entities("LabProtocol")
         assert protos, "the spine must mint a LabProtocol from the plan"
         linked = [
@@ -673,11 +673,13 @@ class TestPipelineE2ENoProviderSafety:
         result = run_pipeline(engine)
 
         assert result["conformance"] == {"base": True, "isa": True, "tox": False}
-        # The ONLY thing missing is the unassertable parameters — a structural
-        # regression in the scaffold would surface as some OTHER issue here.
+        # The ONLY things missing are the unassertable parameters and the
+        # Exposure's compound — a structural regression in the scaffold would
+        # surface as some OTHER issue here.
         assert result["issues"], "tox must report why it did not conform"
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
+            or "reagent" in str(issue.get("message", ""))
             for issue in result["issues"]
         ), result["issues"]
         # The scaffold path still laid the ISA backbone.

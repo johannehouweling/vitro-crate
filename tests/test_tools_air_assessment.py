@@ -173,12 +173,15 @@ class TestTheChecksMeasureWhatTheCriterionAsks:
             ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#sop"}},
              {"@id": "#sop", "@type": "LabProtocol", "computationalTool": {"@id": "#sw"}}),
             ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#sw"}}, None),
+            ({"@type": "LabProcess", "executesLabProtocol": {"@id": "#rec"}},
+             {"@id": "#rec", "@type": "LabProtocol", "isBasedOn": {"@id": "#sw"}}),
         ],
-        ids=["computationalTool", "script_protocol"],
+        ids=["computationalTool", "script_protocol", "record_based_on_script"],
     )
     def test_software_a_step_uses_counts(self, step, protocol):
         """Besides RO-Crate's ``instrument`` (above), a step names its software through
-        its protocol's ``computationalTool``, or a protocol that is itself the script."""
+        its protocol's ``computationalTool``, a protocol that is itself the script, or
+        the script its protocol record is based on (#783)."""
         software = {"@id": "#sw", "@type": ["File", "SoftwareSourceCode", "LabProtocol"],
                     "codeRepository": "https://github.com/example/pipeline"}
         graph = _graph({"@id": "#step", "result": {"@id": "out.csv"}, **step},

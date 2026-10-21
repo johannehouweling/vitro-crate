@@ -125,14 +125,16 @@ class TestEmptyStateReachesConformance:
         result = run_pipeline(engine)
 
         # BASE and ISA conform from the scaffold alone. TOX does not, and that is
-        # correct: an empty state has no exposure duration or detection instrument
-        # to state, and `_pv` refuses to publish "unknown" as if it were a
-        # measurement (D5). The shape firing IS the prompt to go and supply it.
+        # correct: an empty state has no exposure duration, detection instrument or
+        # exposed compound to state, and `_pv` refuses to publish "unknown" as if
+        # it were a measurement (D5). The shape firing IS the prompt to go and
+        # supply it.
         conformance = result["conformance"]
         assert conformance == {"base": True, "isa": True, "tox": False}
         assert result["issues"], "tox must report why it did not conform"
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
+            or "reagent" in str(issue.get("message", ""))
             for issue in result["issues"]
         ), result["issues"]
 
@@ -184,11 +186,13 @@ class TestBoundedFixLoop:
         # scaffold's unparameterised chain steps — with no provider and no source
         # documents there is nothing to assert about them, and `_pv` will not
         # publish "unknown" to paper over it (D5). What matters here is that the
-        # RESULT issue is gone; anything left must be the parameter gap.
+        # RESULT issue is gone; anything left must be the parameter gap or the
+        # Exposure's unnamed compound.
         assert result["conformance"]["base"] is True
         assert result["conformance"]["isa"] is True
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
+            or "reagent" in str(issue.get("message", ""))
             for issue in result.get("issues") or []
         ), result.get("issues")
         readout = engine.state.get_entity("er1")
@@ -1012,7 +1016,7 @@ class TestMaterializePlan:
         assert ptypes == {"TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"}
 
         # Protocol → LabProtocol minted from the name/description (D5: no id), and
-        # linked to the EndpointReadout process it governs (executesLabProtocol).
+        # linked to the EndpointReadout process it governs (its record's isBasedOn).
         protos = self._by_type(engine, "LabProtocol")
         assert [p.fields.get("name") for p in protos] == ["Amplex Red TPO activity readout"]
         proto_id = protos[0].entity_id
@@ -1055,7 +1059,7 @@ class TestMaterializePlan:
 
         A plan carries a protocol NAME/description only (no identifier). The spine
         mints exactly one LabProtocol and wires it onto the LabProcess it governs
-        via the ``labprotocol`` ref (``executesLabProtocol`` at build time).
+        via the ``labprotocol`` ref (its protocol record's ``isBasedOn`` at build time).
         """
         import builder.agents.pipeline.pipeline as pipeline_mod
 

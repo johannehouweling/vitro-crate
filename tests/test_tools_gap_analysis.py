@@ -665,6 +665,37 @@ class TestActionableGapsAreActuallyAppliable:
                 f"no commit target for actionable gap {gap.source}/{gap.entity_id}/{field}"
             )
 
+    def test_the_compound_gap_commits_to_chemicals(self):
+        """#783: an Exposure with no compound is asked for its ``chemicals``, the
+        field the build turns into its protocol record's reagents. SHACL reports
+        the rule on ``executesLabProtocol``; asked under that key, prose was stored
+        where the build never reads it, and the same gap came back every round."""
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.engine import AgentEngine
+
+        state = self._state()
+        state.add_entity(_entity("chem_1", "MolecularEntity", name="Silychristin A"))
+        state.add_entity(
+            _entity("exp1", "LabProcess", process_type="Exposure", name="Dose",
+                    assay_id="as1", duration="24 hours")
+        )
+        engine = AgentEngine(state=state)
+
+        def _compound_gaps() -> list[Gap]:
+            return [
+                g for g in assess_gaps(engine.state).gaps
+                if g.source == "shacl" and "reagent" in g.message
+            ]
+
+        (gap,) = _compound_gaps()
+        assert (gap.tier, gap.property, gap.fix_hint) == ("MUST", "chemicals", "ask-user")
+        assert _apply_value(engine, gap, "Silychristin A") is False
+        exposure = engine.state.get_entity("exp1")
+        assert exposure is not None
+        assert not {"chemicals", "executesLabProtocol"} & set(exposure.fields), exposure.fields
+        assert _apply_value(engine, gap, "chem_1") is True
+        assert _compound_gaps() == []
+
     def test_actionable_gaps_do_not_collapse_to_zero(self):
         """Honesty control: a guard that marked everything report-only would pass
         the three tests above. The Assay's own `description` gap stays actionable."""

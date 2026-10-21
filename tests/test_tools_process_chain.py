@@ -14,6 +14,7 @@ The validation-heavy class carries a 120s timeout (the #184 lesson) because each
 
 from __future__ import annotations
 
+import copy
 import inspect
 import warnings
 
@@ -281,9 +282,25 @@ class TestChainPassesValidation:
     """The KEY assertion: after one chain call there are NO EndpointReadout /
     DataAnalysis missing-result/object tox Violations (§14.3 trap closed)."""
 
-    def test_no_dangling_output_violations(self):
+    @staticmethod
+    def _dosed() -> tuple[CrateState, str, list[dict]]:
+        """The scaffold plus the compound its Exposure applies, which the tox
+        profile requires of an Exposure's protocol record (#783)."""
+        from builder.tools.drafters import draft_molecular_entity
+
         state, assay_id = _scaffold()
-        draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        chem = draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"})
+        chain = copy.deepcopy(_FULL_CHAIN)
+        for step in chain:
+            if step["process_type"] == "Exposure":
+                hints = step["hints"]
+                assert isinstance(hints, dict)
+                hints["chemicals"] = chem.entity_id
+        return state, assay_id, chain
+
+    def test_no_dangling_output_violations(self):
+        state, assay_id, chain = self._dosed()
+        draft_process_chain(state, assay_id, chain=chain)
 
         report = build_and_validate(state)  # full 3-pass sweep at REQUIRED
         assert "error" not in report, report
@@ -303,10 +320,8 @@ class TestChainPassesValidation:
         assert report["ok"] is True, report
 
     def test_optional_validate_flag_returns_report(self):
-        state, assay_id = _scaffold()
-        result = draft_process_chain(
-            state, assay_id, chain=_FULL_CHAIN, validate_after=True
-        )
+        state, assay_id, chain = self._dosed()
+        result = draft_process_chain(state, assay_id, chain=chain, validate_after=True)
         assert "validation" in result
         assert result["validation"]["ok"] is True, result["validation"]
 
@@ -360,10 +375,10 @@ class TestTheExposureReachesItsCompounds:
     attach as TRUE exposure conditions while the Study ``mentions`` becomes a
     redundant backstop. Orphan count must stay 0 (#273) and validation unchanged.
 
-    #650 later moved the table off ``result`` and onto ``executesLabProtocol``
-    (the layout is what the run follows, not what it emits) and added the
-    compounds as its ``reagent``s. What #285 guaranteed is unchanged and is still
-    asserted here; only the edge the compounds are reached by has moved. The
+    #650 moved the table off ``result``, and #783 made it a data file ``about``
+    the exposed Samples, with the compounds as ``reagent``s of the Exposure's
+    protocol record. What #285 guaranteed is unchanged and is still asserted
+    here; only the edge the compounds are reached by has moved. The
     exposed-Sample half of that chain lives in
     :class:`TestExposureProducesTheExposedSample`.
     """
@@ -402,32 +417,31 @@ class TestTheExposureReachesItsCompounds:
         return crate.metadata.generate()["@graph"]
 
     def test_the_condition_table_still_carries_the_compounds(self) -> None:
-        """#285's guarantee, re-pointed by #650.
+        """#285's guarantee, re-pointed by #650 and #783.
 
         #285 established that the compounds must attach as TRUE conditions of the
         exposure rather than riding on the Study's ``schema:mentions`` backstop,
-        and made the condition table the Exposure's *result* to get there. #650
-        moves the table to the protocol slot — the per-well layout is what the
-        run follows, not what it produces — so the route changes while the
-        guarantee does not: the table is still built, still names every compound,
-        and is still reached from the Exposure.
+        and made the condition table the Exposure's *result* to get there. The
+        table is now a data file about the exposed Samples, so the route changes
+        while the guarantee does not: the table is still built, still names every
+        compound, and is still reached from the Exposure through what it produced.
         """
         state, _ = self._exposure_chain_state()
         graph = self._built_graph(state)
-        by_id = {n.get("@id"): n for n in graph}
 
         exposure = next(
             n
             for n in graph
             if "LabProcess" in _types(n) and n.get("additionalType") == "Exposure"
         )
-        reached = _node_ref_ids(exposure.get("executesLabProtocol"))
+        produced = _node_ref_ids(exposure.get("output"))
         condition_tables = [
-            by_id[i] for i in reached if i in by_id and "csvw:Table" in _types(by_id[i])
+            n
+            for n in graph
+            if "csvw:Table" in _types(n) and produced & _node_ref_ids(n.get("about"))
         ]
         assert condition_tables, (
-            "the Exposure must reach a CSVW condition table; reached="
-            f"{[by_id[i].get('@type') for i in reached if i in by_id]}"
+            f"a CSVW condition table must be about what the Exposure produced: {produced}"
         )
 
         compound_node_ids = {
@@ -486,22 +500,22 @@ class TestTheExposureReachesItsCompounds:
         assert report["ok"] is True, report
 
 
-class TestTheAssayListsTheProtocolFilesItExecutes:
-    """#650 / #532 — a protocol File the assay's processes execute is the
-    assay's part too, and nesting it must not un-parent it from the root.
+class TestTheAssayNestsTheFilesItsStepsUse:
+    """#650 / #532 / #783 — the documents the assay's steps follow, and its
+    condition table, are the assay's parts too, and nesting them must not
+    un-parent them from the root.
 
     Result Files have been dual-parented under their Assay since #532: nested
     under the ISA container AND kept in the root's ``hasPart``, because the
     RO-Crate file tree is walked through directory Datasets and an Assay is a
     contextual node, so a file parented only there is unreachable.
 
-    #650 moved the generated condition table off the Exposure's ``result`` and
-    onto its ``executesLabProtocol`` — the per-well layout is what the run
-    follows, not what it emits. That took the table out of the result-nesting
-    pass's reach, and on a deposit whose only assay-scoped File is that table
-    the Assay's ``hasPart`` emptied: the ISA nesting vanished with no profile
-    complaining, exactly the #532 failure mode. A protocol a process follows is
-    assay data in the same sense its output is, so it is nested the same way.
+    Neither a protocol document nor the generated condition table is a step's
+    ``result``, so the result-nesting pass never reaches them; on a deposit whose
+    only assay-scoped File is that table the Assay's ``hasPart`` emptied, with no
+    profile complaining — exactly the #532 failure mode. A document a step's
+    record is based on, and the table about what the Exposure produced, are
+    assay data in the same sense its output is, so they are nested the same way.
     """
 
     @staticmethod
@@ -510,32 +524,20 @@ class TestTheAssayListsTheProtocolFilesItExecutes:
         graph = TestTheExposureReachesItsCompounds._built_graph(state)
         return graph, {n.get("@id"): n for n in graph}
 
-    def test_the_executed_protocol_is_nested_under_its_assay(self) -> None:
-        graph, by_id = self._built()
+    def test_the_condition_table_is_nested_under_its_assay(self) -> None:
+        graph, _by_id = self._built()
         assay = next(
             n for n in graph if n.get("additionalType") == "Assay"
         )
-        executed = {
-            i
-            for n in graph
-            if "LabProcess" in _types(n)
-            for i in _node_ref_ids(n.get("executesLabProtocol"))
-        }
-        protocol_files = {
-            i for i in executed if i in by_id and "File" in _types(by_id[i])
-        }
-        assert protocol_files, (
-            "no process executes a protocol that is a File — the fixture no "
-            "longer exercises the nesting this pins"
-        )
+        tables = {n["@id"] for n in graph if "csvw:Table" in _types(n)}
+        assert tables, "no condition table was built — the fixture pins nothing"
         nested = _node_ref_ids(assay.get("hasPart"))
-        assert protocol_files <= nested, (
-            "every protocol File the assay's processes execute must be under "
-            f"the Assay's hasPart; missing={protocol_files - nested}, "
-            f"assay hasPart={nested}"
+        assert tables <= nested, (
+            "the condition table is its assay's data and must be under the Assay's "
+            f"hasPart; missing={tables - nested}, assay hasPart={nested}"
         )
 
-    def test_nesting_does_not_unparent_the_protocol_from_the_root(self) -> None:
+    def test_nesting_does_not_unparent_the_file_from_the_root(self) -> None:
         graph, by_id = self._built()
         assay = next(n for n in graph if n.get("additionalType") == "Assay")
         root = next(n for n in graph if n.get("@id") == "./")
@@ -618,9 +620,8 @@ class TestExposureProducesTheExposedSample:
     restricts ``schema:object`` to File/Sample/BioSample at Violation severity.
     ``reagent`` is a ``LabProtocol`` property whose published range includes
     ``schema:MolecularEntity`` outright, so the compounds attach to the protocol
-    the exposure executes. The per-well condition table is that protocol when the
-    real SOP carries no experimental layout: it is what supplies the layout, not
-    a product of the run.
+    record the exposure executes (#783). The per-well condition table is data
+    about the exposed Sample, not a protocol.
     """
 
     def _exposure_chain_state(self) -> tuple[CrateState, list[str]]:
@@ -706,26 +707,37 @@ class TestExposureProducesTheExposedSample:
             f"derivesFrom={derived}, cultured={cultured_ids}"
         )
 
-    def test_the_condition_table_is_the_protocol_not_the_result(self) -> None:
-        """The per-well layout is what the exposure *follows*, not what it
-        produces."""
-        state, _ = self._exposure_chain_state()
+    def test_the_exposure_executes_one_record_not_the_table(self) -> None:
+        """ReAct arm (#783): drafted and wired through the engine's tools, the
+        Exposure executes ONE protocol, its record naming the compounds, and the
+        condition table is data about the exposed Sample rather than a protocol."""
+        from builder.tools.drafters import draft_molecular_entity
+
+        state, assay_id = _scaffold()
+        engine = AgentEngine(state=state)
+        chems = [
+            draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"}).entity_id,
+            draft_molecular_entity(state, "Sodium iodide", {"pubchem_cid": "5238"}).entity_id,
+        ]
+        engine.run_tool("draft_process_chain", assay_id=assay_id, chain=_FULL_CHAIN)
+        exposure_id = _processes_by_subtype(state)["Exposure"][0].entity_id
+        engine.run_tool("set_fields", entity_id=exposure_id, fields={"chemicals": chems})
         graph = self._built_graph(state)
         by_id = {n.get("@id"): n for n in graph}
 
         exposure = self._process(graph, "Exposure")
-        out_nodes = [by_id[i] for i in self._out_ids(exposure) if i in by_id]
-        assert not [n for n in out_nodes if "csvw:Table" in _types(n)], (
-            "the condition table must not be the Exposure's result any more; "
-            f"result={[n.get('@id') for n in out_nodes]}"
-        )
+        (record_id,) = _node_ref_ids(exposure.get("executesLabProtocol"))
+        record = by_id[record_id]
+        assert "csvw:Table" not in _types(record) and "File" not in _types(record), record
+        compounds = {n["@id"] for n in graph if "MolecularEntity" in _types(n)}
+        assert len(compounds) == 2 and _node_ref_ids(record.get("reagent")) == compounds
 
-        protocol_ids = _node_ref_ids(exposure.get("executesLabProtocol"))
-        protocols = [by_id[i] for i in protocol_ids if i in by_id]
-        assert [n for n in protocols if "csvw:Table" in _types(n)], (
-            "the condition table must be one of the Exposure's protocols; "
-            f"protocols={[n.get('@type') for n in protocols]}"
+        exposed = {i for i in self._out_ids(exposure) if "Sample" in _types(by_id[i])}
+        assert not [i for i in self._out_ids(exposure) if "csvw:Table" in _types(by_id[i])], (
+            "the condition table is not the Exposure's result"
         )
+        tables = [n for n in graph if "csvw:Table" in _types(n)]
+        assert tables and exposed <= _node_ref_ids(tables[0].get("about")), (exposed, tables)
 
     def test_the_protocol_carries_the_compounds_as_reagents(self) -> None:
         """``reagent`` is where Bioschemas puts the substances a protocol uses,
