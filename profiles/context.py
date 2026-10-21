@@ -77,6 +77,10 @@ ISA_TOX_CONTEXT: list[dict] = [
         "object": "http://schema.org/object",
         # Friendly alias for a LabProcess's input(s).
         "input": "http://schema.org/object",
+        # A protocol's type. schema.org defines no intendedUse; the ISA protocol rules
+        # read the Bioschemas LabProtocol property. ISA's DefinedTerm rule reads
+        # schema:intendedUse, so it never checks these terms.
+        "intendedUse": f"{BIOSCHEMAS_PROP}intendedUse",
         "labEquipment": f"{BIOSCHEMAS_PROP}labEquipment",
         "reagent": f"{BIOSCHEMAS_PROP}reagent",
         "computationalTool": f"{BIOSCHEMAS_PROP}computationalTool",
@@ -103,7 +107,6 @@ ISA_TOX_CONTEXT: list[dict] = [
         "protocols": "http://schema.org/hasPart",
         "resources": "http://schema.org/hasPart",
         "dataFiles": "http://schema.org/hasPart",
-        "intendedUse": "http://schema.org/intendedUse",
         "result": "http://schema.org/result",
         # Friendly alias for a LabProcess's output(s).
         "output": "http://schema.org/result",

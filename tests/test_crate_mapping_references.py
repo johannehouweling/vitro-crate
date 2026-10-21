@@ -533,6 +533,41 @@ class TestProtocolTypingAgainstTheShapes:
 
         assert not [i for i in self._issues(CLASS_PROTOCOL) if "Protocol entity" in i]
 
+    def test_a_protocols_intended_use_reaches_the_isa_shape(self) -> None:
+        """``intendedUse`` is the Bioschemas LabProtocol property the ISA shape
+        reads; schema.org defines none (#668). Mapped to ``schema:intendedUse``,
+        every executed protocol's type sat on a predicate no shape asks about, and
+        the "SHOULD have an intended use" Warning fired on protocols that had one.
+        """
+        from builder.state import FileClassification
+        from builder.tools.document_discovery import CLASS_PROTOCOL
+        from builder.tools.validation import build_and_validate
+
+        sop = "cell culture protocol HepG2.docx"
+        state = CrateState()
+        state.metadata.title = "Culture crate"
+        state.metadata.input_path = "/deposit"
+        state.scanned_files = [
+            FileClassification(
+                path=f"/deposit/cell_line_protocols/{sop}", filename=sop, size=10,
+                mime_type="application/msword", classification=CLASS_PROTOCOL,
+            )
+        ]
+        state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("cell_1", "CellLineSample", name="HepG2"))
+        state.add_entity(
+            _ent("proc_tsp", "LabProcess", name="Culture", process_type="TestSystemPreparation",
+                 assay_id="assay_1", cell_line="cell_1", culture_medium="DMEM")
+        )
+        messages = [
+            str(i.get("message"))
+            for i in build_and_validate(state, severity="recommended", profile="isa")["issues"]
+        ]
+        assert any(m.startswith("Protocol entity") for m in messages), (
+            f"no executed protocol reached the ISA Protocol shapes — this pins nothing: {messages}"
+        )
+        assert not [m for m in messages if "intended use" in m], messages
+
 
 class TestSourceCodeFileTyping:
     """A script round-trips as @type:[File, SoftwareSourceCode, LabProtocol] with
