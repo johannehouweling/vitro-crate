@@ -606,18 +606,58 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
 
 
 def draft_protocol(state: CrateState, hints: dict) -> Entity:
-    """Create a LabProtocol entity from hints.
+    """The protocol a step follows: the deposited document, or what the lab stated (D17).
+
+    With ``hints["source_file"]`` (a File id, crate path, or scanned path or
+    filename) that deposited File IS the protocol: it is returned co-typed
+    ``LabProtocol`` with only its empty name/description/url/version filled, and
+    nothing is minted — a copy would leave the document followed by no step
+    (#789). Otherwise a described protocol is minted, which needs ``name`` AND
+    ``description``: a name alone is a stub behind which no procedure stands.
 
     Args:
         state: The crate state to add the entity to.
         hints: Dictionary of field values to pre-populate.
 
     Returns:
-        The newly created LabProtocol Entity.
+        The deposited File, or the newly created LabProtocol Entity.
+
+    Raises:
+        ValueError: If ``source_file`` is not exactly one file of this deposit, or
+            if neither it nor both ``name`` and ``description`` are given.
     """
     merged_hints = dict(hints)
-    if "name" not in merged_hints:
-        merged_hints["name"] = "Untitled Protocol"
+    source = merged_hints.pop("source_file", None)
+    if source:
+        from builder.tools.management import resolve_entity_id
+        from builder.tools.provenance import _scanned_dest, find_or_create_file
+
+        document = state.get_entity(resolve_entity_id(state, str(source)))
+        if document is None or document.type != "File":
+            input_path = state.metadata.input_path
+            hits = [
+                fc
+                for fc in state.scanned_files
+                if source in (fc.path, fc.filename, _scanned_dest(fc.path, fc.filename, input_path))
+            ]
+            if len(hits) != 1:
+                raise ValueError(
+                    f"source_file {source!r} is not one file of this deposit; pass its "
+                    "scanned path or File id"
+                )
+            document = find_or_create_file(state, hits[0])
+        _fill_empty_fields(
+            document, {k: merged_hints.get(k) for k in ("name", "description", "url", "version")}
+        )
+        types = list(document.fields.get("additional_types") or [])
+        if "LabProtocol" not in types:
+            document.fields["additional_types"] = [*types, "LabProtocol"]
+        return document
+    if not (merged_hints.get("name") and merged_hints.get("description")):
+        raise ValueError(
+            "draft_protocol needs hints.source_file (the deposited protocol document) "
+            "or, when none was deposited, the name and description the lab stated."
+        )
     name = merged_hints["name"]
     entity_id = _make_entity_id("proto", name, hints)
     entity = Entity(

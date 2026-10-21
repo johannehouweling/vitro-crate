@@ -42,7 +42,7 @@ Entity drafting:
 - draft_molecular_entity: Create a MolecularEntity for a compound
 - draft_cell_line_sample: Create a CellLineSample
 - draft_process: Create a LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis)
-- draft_protocol: Create a LabProtocol entity
+- draft_protocol: Link a deposited protocol document (hints.source_file) or, when none was deposited, record what the lab stated (name + description); never copy a deposited document
 - draft_sample: Create a Sample entity
 - draft_person: Create a Person entity
 - draft_organization: Create an Organization entity

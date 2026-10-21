@@ -1054,18 +1054,25 @@ class TestMaterializePlan:
         assert result["aops"] >= 1
         assert result["people"] >= 1
 
-    def test_protocol_minted_and_linked_to_process(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """#222: a plan protocol mints a LabProtocol linked to a process (D5).
-
-        A plan carries a protocol NAME/description only (no identifier). The spine
-        mints exactly one LabProtocol and wires it onto the LabProcess it governs
-        via the ``labprotocol`` ref (its protocol record's ``isBasedOn`` at build time).
-        """
+    @pytest.mark.parametrize("process_hint", ["", "TestSystemPreparation"])
+    def test_a_protocol_links_only_the_step_its_hint_names(
+        self, monkeypatch: pytest.MonkeyPatch, process_hint: str
+    ) -> None:
+        """#222/#789: a plan protocol is described (D5: no identifier) and linked
+        to the step its ``process_hint`` names, never to a guessed one. With no hint
+        the spine used to fall back to the Exposure, which is how v32's exposures
+        came to follow readout SOPs."""
         import builder.agents.pipeline.pipeline as pipeline_mod
 
         self._enable_provider(monkeypatch)
         plan = {
-            "protocols": [{"name": "MTT viability protocol", "description": "MTT assay."}],
+            "protocols": [
+                {
+                    "name": "MTT viability protocol",
+                    "description": "MTT assay.",
+                    "process_hint": process_hint,
+                }
+            ],
             "process_chain": [
                 {"process_type": "Exposure", "name": "Dose"},
                 {"process_type": "EndpointReadout", "name": "Read viability"},
@@ -1085,13 +1092,12 @@ class TestMaterializePlan:
         assert not protos[0].fields.get("identifier")
         assert result["protocols"] == 1
 
-        # The protocol is linked to at least one LabProcess.
-        proc_refs = [
-            p.fields.get("labprotocol")
+        linked = {
+            p.fields.get("process_type")
             for p in self._by_type(engine, "LabProcess")
             if p.fields.get("labprotocol")
-        ]
-        assert proc_refs, "the protocol must be linked to a process"
+        }
+        assert linked == ({process_hint} if process_hint else set())
 
     def test_confident_publication_match_mints_entity(
         self, monkeypatch: pytest.MonkeyPatch

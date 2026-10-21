@@ -856,15 +856,6 @@ def _merge_backbone_layer(engine: AgentEngine, entity_type: str, hints: dict[str
     return bool(to_apply)
 
 
-# The conservative default process a protocol governs when the plan gives no (or
-# an unmatched) hint: the central exposure/assay step, then a measurement readout.
-_PROTOCOL_DEFAULT_PROCESS_TYPES: tuple[str, ...] = (
-    "Exposure",
-    "EndpointReadout",
-    "DataAnalysis",
-    "TestSystemPreparation",
-)
-
 
 def _select_process_for_protocol(steps: list[dict[str, Any]], process_hint: str) -> str | None:
     """Pick the LabProcess id a plan protocol governs (D5-conservative).
@@ -872,38 +863,22 @@ def _select_process_for_protocol(steps: list[dict[str, Any]], process_hint: str)
     ``steps`` is :func:`draft_process_chain`'s per-step summary (each a dict with
     ``process_id`` / ``process_type``). The free-text ``process_hint`` from the
     plan is matched, in order, against (1) a step's ``process_type`` and (2) a
-    substring of its name; on no match we fall back to the central
-    exposure/assay step (:data:`_PROTOCOL_DEFAULT_PROCESS_TYPES`). Returns the
-    chosen ``process_id`` or ``None`` when there are no processes to link to —
-    the protocol is still minted; only the (uncertain) link is left for the
-    guidance loop. No identifier is ever fabricated.
+    substring of its name. No hint, or no match, returns ``None``: the link is left
+    for the guidance loop rather than guessed, because a guessed step is how
+    exposures came to follow readout SOPs (#789). No identifier is ever fabricated.
     """
-    if not steps:
-        return None
-
     hint = process_hint.strip().lower()
-    if hint:
-        # (1) match the hint against a step's process_type (case-insensitive).
-        for step in steps:
-            ptype = str(step.get("process_type") or "")
-            if ptype.lower() == hint and step.get("process_id"):
-                return str(step["process_id"])
-        # (2) match the hint as a substring of a step name.
-        for step in steps:
-            sname = str(step.get("name") or "").lower()
-            if sname and (hint in sname or sname in hint) and step.get("process_id"):
-                return str(step["process_id"])
-
-    # No usable hint / no match — conservatively attach to the central step.
-    by_type = {str(s.get("process_type") or ""): s for s in steps}
-    for ptype in _PROTOCOL_DEFAULT_PROCESS_TYPES:
-        step = by_type.get(ptype)
-        if step and step.get("process_id"):
-            return str(step["process_id"])
-
-    # Fall back to the first process that has an id.
+    if not hint:
+        return None
+    # (1) match the hint against a step's process_type (case-insensitive).
     for step in steps:
-        if step.get("process_id"):
+        ptype = str(step.get("process_type") or "")
+        if ptype.lower() == hint and step.get("process_id"):
+            return str(step["process_id"])
+    # (2) match the hint as a substring of a step name.
+    for step in steps:
+        sname = str(step.get("name") or "").lower()
+        if sname and (hint in sname or sname in hint) and step.get("process_id"):
             return str(step["process_id"])
     return None
 
@@ -1777,14 +1752,14 @@ def _materialize_plan(
       ``cell_lines``→``biologicalModels``) so every resolved entity — PubChem- AND
       ChEBI-backed — is reachable from the backbone (orphan count → 0). Idempotent:
       ``set_fields`` writes the same deterministic ids, so re-running mints no dups.
-    * each ``protocols[]`` → ``draft_protocol`` (a ``LabProtocol`` from the
-      name/description only — D5: no identifier) which is then linked to the
-      ``LabProcess`` it governs via the ``labprotocol`` reference field (the
-      step's protocol record is based on it where the deposit places no document
-      of its own, AGENTS.md D17). The plan's optional free-text ``process_hint`` is
-      matched conservatively (by ``process_type``, then by step name) to choose the
-      process; with no match it attaches to the central exposure/assay step, and an
-      unresolvable link is left for the guidance loop rather than guessed
+    * each ``protocols[]`` → ``draft_protocol``: the deposited File its
+      ``source_file`` names, or else what the lab stated (name and description —
+      D5: no identifier). It is linked to the ``LabProcess`` it governs via the
+      ``labprotocol`` reference field: a document is what the step's record is
+      based on where the deposit places none of its own, and what the lab stated
+      fills the record (AGENTS.md D17). The plan's ``process_hint`` is matched
+      conservatively (by ``process_type``, then by step name); no hint or no match
+      links nothing, and the link is left for the guidance loop rather than guessed
       (:func:`_select_process_for_protocol`).
     * **process chain — ALWAYS, regardless of provider (#262).** ONE
       :func:`draft_process_chain` lays the standard in-vitro chain (TestSystemPreparation →
@@ -2076,22 +2051,21 @@ def _materialize_plan(
     # separate plan-driven chain step here; `chain_steps_summary` (from that call)
     # is what the protocol linking below uses.
 
-    # --- protocols: draft a LabProtocol from the name/description (D5 — no id) and
-    # link the LabProcess(es) it governs via the `labprotocol` ref field; the step's
-    # protocol record is based on it where the deposit places no document of its own
-    # (AGENTS.md D17). The plan may
-    # carry a free-text `process_hint`; we map it to a process conservatively (by
-    # process_type, then by step name) and, when nothing matches, fall back to the
-    # central exposure/assay step. An unresolvable hint links nothing and is left
-    # for the guidance loop rather than guessed at. ---
+    # --- protocols: `draft_protocol` returns the deposited File the plan's
+    # `source_file` names, or records what the lab stated (D5 — no id), and the
+    # LabProcess it governs is linked via the `labprotocol` ref field (AGENTS.md D17).
+    # The plan's `process_hint` is mapped to a process conservatively (by
+    # process_type, then by step name); no hint or no match links nothing and is
+    # left for the guidance loop rather than guessed at. ---
     for protocol in plan.get("protocols") or []:
         name = str((protocol or {}).get("name") or "").strip()
         if not name:
             continue
         proto_hints: dict[str, Any] = {"name": name}
-        description = str((protocol or {}).get("description") or "").strip()
-        if description:
-            proto_hints["description"] = description
+        for key in ("description", "source_file"):
+            value = str((protocol or {}).get(key) or "").strip()
+            if value:
+                proto_hints[key] = value
         try:
             proto = engine.run_tool("draft_protocol", hints=proto_hints)
         except Exception as exc:  # noqa: BLE001

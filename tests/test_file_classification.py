@@ -18,6 +18,7 @@ So the answer comes from the file, in this order:
 3. **path** — the folder tier, and only when the file itself said nothing.
 
 A script is the one exception: its extension decides before its content (#786).
+And a README or template name vetoes a content verdict of ``protocol`` (#789).
 
 Four values, and every scanned file gets exactly one. ``metadata`` covers the
 deposit record, the assay-metadata workbooks, publications and plate maps;
@@ -189,15 +190,18 @@ class TestContentDecidesTheTier:
 
         assert _classify("README.txt", preview) == CLASS_METADATA
 
-    def test_a_clear_margin_still_decides(self):
-        """The same shape one term further apart: an assay README that describes
-        how the work was run IS a protocol (owner's rule on #591)."""
+    def test_a_readme_is_never_a_protocol(self):
+        """The same shape one term further apart. The prose clears the margin, but
+        a README or a template describes a folder or a form, never the procedure a
+        step follows (#789); under any other name the margin still decides."""
         preview = (
             "# Assay README Template ## Assay Title Thyroid hormone uptake "
             "## Assay Description Cells were incubated in uptake buffer."
         )
 
-        assert _classify("README-template.txt", preview) == CLASS_PROTOCOL
+        assert _classify("README-template.txt", preview) == CLASS_METADATA
+        assert _classify("Assay template.docx", preview) == CLASS_METADATA
+        assert _classify("TH notes.txt", preview) == CLASS_PROTOCOL
 
 
 class TestTheFilenameDecidesWhenContentIsSilent:

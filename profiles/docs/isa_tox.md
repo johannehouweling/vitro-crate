@@ -395,6 +395,7 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 |intendedUse|SHOULD|[schema.org/DefinedTerm](isa.md#definedterm)|The protocol type of its step, from the table below, written as `{"@id": …}` and described once in the graph.|
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
 |description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
+|url|MAY|URL|Where the lab published the procedure, when it stated one.|
 |reagent|MUST|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|On the Exposure's record: the test and control compounds it applied, at least one.|
 |isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
 

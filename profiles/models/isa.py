@@ -232,14 +232,16 @@ class LabProtocol(AutoAddContextEntity):
     - ``name``: Text
       Main title of the LabProtocol.
     - ``description``: Text
-      Short description (e.g., abstract). Only what the lab stated (#670).
+      Short description (e.g., abstract). Only what the lab stated (#670), from
+      the protocol the drafter recorded for the step (#789).
+    - ``url``: URL
+      Where the lab published the procedure, when it stated one.
 
     Optional
     ^^^^^^^^
     - ``isBasedOn``: schema.org/CreativeWork
-      The deposited documents the protocol follows, or what the drafter named
-      where the deposit holds none. ISA-JSON has no equivalent, so the link is
-      lost on conversion to ISA-JSON.
+      The deposited documents the protocol follows. ISA-JSON has no equivalent,
+      so the link is lost on conversion to ISA-JSON.
     - ``comment``: schema.org/Comment
       Comment.
     - ``computationalTool``: schema.org/DefinedTerm | schema.org/PropertyValue (Component) | schema.org/SoftwareApplication
@@ -268,10 +270,14 @@ class LabProtocol(AutoAddContextEntity):
         intended_use: ContextEntity | None = None,
         is_based_on: list | None = None,
         reagents: list | None = None,
+        description: str | None = None,
+        url: str | None = None,
     ):
         properties = {
             "@type": "LabProtocol",
             "name": name,
+            "description": description,
+            "url": url,
             "intendedUse": intended_use,
             "isBasedOn": is_based_on,
             "reagent": reagents,

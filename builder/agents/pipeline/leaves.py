@@ -370,12 +370,21 @@ def _plan_schema() -> dict[str, Any]:
                         **str_field,
                         "description": "Free-text description of the protocol.",
                     },
+                    "source_file": {
+                        **str_field,
+                        "description": (
+                            "The deposited file this protocol IS, exactly as named in "
+                            "the scanned-files list. Leave empty when the documents "
+                            "only describe the protocol."
+                        ),
+                    },
                     "process_hint": {
                         **str_field,
                         "description": (
-                            "Free-text hint of which process step this protocol "
-                            "governs, e.g. the process_type ('EndpointReadout') or "
-                            "a step name. Optional."
+                            "Which process step follows this protocol, e.g. the "
+                            "process_type ('Exposure' for the SOP the exposure was "
+                            "run by) or a step name. Without it the protocol is "
+                            "linked to no step."
                         ),
                     },
                 },

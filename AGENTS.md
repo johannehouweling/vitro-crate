@@ -2967,13 +2967,15 @@ what the deposit states:
   TestSystemPreparation EFO:0003789 *growth protocol*, Exposure EFO:0003969 *treatment
   protocol*, EndpointReadout BAO:0000523 *assay protocol*, DataAnalysis OBI:0200000
   *data transformation*;
-- `isBasedOn`, the documents the deposit places on the step; what the drafter named
-  only where the deposit places none (#789). A drafted protocol the deposit outranks on
-  every step that named it is left out of the crate;
+- `isBasedOn`, the documents the deposit places on the step; a document the drafter
+  named counts only where the deposit places none (#789);
 - on the Exposure, `reagent`: the compounds it applied, at least one (the tox
   profile's Violation);
-- a `name`, and no description of the builder's own: a description is the lab's to
-  state, and a builder sentence would satisfy the checks that ask for one (#670).
+- its `name`, `description` and `url` from what the lab stated about the step: the
+  protocol the drafter recorded (`draft_protocol` with a name and description, or the
+  plan's `protocols[]`), which is no crate node of its own (#789). Without one the
+  record is named after its step and carries no description: a builder sentence would
+  satisfy the checks that ask for one (#670).
 
 The record exists whether or not a document was deposited, because it is what says
 which kind of step the process is; one based on nothing is the honest gap. Every
