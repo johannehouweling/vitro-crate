@@ -241,6 +241,18 @@ class TestThePhrasingFloor:
         ]
         action = group_findings(findings, labels={"#a": "Zhongli Chen"})[0]
         assert describe(action) == "Add an ORCID for Zhongli Chen."
+        # The Exposure rule lands on the root, whose action gathers the root's other
+        # findings; these are S-VHPS26's (#781). Its row must win over theirs.
+        root = [
+            _f("./", "The Investigation MUST include an Exposure: a LabProcess with "
+               "additionalType Exposure that one of its Studies or Assays is about", severity="required"),
+            _f("./", "At least one author or publisher Person/Organization SHOULD have a "
+               "contactPoint property"),
+            _f("./", "Investigation entity SHOULD have a dateCreated"),
+        ]
+        assert describe(group_findings(root, labels={"./": "S-VHPS26"})[0]) == (
+            "Record the exposure step for S-VHPS26."
+        )
 
     def test_it_names_the_subject(self):
         findings = [_f("#o", "The organization SHOULD have a URL"), _f("#o", "needs a website")]

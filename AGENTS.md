@@ -3013,8 +3013,10 @@ deposited document, which is real payload.
 
 ### 14.3 Build-path wiring contracts
 
-An empty crate is already valid from a single `scaffold_isa_backbone(...)` call
-(`{base, isa, tox}` all true, zero issues); no REQUIRED element lacks a code path.
+A single `scaffold_isa_backbone(...)` call yields a crate that passes base and ISA
+with zero issues. It fails ISA-Tox on one finding: the Investigation MUST include an
+Exposure its root reaches (#781), and only the deposit's evidence can supply one. The
+finding names no property, so the gap engine reports it rather than asking for a field.
 A richer build must additionally honour three **conditional Violation traps** — the
 build-path *wiring contract* — which fire only when the relevant entities exist
 (document for callers):
@@ -3030,8 +3032,8 @@ build-path *wiring contract* — which fire only when the relevant entities exis
    When the deposit holds no such file the Violation is **left to fire** (#592):
    this trap is closed with evidence or reported, never with a manufactured file.
    A step nothing evidences at all — neither data nor a procedure document — is
-   not drafted, so an empty crate keeps conforming without asserting an
-   experiment it cannot show.
+   not drafted: a crate with no evidenced Exposure fails ISA-Tox (#781) rather
+   than asserting an experiment it cannot show.
 3. An `Exposure`'s protocol record MUST name at least one test or control compound
    (`MolecularEntity`) as a `reagent` (D17). The build writes the reagents from the
    step's `chemicals`, so the finding is answered there: its fix hint and its gap
@@ -3182,7 +3184,8 @@ ledger", #399). The sequence:
    backbone **names** (from `state.metadata.title` when present, else stable
    defaults) because a bare `draft_study` populates only the entity_id, not the
    `name` field, and the ISA profile REQUIRES a non-empty Study `name`. With names
-   supplied this alone yields `{base, isa, tox}` on an empty crate (§14.3).
+   supplied this alone passes base and ISA on an empty crate; ISA-Tox also needs an
+   Exposure (§14.3).
 2. **Materialize the plan** — `_materialize_plan` asks the bounded `extract_plan`
    leaf for a candidate plan (names only, no identifiers) and turns each section
    into linked ISA-Tox entities through the idempotent composites, and describes

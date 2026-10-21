@@ -2,6 +2,7 @@
 # The bundled isa-ro-crate profile leaves name/description/license/datePublished
 # on the root Investigation as commented-out (optional). The ISA-Tox profile
 # re-enables them as required, matching the general-information reporting module.
+# It also requires the Investigation to include an Exposure (#781).
 
 @prefix ro-crate: <https://github.com/crs4/rocrate-validator/profiles/ro-crate/> .
 @prefix schema: <http://schema.org/> .
@@ -42,4 +43,29 @@ tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
         sh:minCount 1 ;
         sh:message "Investigation MUST have a schema:datePublished" ;
         sh:severity sh:Violation ;
+    ] .
+
+# It is not toxicology if nothing is exposed to a chemical (#781). Every other tox
+# shape targets a class, so a crate with no Exposure passed them all vacuously. This
+# one targets the root, which every crate has, and asks whether anything the root
+# reaches along hasPart and about is an Exposure. Whether that Exposure names a
+# compound is tox:ExposureRequirements' question, so a compound-less Exposure is
+# reported once. A SPARQL constraint rather than a property path, because no field
+# on the root answers the finding: it names no property, so the gap engine reports
+# it instead of asking for one.
+tox:InvestigationMustIncludeAnExposure a sh:NodeShape ;
+    sh:name "Investigation MUST include an Exposure" ;
+    sh:description "The root Investigation MUST include at least one Exposure process" ;
+    sh:targetClass ro-crate:RootDataEntity ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:select """
+            PREFIX schema: <http://schema.org/>
+            PREFIX tox: <https://w3id.org/ro/crate/isa-tox/1.0/>
+            SELECT $this WHERE {
+                FILTER NOT EXISTS { $this (schema:hasPart|schema:about)+ ?e . ?e a tox:LabProcessExposure . }
+            }
+        """ ;
+        sh:severity sh:Violation ;
+        sh:message "The Investigation MUST include an Exposure that one of its Studies or Assays is about" ;
     ] .

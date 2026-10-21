@@ -35,7 +35,8 @@ def _entity(entity_id: str, type_: EntityType, **fields) -> Entity:
 
 
 def _backbone() -> CrateState:
-    """A BASE/ISA-passing Investigation -> Study -> Assay backbone."""
+    """A BASE/ISA/TOX-passing Investigation -> Study -> Assay backbone, with the one
+    Exposure a crate needs to be toxicology (#781)."""
     state = CrateState()
     state.metadata.title = "Repair test crate"
     state.add_entity(
@@ -46,6 +47,11 @@ def _backbone() -> CrateState:
     )
     state.add_entity(
         _entity("as1", "Assay", name="As", description="d", study_id="st1")
+    )
+    state.add_entity(_entity("chem1", "MolecularEntity", name="Bisphenol A"))
+    state.add_entity(
+        _entity("exp1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="as1",
+                chemicals=["chem1"], duration="24 h")
     )
     return state
 
