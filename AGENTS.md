@@ -967,7 +967,7 @@ draft_molecular_entity(name: str, hints: dict) → Entity
 draft_cell_line_sample(name: str, hints: dict) → Entity
 draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
-draft_protocol(hints: dict) → Entity                     # LabProtocol a LabProcess can follow
+draft_protocol(hints: dict) → Entity                     # LabProtocol a step's protocol record can be based on
 draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). ORCID stays empty (D5)
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
@@ -1307,20 +1307,20 @@ entity at all and every downstream step hanging off the culture instead. So the
 Exposure step is left output-less in state and the build emits the exposed sample;
 the material flow still passes downstream via the step's inputs.
 
-The compounds do not ride on that output. They are **reagents of the per-well
-condition table**, which the build attaches as a protocol the exposure *executes* —
-the plate layout a procedural SOP leaves out — not as something it produces.
-`schema:object` is restricted to File/Sample/BioSample at Violation severity, so a
-compound cannot be the Exposure's input. The SOPs name no compound, so they stay
-reusable with other chemicals; only the run-specific table states which well got
-which compound at which dose.
+The compounds do not ride on that output. They are **reagents of the Exposure's
+protocol record** (D17): `schema:object` is restricted to File/Sample/BioSample at
+Violation severity, so a compound cannot be the Exposure's input. The SOPs name no
+compound, so they stay reusable with other chemicals; the record names this run's
+compounds, and the per-well condition table — a data file `about` the exposed
+`Sample`s — states which well got which compound at which dose.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
 TestSystemPreparation's output `Sample`; the Exposure's output is the build's exposed
 `Sample`. A TestSystemPreparation grows **one** cell line: a step naming several is built as
-one step per line, each executing that line's own protocol and producing its
-own cultured `Sample`, so no `Sample` derives from more than one line and none
+one step per line, each executing its own protocol record based on that line's
+culture document and producing its own cultured `Sample`, so no `Sample` derives
+from more than one line and none
 stands for a mixture the lab never made. The Exposure consumes where its assay's
 preparation ended — every cultured `Sample` no later preparation step consumed, never an
 intermediate one — unless its step names material outside that chain, which it
@@ -1559,9 +1559,10 @@ dimension reports the published denominator (every criterion) beside the local o
 substituting ours silently would misstate the instrument.
 
 The crate's own build record — the `CreateAction` whose `result` is the Root Data
-Entity — is provenance of the packaging, not a data-transformation step: RDA-R1.2-01M
-credits it, and Bridge2AI 1.a–1.c never count it or its instrument as a step or as
-analysis software.
+Entity and every protocol record the build wrote (D17) — is provenance of the
+packaging, not a data-transformation step: RDA-R1.2-01M credits it when the root is
+among its results, and Bridge2AI 1.a–1.c never count it or its instrument as a step
+or as analysis software.
 
 ### Session & HITL Tools
 ```
@@ -2578,8 +2579,8 @@ erases the other's link.
 
 **Compounds are one hop past a protocol.** ISA restricts `schema:object` to File/Sample/BioSample at
 Violation severity, so a `MolecularEntity` is never a process input directly; `reagent` is a
-LabProtocol property ranging over it, and `Exposure --executes--> table --reagent--> compound` is the
-correct representation rather than a detour to shorten (#650). The process views follow that second
+LabProtocol property ranging over it, and `Exposure --executes--> its protocol record --reagent--> compound`
+is the correct representation rather than a detour to shorten (D17). The process views follow that second
 hop, anchored on the protocols the drawn steps execute — a compound with no edge to any drawn work is
 what the view is not for. The model draws `reagent` reversed, so the arrow points at the step that
 consumes the material.
@@ -2673,8 +2674,8 @@ of the column and bracket into both boxes' sides, one vertical per anchor: dropp
 own box, a step in the top row of a three-row rank would draw its line straight through the two
 steps below it, and a line crossing a box reads as an edge to that box.
 
-Both tiers of the band are *dealt* into a grid, because a step may execute several protocols and a
-table may list a dozen reagents, so substances cost height and never width. The module returns `null`
+Both tiers of the band are *dealt* into a grid, because a rank may hold several steps, each with its
+protocol, and a protocol may list a dozen reagents, so substances cost height and never width. The module returns `null`
 for a graph with no step it recognises, and the section says so where the drawing would have been.
 The page loads it as a plain `<script>` tag, which is the UMD branch `require()` never exercises, so
 a test evaluates the page's own script bodies with no `module` in scope.
@@ -2801,11 +2802,10 @@ array; it does not forbid a node being genuinely two things:
   never decided in code — a published alignment, not our claim. See that function's
   docstring for the rules; a type absent from the vocabulary simply gains nothing.
 - **Cross-vocabulary co-typing**, where one artefact really is two kinds of thing:
-  a deposited procedure document is `File` + `LabProtocol` (#646), and the generated
-  per-well condition table is `File` + `csvw:Table` + `LabProtocol` (#650) — a CSV,
-  a typed table, and the layout the exposure follows — and a deposited script is
-  `File` + `SoftwareSourceCode` + `LabProtocol` (#786): code, and the procedure the
-  analysis follows.
+  a deposited procedure document is `File` + `LabProtocol` (#646) and a deposited
+  script `File` + `SoftwareSourceCode` + `LabProtocol` (#786): documents a step's
+  protocol record is based on (D17). The generated per-well condition table is
+  `File` + `csvw:Table`: a CSV, and a typed table.
 
 The domain type stays FIRST in every case: it is the specific, meaningful one, and
 the rest are what a generic consumer can follow.
@@ -2956,21 +2956,41 @@ INPUT (dir / zip / conversation)
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
 - **Tail = small strong-model agent.** The one place open-ended judgement is irreducible.
 
-### D17: A protocol entity IS its file — nothing is minted for one
+### D17: Each step executes its own protocol record; a deposited protocol IS its file
 
-`executesLabProtocol` names a **deposited document**: its `@id` is the file's
-crate-relative path, and only `name` and `intendedUse` are derived on top. Where the
-drafter names no protocol, the deposit's scan is searched and the real file attached;
-where the deposit holds none, the step carries **no protocol at all**.
+Every ISA-Tox LabProcess executes **exactly one** LabProtocol, its protocol record
+(`_crate_mapping._protocol_record`), because Bioschemas LabProcess and ISA-JSON give a
+process one protocol. The record sits at `<process @id>_protocol` and states only
+what the deposit states:
 
-The build used to synthesize `#protocol_<assay>` for any step that named none. That
-claimed a procedure nobody wrote, gave a fragment `@id` to something that should be a
-path, and silenced the ISA `Process entity SHOULD have a protocol` warning with a
-fabrication — an assertion that cannot fail is not a check (D-#620). The warning is a
-SHOULD, so the honest gap costs a recommendation while the stub cost the truth.
+- `intendedUse`, the step's protocol type as an ontology term (a `DefinedTerm`):
+  TestSystemPreparation EFO:0003789 *growth protocol*, Exposure EFO:0003969 *treatment
+  protocol*, EndpointReadout BAO:0000523 *assay protocol*, DataAnalysis OBI:0200000
+  *data transformation*;
+- `isBasedOn`, the documents the deposit places on the step; what the drafter named
+  only where the deposit places none (#789). A drafted protocol the deposit outranks on
+  every step that named it is left out of the crate;
+- on the Exposure, `reagent`: the compounds it applied, at least one (the tox
+  profile's Violation);
+- a `name`, and no description of the builder's own: a description is the lab's to
+  state, and a builder sentence would satisfy the checks that ask for one (#670).
 
-Claiming a document requires two independent pieces of evidence, because executing it
-asserts it explains how that step turns its input into its output:
+The record exists whether or not a document was deposited, because it is what says
+which kind of step the process is; one based on nothing is the honest gap. Every
+record is a `result` of the crate's build `CreateAction`, beside the root. It sits at
+`<process @id>_protocol` unless another entity holds that id, in which case it takes
+the next free `_<n>` suffix rather than replacing it.
+
+A **deposited document** is `File` + `LabProtocol` (a script `File` +
+`SoftwareSourceCode` + `LabProtocol`): its `@id` is the crate-relative path and only
+`name` is derived on top. It is never executed directly, so one SOP serving several
+steps is the `isBasedOn` of several records, each carrying its own type. ISA-JSON has
+no `isBasedOn` on a protocol, so that link is lost on conversion to ISA-JSON. Nothing
+is minted for a document the deposit does not hold.
+
+Basing a step's record on a document requires two independent pieces of evidence,
+because it asserts the document explains how that step turns its input into its
+output:
 
 1. The scan classified it as a protocol **by content**
    (`document_discovery.classification_of`), not by filename — except source code,
@@ -2979,23 +2999,25 @@ asserts it explains how that step turns its input into its output:
 
 A script's kind is its step evidence: a `SoftwareSourceCode` protocol in an assay's
 `hasPart` is the DataAnalysis's, never the readout's, whatever it is called. The tox
-profile then SHOULD-checks that each DataAnalysis executes one (#786): an analysis
-done by hand in Excel or Prism deposits no re-runnable step, and says so.
+profile then SHOULD-checks that each DataAnalysis's record is based on one (#786): an
+analysis done by hand in Excel or Prism deposits no re-runnable step, and says so. The
+finding is answered by the step's `labprotocol` (`validation.answering_field`). No
+cue routes a document to the Exposure, so its record is based on what was named.
 
 Ambiguity resolves to nothing: two candidate documents, or one naming two subjects, is
-evidence for neither (D5). Culture protocols are keyed on the **cell line**, not the
+evidence for neither (D5). Culture documents are keyed on the **cell line**, not the
 assay — culturing is study-level, and a deposit ships one document per line — so every
-assay growing SK-N-AS points at one entity, a culture of two lines executes two, and no
-composite is invented. Each is also linked to its Study: `hasPart` for a deposited
-document, which is real payload.
+assay growing SK-N-AS points at one entity, the culture of each line is based on its
+own, and no composite is invented. Each is also linked to its Study: `hasPart` for a
+deposited document, which is real payload.
 
 ### 14.3 Build-path wiring contracts
 
 An empty crate is already valid from a single `scaffold_isa_backbone(...)` call
 (`{base, isa, tox}` all true, zero issues); no REQUIRED element lacks a code path.
-A richer build must additionally honour two **conditional Violation traps** — the
-build-path *wiring contract* — which fire only when the relevant entities exist and
-are both code-fixable (document for callers):
+A richer build must additionally honour three **conditional Violation traps** — the
+build-path *wiring contract* — which fire only when the relevant entities exist
+(document for callers):
 
 1. A `PropertyValue` named `DOI`/`PubMedID` is SHACL-duck-typed and MUST carry
    `propertyID` as an **`@id` IRI node** (the OBI IRI: `DOI`→`OBI_0002110`,
@@ -3010,6 +3032,14 @@ are both code-fixable (document for callers):
    A step nothing evidences at all — neither data nor a procedure document — is
    not drafted, so an empty crate keeps conforming without asserting an
    experiment it cannot show.
+3. An `Exposure`'s protocol record MUST name at least one test or control compound
+   (`MolecularEntity`) as a `reagent` (D17). The build writes the reagents from the
+   step's `chemicals`, so the finding is answered there: its fix hint and its gap
+   name `chemicals` (`validation.answering_field`), never the `executesLabProtocol`
+   SHACL reports. No code can supply a compound the deposit does not name, so an
+   Exposure whose chemicals were never recorded is **left to fire**.
+
+The first two are code-fixable; the third is the user's to answer.
 
 ### 14.4 Pipeline composition
 
@@ -3307,18 +3337,18 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   collected ids deterministically through `set_fields` (never hand-rolled JSON-LD)
   using the canonical ISA-Tox reference fields: each resolved `MolecularEntity` →
   the **Exposure** LabProcess via `chemicals` (ISA forbids a MolecularEntity as a
-  process object — objects MUST be File/Sample/BioSample — so the build makes the
-  compound a `reagent` of the run-specific CSVW condition table the Exposure
-  executes via `executesLabProtocol`; `_crate_mapping._synth_condition_table`);
+  process object — objects MUST be File/Sample/BioSample — so the build makes each
+  compound a `reagent` of the Exposure's protocol record;
+  `_crate_mapping._build_process`);
   the resolved `CellLineSample` → the
   **TestSystemPreparation** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
   scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
   `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
   compounds alike — is reachable from the backbone at a glance (orphan count → 0).
   Idempotent: `set_fields` writes the same deterministic ids, so re-running mints
-  no duplicates. The condition table is the primary link, since the compounds are
-  the conditions of the exposure. The Study `mentions` edge is a backstop for a
-  compound the table cannot reach (one resolved with no Exposure in the chain).
+  no duplicates. The Exposure's protocol record is the primary link, since the
+  compounds are what the exposure applied. The Study `mentions` edge is a backstop
+  for a compound no record can reach (one resolved with no Exposure in the chain).
   **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
   and stop, so the crate listed a pathway's key events without ever saying which one
   the assay measures. Each `aops[]` item now also carries `measured_event_name` — a
