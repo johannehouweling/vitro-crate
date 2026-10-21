@@ -59,7 +59,8 @@ def _entity(entity_id: str, type_: EntityType, **fields) -> Entity:
 
 
 def _backbone() -> CrateState:
-    """A BASE/ISA/TOX-passing Investigation -> Study -> Assay backbone."""
+    """A BASE/ISA-passing Investigation -> Study -> Assay backbone. It has no Exposure,
+    so the tox profile reports the crate is not toxicology (#781)."""
     state = CrateState()
     state.metadata.title = "Gap test crate"
     state.add_entity(
@@ -198,13 +199,14 @@ class TestMustGapsSortedFirst:
 # ---------------------------------------------------------------------------
 
 
-class TestPassesMustMissesShould:
-    def test_backbone_has_no_must_gaps(self):
+class TestABareBackbone:
+    def test_its_one_must_gap_is_the_exposure_and_is_never_asked(self):
+        """#781: no field on the root answers it, so the pipeline reports it."""
         report = assess_gaps(_backbone())
-        assert all(g.tier != "MUST" for g in report.gaps), [
-            (g.tier, g.source, g.message) for g in report.gaps if g.tier == "MUST"
-        ]
-        assert report.counts["must_open"] == 0
+        assert [
+            (g.source, g.entity_id, g.property, g.fix_hint) for g in report.gaps if g.tier == "MUST"
+        ] == [("shacl", "./", None, REPORT_ONLY)]
+        assert report.counts["must_open"] == 1
 
     def test_backbone_has_should_or_may_gaps(self):
         report = assess_gaps(_backbone())
@@ -212,9 +214,9 @@ class TestPassesMustMissesShould:
         # core params and SHACL SHOULD recommendations are open.
         assert any(g.tier in ("SHOULD", "MAY") for g in report.gaps)
 
-    def test_backbone_conformance_all_true(self):
+    def test_it_is_not_toxicology(self):
         report = assess_gaps(_backbone())
-        assert report.conformance == {"base": True, "isa": True, "tox": True}
+        assert report.conformance == {"base": True, "isa": True, "tox": False}
 
 
 # ---------------------------------------------------------------------------

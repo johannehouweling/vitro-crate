@@ -50,7 +50,8 @@ def _entity(entity_id: str, type_: EntityType, **fields) -> Entity:
 
 
 def _backbone() -> CrateState:
-    """A BASE/ISA/TOX-passing Investigation -> Study -> Assay backbone."""
+    """A BASE/ISA-passing Investigation -> Study -> Assay backbone. It has no Exposure,
+    so the tox profile reports the crate is not toxicology (#781)."""
     state = CrateState()
     state.metadata.title = "Gap test crate"
     state.add_entity(
@@ -70,6 +71,11 @@ def _endpoint_readout_missing_result(n_files: int = 1) -> CrateState:
     exactly one un-wired File exists (the deterministic-repair rule's predicate).
     """
     state = _backbone()
+    state.add_entity(_entity("chem1", "MolecularEntity", name="Bisphenol A"))
+    state.add_entity(
+        _entity("exp1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="as1",
+                chemicals=["chem1"], duration="24 h")
+    )
     state.add_entity(_entity("s1", "Sample", name="exposed cells"))
     state.add_entity(
         _entity(
@@ -184,7 +190,8 @@ class TestReturnShape:
         assert set(summary["remaining_gaps"]) == {"must_open", "should_open", "may_open"}
 
     def test_terminates_on_clean_backbone_with_user_done(self):
-        """No MUST gaps + user declines every SHOULD/MAY -> terminate, no crash."""
+        """Only the report-only Exposure MUST (#781), which is never asked, + the user
+        declines every SHOULD/MAY -> terminate, no crash."""
         from builder.agents.pipeline.guidance import run_guidance
 
         engine = AgentEngine(state=_backbone())
@@ -193,7 +200,7 @@ class TestReturnShape:
         human = ScriptedHuman()
         summary = run_guidance(engine, human, max_rounds=5)
 
-        assert summary["remaining_gaps"]["must_open"] == 0
+        assert summary["remaining_gaps"]["must_open"] == 1
 
 
 # ---------------------------------------------------------------------------

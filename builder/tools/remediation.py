@@ -573,6 +573,8 @@ def describe_parts(action: Action, subject: str | None = None) -> tuple[str, str
 # phrasings the profiles emit are listed; anything else falls back to a generic
 # sentence rather than a confidently wrong one.
 _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
+    # First: it lands on the root, whose one action gathers every root finding (#781).
+    (("MUST include an Exposure",), "Record the exposure step"),
     (("ORCID",), "Add an ORCID"),
     (("affiliation",), "Add an institutional affiliation"),
     (("contactPoint", "contact point"), "Add a contact email"),
@@ -610,6 +612,7 @@ _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
 # entry and renders no clause — a generic platitude on every row would teach
 # the reader to skip the column.
 _WHY: dict[str, str] = {
+    "Record the exposure step": "It is not toxicology if nothing is exposed to a chemical.",
     "Add an ORCID": "Resolves the person unambiguously for credit and search.",
     "Add an institutional affiliation": "Ties the person to an institution a registry can resolve.",
     "Add a contact email": "Gives a reuser someone to ask.",

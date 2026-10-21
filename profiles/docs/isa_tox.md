@@ -172,6 +172,11 @@ description with the SHACL shapes MAY additionally be published at the profile U
 
 ## Requirements
 
+A crate MUST include at least one Exposure that one of its Studies or Assays is about: it
+is not toxicology if nothing is exposed to a chemical (#781). The check targets the Root
+Data Entity, so it holds even for a crate that contains nothing else. Each Exposure's
+protocol then names its compounds (see [LabProcess - Exposure](#labprocess---exposure)).
+
 ### MolecularEntity - Chemical
 
 The test and control chemicals are modelled as [bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)

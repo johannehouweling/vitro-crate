@@ -645,6 +645,11 @@ class TestASampleInTheAnalysisSlotIsReported:
     def _state(self) -> CrateState:
         state = CrateState()
         state.metadata.title = "Analysis crate"
+        state.add_entity(_ent("chem1", "MolecularEntity", name="Bisphenol A"))
+        state.add_entity(
+            _ent("exp1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="assay_1",
+                 chemicals=["chem1"], duration="24 h")
+        )
         state.add_entity(
             Entity(
                 entity_id="assay_1",
@@ -718,6 +723,11 @@ class TestADataAnalysisShouldFollowAnAnalysisScript:
         state = CrateState()
         state.metadata.title = "Analysis crate"
         state.add_entity(_ent("assay_1", "Assay", name="A"))
+        state.add_entity(_ent("chem1", "MolecularEntity", name="Bisphenol A"))
+        state.add_entity(
+            _ent("exp1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="assay_1",
+                 chemicals=["chem1"], duration="24 h")
+        )
         state.scanned_files = [
             FileClassification(
                 path=f"assay_1/{n}", filename=n, size=10, mime_type="text/plain",

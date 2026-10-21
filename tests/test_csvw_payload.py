@@ -279,6 +279,11 @@ def test_endpoint_readout_with_a_deposited_result_validates_clean():
     )
     state.add_entity(_ent("sample_x", "Sample", name="exposed"))
     state.add_entity(_ent("file_raw", "File", name="raw.csv", dest_path="data/raw.csv"))
+    state.add_entity(_ent("chem1", "MolecularEntity", name="Bisphenol A"))
+    state.add_entity(
+        _ent("exp1", "LabProcess", process_type="Exposure", name="Exposure", assay_id="assay_1",
+             chemicals=["chem1"], duration="24 h")
+    )
 
     result = build_and_validate(state, severity="required")
     assert result["ok"] is True, result["issues"]
