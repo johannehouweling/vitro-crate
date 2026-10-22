@@ -18,6 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from profiles.ontology_iris import iri
+
 if TYPE_CHECKING:
     from builder.state import CrateState
 
@@ -77,11 +79,54 @@ OPEN_MEDIA_TYPES = frozenset(
 )
 
 
+# What a step's protocol type or a source's sampleType makes it, under the labels the
+# readers name kinds by: the additionalType labels older crates carry (#799). The tox
+# shapes infer their classes from the same terms.
+_KIND_OF_TERM: dict[str, str] = {
+    iri("EFO:0003789"): "TestSystemPreparation",
+    iri("OBI:0001152"): "TestSystemPreparation",
+    iri("EFO:0003969"): "Exposure",
+    iri("BAO:0000523"): "EndpointReadout",
+    iri("OBI:0200000"): "DataAnalysis",
+    iri("NCIT:C16403"): "CellLine",
+    iri("EFO:0002660"): "PrimaryCell",
+}
+
+
+def with_kinds(graph_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """*graph_nodes*, each unlabelled step and test-system source given the label its
+    term implies (#799).
+
+    A crate types a step by the intendedUse of the record it executes and a source by
+    its sampleType, while the readers name kinds by the additionalType labels older
+    crates carry. A node that has a label keeps it; a labelled copy stands in for the
+    rest, so the caller's graph is never edited.
+    """
+    by_id = {n.get("@id"): n for n in graph_nodes}
+
+    def term(node: dict[str, Any], key: str) -> Any:
+        value = node.get(key)
+        value = value[0] if isinstance(value, list) and value else value
+        return value.get("@id") if isinstance(value, dict) else value
+
+    out = []
+    for node in graph_nodes:
+        kind = None
+        if not node.get("additionalType"):
+            record = by_id.get(term(node, "executesLabProtocol"))
+            kind = _KIND_OF_TERM.get(term(node, "sampleType")) or (
+                _KIND_OF_TERM.get(term(record, "intendedUse")) if record else None
+            )
+        out.append({**node, "additionalType": kind} if kind else node)
+    return out
+
+
 def nodes(graph: Graph) -> list[dict[str, Any]]:
-    """The node list, whether *graph* is the list itself or the document holding it."""
+    """The node list, whether *graph* is the list itself or the document holding it,
+    with each step and source labelled by kind (:func:`with_kinds`)."""
     if isinstance(graph, dict):
         graph = graph.get("@graph")
-    return [n for n in (graph or []) if isinstance(n, dict)]
+    return with_kinds([n for n in (graph or []) if isinstance(n, dict)])
 
 
 def needs_graph(graph: Graph) -> bool:

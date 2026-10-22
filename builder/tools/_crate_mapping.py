@@ -51,17 +51,16 @@ ROCRATE_SPEC = "https://w3id.org/ro/crate/1.2"
 # prof:isProfileOf) and that resolves — the w3id ISA permalink is not yet live.
 PROFILE_ISA = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 PROFILE_ISATOX = "https://w3id.org/ro/crate/isa-tox/1.0"
-# A test-system source's `source_kind` -> (D16 discriminator, sampleType CURIE, term
-# name, IUCLID OHT 201 IntEff_Type code, term set). NCIT's "Cell Line" proliferates
-# indefinitely; EFO's "primary cell" is taken directly from an organism. Else a cell line.
-_SOURCE_KINDS: dict[str, tuple[str, str, str, str, str]] = {
+# A test-system source's `source_kind` -> (sampleType CURIE, term name, IUCLID OHT 201
+# IntEff_Type code, term set). The sampleType is what types the source (D16). NCIT's
+# "Cell Line" proliferates indefinitely; EFO's "primary cell" is taken directly from an
+# organism. Else a cell line.
+_SOURCE_KINDS: dict[str, tuple[str, str, str, str]] = {
     "cell line": (
-        "CellLine", "NCIT:C16403", "cell line", "IUCLID:108174",
-        "http://purl.obolibrary.org/obo/ncit.owl",
+        "NCIT:C16403", "cell line", "IUCLID:108174", "http://purl.obolibrary.org/obo/ncit.owl",
     ),
     "primary cells": (
-        "PrimaryCell", "EFO:0002660", "primary cell", "IUCLID:108175",
-        "http://www.ebi.ac.uk/efo/efo.owl",
+        "EFO:0002660", "primary cell", "IUCLID:108175", "http://www.ebi.ac.uk/efo/efo.owl",
     ),
 }
 # The material a TestSystemPreparation produces and an Exposure passes on: OBI's "cell
@@ -1487,10 +1486,10 @@ def _attach_contact_point(crate: ROCrate, node: Any, entity: Entity) -> None:
     node.append_to("contactPoint", contact)
 
 
-def _source_term(crate: ROCrate, kind: str) -> tuple[str, ContextEntity]:
-    """A test-system source's discriminator and its shared, resolvable sampleType
-    DefinedTerm — one node per kind, referenced by every source of that kind."""
-    additional_type, curie, name, iuclid, term_set = _SOURCE_KINDS.get(
+def _source_term(crate: ROCrate, kind: str) -> ContextEntity:
+    """A test-system source's shared, resolvable sampleType DefinedTerm, which types
+    it (D16) — one node per kind, referenced by every source of that kind."""
+    curie, name, iuclid, term_set = _SOURCE_KINDS.get(
         kind, _SOURCE_KINDS["cell line"]
     )
     term = crate.add(
@@ -1505,7 +1504,7 @@ def _source_term(crate: ROCrate, kind: str) -> tuple[str, ContextEntity]:
             },
         )
     )
-    return additional_type, term
+    return term
 
 
 def _cell_culture_term(crate: ROCrate) -> ContextEntity:
@@ -1775,7 +1774,7 @@ def _add_leaves(
         lineage.append((s, node))
 
     for cl in state.list_entities("CellLineSample"):
-        additional_type, sample_type = _source_term(crate, str(cl.fields.get("source_kind")))
+        sample_type = _source_term(crate, str(cl.fields.get("source_kind")))
         characteristics = _cell_line_characteristics(crate, cl)
         _idx_add(
             idx,
@@ -1788,7 +1787,6 @@ def _add_leaves(
                 accession=cl.fields.get("accession"),
                 additionalProperty=characteristics or None,
                 properties=_scalar_props(cl, skip=("name", "accession")) or None,
-                additional_type=additional_type,
             ),
         )
 

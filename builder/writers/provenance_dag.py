@@ -1549,8 +1549,11 @@ def _graph_nodes(
     inside ``export_crate`` that costs the crate its entire maturity report over
     one bad node. Skipping the node degrades one row instead.
     """
+    from builder.tools.assessment_graph import with_kinds
+
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else metadata
-    return {n["@id"]: n for n in graph if isinstance(n, dict) and isinstance(n.get("@id"), str)}
+    nodes = [n for n in graph if isinstance(n, dict) and isinstance(n.get("@id"), str)]
+    return {n["@id"]: n for n in with_kinds(nodes)}
 
 
 def _is_chemical(node: dict[str, Any]) -> bool:

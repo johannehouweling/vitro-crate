@@ -15,6 +15,7 @@ import json
 import pytest
 
 from builder.state import CrateState, Entity, EntityProvenance, FileClassification
+from builder.tools.assessment_graph import with_kinds
 from builder.tools.builder import build_crate
 
 
@@ -52,6 +53,11 @@ def _ids(value):
         return []
     items = value if isinstance(value, list) else [value]
     return [v.get("@id") if isinstance(v, dict) else v for v in items]
+
+
+def _kind(by_id, pid):
+    """What a built step is, read from its record as the reports read it (#799)."""
+    return {n["@id"]: n.get("additionalType") for n in with_kinds(list(by_id.values()))}[pid]
 
 
 def _documents(by_id, pid):
@@ -406,11 +412,15 @@ class TestEveryStepExecutesOneProtocolRecord:
             types = record["@type"] if isinstance(record["@type"], list) else [record["@type"]]
             assert "LabProtocol" in types and "File" not in types, types
             assert "description" not in record, record
+            assert "additionalType" not in by_id[pid], by_id[pid]
             assert record.get("name") == f"{by_id[pid]['name']} protocol", record
             assert record.get("intendedUse") == {"@id": iri(curie)}, record
             term = by_id[iri(curie)]
             assert term["@type"] == "DefinedTerm" and term["termCode"] == curie
             assert term["name"]
+        labelled = [n["@id"] for n in by_id.values() if "Sample" in str(n.get("@type"))
+                    and n.get("additionalType")]
+        assert labelled == [], "a source is typed by its sampleType (#799)"
 
     def test_the_exposure_record_names_its_compounds_and_its_sop(self, tmp_path):
         graph, by_id = _build(self._state(), tmp_path)
@@ -486,7 +496,7 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("sample_out", "Sample", name="cultured"))
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
-        assert proc["additionalType"] == "TestSystemPreparation"
+        assert _kind(by_id, proc["@id"]) == "TestSystemPreparation"
         # No document is invented: this deposit holds no culture document, so the
         # step's record is based on nothing (D17).
         assert _documents(by_id, "#LabProcess_proc_1") == []
@@ -512,7 +522,7 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("chem_1", "MolecularEntity", name="Silychristin A"))
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
-        assert proc["additionalType"] == "Exposure"
+        assert _kind(by_id, proc["@id"]) == "Exposure"
 
         obj_ids = _ids(proc.get("input"))  # input → schema:object
         assert "#Sample_sample_cult" in obj_ids  # the cells (Sample) — allowed
@@ -631,7 +641,7 @@ class TestLabProcessSubtypes:
         )
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
-        assert proc["additionalType"] == "EndpointReadout"
+        assert _kind(by_id, proc["@id"]) == "EndpointReadout"
         assert "assays/a1/dataset/raw_data/raw.csv" in _ids(proc.get("output"))
 
     def test_data_analysis(self, tmp_path):
@@ -646,7 +656,7 @@ class TestLabProcessSubtypes:
         state.add_entity(_ent("file_proc", "File", name="out.csv", dest_path="out.csv"))
         _, by_id = _build(state, tmp_path)
         proc = by_id["#LabProcess_proc_1"]
-        assert proc["additionalType"] == "DataAnalysis"
+        assert _kind(by_id, proc["@id"]) == "DataAnalysis"
         assert "raw.csv" in _ids(proc.get("input"))
         assert "out.csv" in _ids(proc.get("output"))
 
@@ -881,7 +891,7 @@ class TestTheCultureRecordsEveryCellLine:
         graph, _ = _build(state, tmp_path)
         consumed = {
             cid
-            for n in graph
+            for n in with_kinds(graph)
             if n.get("additionalType") == "TestSystemPreparation"
             for cid in _ids(n.get("input"))
         }
@@ -902,7 +912,7 @@ class TestTheCultureRecordsEveryCellLine:
         state = self._culture_state(["cell_a", "cell_b"])
         graph, by_id = _build(state, tmp_path)
         lineage = set()
-        for n in graph:
+        for n in with_kinds(graph):
             if n.get("additionalType") != "TestSystemPreparation":
                 continue
             for out_id in _ids(n.get("output")):
@@ -1123,7 +1133,7 @@ class TestTheCultureProtocolIsStudyLevel:
         graph, by_id = _build(state, tmp_path)
         parts = [
             n
-            for n in graph
+            for n in with_kinds(graph)
             if n.get("additionalType") == "TestSystemPreparation"
             and str(n["@id"]).startswith("#LabProcess_proc_1")
         ]

@@ -105,13 +105,12 @@ def _messages_on(doc, node_id):
 
 def test_a_primary_cell_source_is_published_as_primary_cell(doc):
     node = _node(doc, "kidney tubuloids, donor T19")
-    assert node["additionalType"] == "PrimaryCell"
+    assert "additionalType" not in node, "a source is typed by its sampleType (#799)"
     assert node["sampleType"] == {"@id": PRIMARY_CELL_TERM}
     term = next(n for n in doc["@graph"] if n["@id"] == PRIMARY_CELL_TERM)
     assert "IUCLID:108175" in term["termCode"]
 
     sibling = _node(doc, "HK-2")
-    assert sibling["additionalType"] == "CellLine"
     assert sibling["sampleType"] == {"@id": CELL_LINE_TERM}
     assert _tox(doc).passed_required, _tox(doc).issues
 
@@ -146,6 +145,5 @@ def test_primary_cells_are_asked_for_species_and_cell_type_not_a_cellosaurus_id(
 def test_a_primary_cell_source_without_sample_type_violates(doc):
     broken = copy.deepcopy(doc)
     node = _node(broken, "kidney tubuloids, donor T19")
-    assert node["additionalType"] == "PrimaryCell"
     del node["sampleType"]
     assert not _tox(broken).passed_required

@@ -615,15 +615,16 @@ class TestRealInputPipeline:
             "DataAnalysis": "OBI:0200000",
         }
         steps = [n for n in graph if "LabProcess" in types(n)]
-        assert sorted(n.get("additionalType") for n in steps) == sorted(expected), steps
+        assert len(steps) == len(expected) and not [n for n in steps if n.get("additionalType")]
+        kind_of = {iri(curie): kind for kind, curie in expected.items()}
         records = {}
         for step in steps:
             executed = ids(step.get("executesLabProtocol"))
             assert len(executed) == 1, (step["@id"], executed)
             record = by_id[executed[0]]
             assert "LabProtocol" in types(record) and "File" not in types(record), record
-            assert record.get("intendedUse") == {"@id": iri(expected[step["additionalType"]])}
-            records[step["additionalType"]] = record
+            records[kind_of[record["intendedUse"]["@id"]]] = record
+        assert sorted(records) == sorted(expected), records
 
         compounds = {n["@id"] for n in graph if "MolecularEntity" in types(n)}
         assert compounds and set(ids(records["Exposure"].get("reagent"))) == compounds

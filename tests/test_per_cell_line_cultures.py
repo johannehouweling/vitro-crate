@@ -14,6 +14,7 @@ import json
 import pytest
 
 from builder.state import CrateState, Entity, EntityProvenance
+from builder.tools.assessment_graph import with_kinds
 from builder.tools.builder import build_crate
 
 pytestmark = pytest.mark.timeout(120)
@@ -50,7 +51,7 @@ def _typed(node, wanted):
 
 
 def _processes(graph, flavour=None):
-    out = [n for n in graph if _typed(n, "LabProcess")]
+    out = [n for n in with_kinds(graph) if _typed(n, "LabProcess")]
     if flavour is not None:
         out = [n for n in out if n.get("additionalType") == flavour]
     return out

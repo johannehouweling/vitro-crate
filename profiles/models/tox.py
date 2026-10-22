@@ -68,7 +68,7 @@ def _pvs(*candidates):
 
 @reader_compatible
 class LabProcessExposure(LabProcess):
-    """Exposure step (additionalType "Exposure").
+    """Exposure step, typed by its protocol record (treatment protocol, #799).
 
     object  = the cultured cell ``Sample``(s) being exposed.
     result  = the exposed cell ``Sample``(s) the step produces.
@@ -101,7 +101,6 @@ class LabProcessExposure(LabProcess):
         # `properties`.
         u = units or {}
         base_properties: dict = {
-            "additionalType": "Exposure",
             "parameter": _pvs(
                 _pv(
                     crate,
@@ -220,7 +219,6 @@ class LabProcessEndpointReadout(LabProcess):
             )
 
         merged_properties = {
-            "additionalType": "EndpointReadout",
             "parameter": _pvs(*parameter_values),
             "input": samples,
             "name": name,
@@ -251,7 +249,6 @@ class LabProcessTestSystemPreparation(LabProcess):
         add: bool = True,
     ):
         merged_properties = {
-            "additionalType": "TestSystemPreparation",
             "parameter": _pvs(
                 _pv(
                     crate,
@@ -308,7 +305,6 @@ class LabProcessDataAnalysis(LabProcess):
     ):
         u = units or {}
         merged_properties = {
-            "additionalType": "DataAnalysis",
             "parameter": _pvs(
                 _pv(
                     crate,
@@ -345,9 +341,9 @@ class LabProcessDataAnalysis(LabProcess):
 @reader_compatible
 class CellLineSample(Sample):
     """The test-system source, modelled as a Sample carrying a categorical
-    annotation via ``sampleType`` (a schema:DefinedTerm). Discriminated by
-    ``additionalType`` — "CellLine" or "PrimaryCell" — so intermediate derived
-    Samples (cultured / exposed cells) are not constrained by the source shapes.
+    annotation via ``sampleType`` (a schema:DefinedTerm), which types it: NCIT:C16403
+    cell line or EFO:0002660 primary cell (D16). Cultured and exposed cells carry
+    "cell culture" instead, so the source shapes do not constrain them.
     Only a cell line's ``identifier`` is a Cellosaurus accession: Cellosaurus
     holds no record for primary cells.
 
@@ -364,10 +360,8 @@ class CellLineSample(Sample):
         additionalProperty: ParameterValue | list[ParameterValue] | None = None,
         properties: dict | None = None,
         add: bool = True,
-        additional_type: str = "CellLine",  # or "PrimaryCell"
     ):
         default_properties: dict = {
-            "additionalType": additional_type,
             "sampleType": sample_type,
         }
         if accession:

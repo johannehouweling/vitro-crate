@@ -6,6 +6,7 @@ import pytest
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState
+from builder.tools.assessment_graph import with_kinds
 from builder.tools._crate_mapping import populate_crate
 from builder.tools.provenance import draft_file
 from builder.tools.drafters import (
@@ -646,7 +647,7 @@ class TestUnitsThreadedIntoProcesses:
         # And the CellLineSample must reference them via additionalProperty.
         cell_nodes = [
             n
-            for n in graph
+            for n in with_kinds(graph)
             if n.get("additionalType") == "CellLine"
         ]
         assert cell_nodes, "CellLineSample node should exist"
@@ -682,7 +683,7 @@ class TestUnitsThreadedIntoProcesses:
             "@id": "https://w3id.org/ro/crate/isa-tox/1.0/param/tissue"
         }, "Tissue PV must carry the ISA-Tox param/tissue propertyID as an @id node"
         # The CellLineSample must reference both via additionalProperty.
-        cell_nodes = [n for n in graph if n.get("additionalType") == "CellLine"]
+        cell_nodes = [n for n in with_kinds(graph) if n.get("additionalType") == "CellLine"]
         assert cell_nodes, "CellLineSample node should exist"
         addl_ids = {
             (it.get("@id") if isinstance(it, dict) else it)

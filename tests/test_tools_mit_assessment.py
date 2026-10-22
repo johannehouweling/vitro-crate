@@ -7,6 +7,7 @@ from pathlib import Path
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance, MITReport
+from profiles.ontology_iris import iri
 from builder.tools._crate_mapping import populate_crate
 from builder.tools.mit_assessment import assess_mit_coverage, mit_was_assessed
 from profiles.context import ISA_TOX_CONTEXT
@@ -239,7 +240,7 @@ class TestAssessMITCoverage:
         primary = state_with(source_kind="primary cells")
         graph = _assembled_graph(primary, tmp_path)
         node = next(n for n in graph if n.get("name") == "kidney tubuloids, donor T19")
-        assert node["additionalType"] == "PrimaryCell"
+        assert node["sampleType"] == {"@id": iri("EFO:0002660")}
 
         matched = slot_matcher(primary, graph=graph)
         assert matched("CellLineSample", "name")

@@ -23,6 +23,7 @@ import re
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance
+from profiles.ontology_iris import iri
 from builder.tools._crate_mapping import _mint_id, populate_crate
 from profiles.context import ISA_TOX_CONTEXT
 
@@ -525,7 +526,7 @@ class TestCellLineSampleCellosaurusId:
         graph = _graph(self._cell_state(accession="CVCL_0265"))
         cell = _by_id(graph, "https://www.cellosaurus.org/CVCL_0265")
         assert cell is not None, "CellLineSample node @id must be the Cellosaurus IRI"
-        assert cell.get("additionalType") == "CellLine"
+        assert cell.get("sampleType") == {"@id": iri("NCIT:C16403")}
 
     def test_accession_is_promoted_to_schema_identifier(self):
         """The profile model derives ``identifier`` from ``accession``.

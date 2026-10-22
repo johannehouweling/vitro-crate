@@ -26,6 +26,7 @@ from urllib.parse import unquote
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance
+from builder.tools.assessment_graph import with_kinds
 from builder.tools._crate_mapping import populate_crate
 from profiles.context import ISA_TOX_CONTEXT
 
@@ -127,7 +128,8 @@ class TestRootAbout:
         )
         report = _by_id(graph, "#LabProcess_report")
         assert report is not None
-        assert report.get("additionalType") == "DataAnalysis"
+        kinded = _by_id(with_kinds(graph), "#LabProcess_report")
+        assert kinded is not None and kinded.get("additionalType") == "DataAnalysis"
 
 
 class TestAssayMeasurementMethod:

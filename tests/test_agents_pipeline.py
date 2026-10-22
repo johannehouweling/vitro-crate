@@ -30,6 +30,7 @@ from builder.state import (
     EntityType,
     FileClassification,
 )
+from builder.tools.assessment_graph import with_kinds
 from builder.tools.hitl import SimulatedHumanInterface
 
 # The spine drives build_and_validate / fix_required_issues, which run the
@@ -135,6 +136,7 @@ class TestEmptyStateReachesConformance:
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
             or "reagent" in str(issue.get("message", ""))
+            or str(issue.get("property", "")).endswith("sampleType")
             for issue in result["issues"]
         ), result["issues"]
 
@@ -193,6 +195,7 @@ class TestBoundedFixLoop:
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
             or "reagent" in str(issue.get("message", ""))
+            or str(issue.get("property", "")).endswith("sampleType")
             for issue in result.get("issues") or []
         ), result.get("issues")
         readout = engine.state.get_entity("er1")
@@ -1754,7 +1757,7 @@ class TestMaterializeLinksResolvedEntities(TestMaterializePlan):
         def _is_cell_line(n: dict) -> bool:
             return n.get("additionalType") == "CellLine"
 
-        domain_nodes = [n for n in graph if _is_compound(n) or _is_cell_line(n)]
+        domain_nodes = [n for n in with_kinds(graph) if _is_compound(n) or _is_cell_line(n)]
         # Both MolecularEntity (the two plan compounds) AND the CellLineSample must
         # be present in the built graph (the resolver mints them; the compound node
         # @id is the verified identifier IRI, not the state entity_id).

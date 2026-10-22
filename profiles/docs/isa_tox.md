@@ -32,9 +32,8 @@ modelled as [Bioschemas](https://bioschemas.org/) `LabProcess` / `LabProtocol`; 
 toxicology-specific, ontology-backed requirements on top.
 
 The extension is additive and reuse-first: each concept is expressed through the most specific applicable
-[Schema.org](https://schema.org/) or [Bioschemas](https://bioschemas.org/) type, refined where necessary by a fixed
-`additionalType` discriminator (the same pattern the ISA profile uses for its
-[PropertyValue](isa.md#propertyvalue) subtypes). Test/control chemicals are
+[Schema.org](https://schema.org/) or [Bioschemas](https://bioschemas.org/) type, refined where necessary by an existing
+ontology term: a step by the protocol type of the record it executes, a test-system source by its `sampleType`. Test/control chemicals are
 [bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity) instances; the cell-based test system's source is a
 [Sample](isa.md#sample) carrying `sampleType`, either a cell line with a Cellosaurus `identifier` or primary cells
 described by species and cell type; and the experimental workflow is a chain of
@@ -108,10 +107,13 @@ Protocol --isBasedOn--> DataFile
 > - a derived `Sample`'s `derivesFrom` links the Sample it was made from; only cultured
 >   material is constrained: at most one cell line, or two or more for a co-culture (#678).
 >
-> The four LabProcess shapes are **selected by `additionalType`** (`TestSystemPreparation`
-> / `Exposure` / `EndpointReadout` / `DataAnalysis`): a generic `LabProcess` with no
-> `additionalType` is targeted by no tox shape and is checked only by the base +
-> ISA layers. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
+> The four LabProcess shapes are **selected by the `intendedUse` of the protocol record a
+> step executes**: growth protocol EFO:0003789 or transfection OBI:0001152, treatment
+> protocol EFO:0003969, assay protocol BAO:0000523, data transformation OBI:0200000. A
+> `LabProcess` whose record carries none of these is targeted by no tox shape and is
+> checked only by the base + ISA layers, and a type outside the list is a warning. The
+> `additionalType` labels older crates carry (`TestSystemPreparation`, `CellCulture`,
+> `Exposure`, `EndpointReadout`, `DataAnalysis`) are read as aliases. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
 > is reported but does not fail the CLI exit code (which tracks the base pass).
 
 ## Conformance
@@ -202,15 +204,15 @@ Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample
 The source of the cell-based test system is a single Sample carrying a categorical annotation via `sampleType`
 (a [DefinedTerm](isa.md#definedterm)). A cell line also carries a cell-line identity via `identifier` resolved to a
 Cellosaurus accession; primary cells are described in [Sample - Primary Cells](#sample---primary-cells). It is
-discriminated by `additionalType` `"CellLine"` (or `"PrimaryCell"`) so intermediate, derived Samples (cultured / exposed
-cells) are not constrained by these shapes.
+typed by its `sampleType`; cultured and exposed cells carry "cell culture" instead, so these shapes do not constrain them.
+A Sample a test system preparation consumes is a source whatever it states, so one with no `sampleType` is still
+reported. The labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name, e.g. the cell-line name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
-|additionalType|MUST|Text|MUST be `"CellLine"`. Discriminator identifying this Sample as the cell-based test system.|
-|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the test system as a fixed, resolvable ontology term (its `@id` dereferences to the term), e.g. "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
+|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the test system as a fixed, resolvable ontology term (its `@id` dereferences to the term), e.g. "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403). It SHOULD be cell line, primary cell, co-culture (NCIT:C93168) or cell culture (OBI:0001876).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
@@ -227,7 +229,6 @@ cell type it was isolated as instead.
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
-|additionalType|MUST|Text|MUST be `"PrimaryCell"`. Discriminator identifying this Sample as a test-system source of primary cells.|
 |sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|"primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660); its `termCode` also carries the IUCLID OHT 201 test-system type `IUCLID:108175` ("primary cells").|
 |name|MUST|Text|A name identifying the sample, e.g. "kidney tubuloids, donor T19".|
 |taxonomicRange|SHOULD|Text, URL or [schema.org/DefinedTerm](isa.md#definedterm)|The species the cells were taken from, e.g. NCBITaxon:9606.|
@@ -255,15 +256,14 @@ Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, n
 ### LabProcess - Test System Preparation
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
-([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent preparation of the biological model
-from its source cells, such as its maintenance in culture. `"CellCulture"` is a deprecated alias, read as a
-`TestSystemPreparation` whose preparation type is culture.
+([ISA LabProcess](isa.md#labprocess)), typed by its protocol record's `intendedUse`, growth protocol (EFO:0003789) or transfection
+(OBI:0001152), to represent preparation of the biological model from its source cells, such as its maintenance in
+culture.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
-|additionalType|MUST|Text|MUST be `"TestSystemPreparation"`. Discriminator identifying this LabProcess as a test-system preparation step.|
 |name|MUST|Text|The name of the process, e.g. "Cell Culture".|
 |object|MUST|[bioschemas.org/Sample](isa.md#sample)|The input source sample(s): a cell line or primary cells. At least one.|
 |result|MUST|[bioschemas.org/Sample](isa.md#sample)|The output (cultured) sample(s). At least one.|
@@ -281,7 +281,7 @@ for this step:
 ### LabProcess - Exposure
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
-([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent exposing the cell-based test system to
+([ISA LabProcess](isa.md#labprocess)), typed by its protocol record's `intendedUse`, treatment protocol (EFO:0003969), to represent exposing the cell-based test system to
 the chemical(s). It takes the cultured cell [Sample](isa.md#sample) as its `object`, executes a protocol record naming
 the compounds it applied, and emits the exposed cell [Sample](isa.md#sample)(s) as its `result`. The experimental design
 is a run-specific condition table (CSVW): a data file `about` those exposed Samples, in which each row records a single
@@ -298,7 +298,6 @@ well (cell line, compound, concentration, exposure duration).
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
-|additionalType|MUST|Text|MUST be `"Exposure"`. Discriminator identifying this LabProcess as an exposure step.|
 |name|MUST|Text|The name of the process, e.g. "Exposure".|
 |object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one. (A `MolecularEntity` is **not** allowed here — see note above.)|
 |parameterValue|MUST|[schema.org/PropertyValue](isa.md#propertyvalue) ([Parameter](isa.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
@@ -318,13 +317,12 @@ for this step:
 ### LabProcess - Endpoint Readout
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
-([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent measurement of the assay endpoint.
+([ISA LabProcess](isa.md#labprocess)), typed by its protocol record's `intendedUse`, assay protocol (BAO:0000523), to represent measurement of the assay endpoint.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
-|additionalType|MUST|Text|MUST be `"EndpointReadout"`. Discriminator identifying this LabProcess as a measurement readout.|
 |name|MUST|Text|The name of the process, e.g. "Endpoint Readout".|
 |object|MUST|[bioschemas.org/Sample](isa.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s) (the cultured Sample in an assay with no exposure), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
@@ -352,7 +350,7 @@ for this step:
 ### LabProcess - Data Analysis
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
-([ISA LabProcess](isa.md#labprocess)), narrowed by `additionalType` to represent the processing pipeline that turns the
+([ISA LabProcess](isa.md#labprocess)), typed by its protocol record's `intendedUse`, data transformation (OBI:0200000), to represent the processing pipeline that turns the
 raw endpoint measurements into the reported results. It consumes the [Endpoint Readout](#labprocess---endpoint-readout)'s
 raw-data File(s) and emits the processed-data File(s) along the derivation graph. It corresponds to the *Analysis and
 Statistics* module of the Minimal Information Table.
@@ -361,7 +359,6 @@ Statistics* module of the Minimal Information Table.
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
 |@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
-|additionalType|MUST|Text|MUST be `"DataAnalysis"`. Discriminator identifying this LabProcess as a data-analysis step.|
 |name|MUST|Text|The name of the process, e.g. "Data Analysis".|
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](isa.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
@@ -408,6 +405,6 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 
 ## Example ro-crate-metadata.json
 
-A worked example crate is planned but not yet provided. A crate built by the reference builder carries the
-`TestSystemPreparation` / `Exposure` / `EndpointReadout` / `DataAnalysis` `additionalType` discriminators described above,
+A worked example crate is planned but not yet provided. A crate built by the reference builder types each step by
+its protocol record's `intendedUse` and each test-system source by its `sampleType`, as described above,
 and is validated in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).
