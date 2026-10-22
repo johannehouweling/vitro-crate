@@ -650,7 +650,9 @@ _PHRASE_SYSTEM_PROMPT = (
     "identifier, or value the data does not provide. When the context lists "
     "'Options in this crate', those are the ONLY acceptable answers: name them in "
     "the question so the reader can choose one, and never choose for them — which "
-    "AOP Key Event an assay measures is the scientist's judgement, not yours."
+    "AOP Key Event an assay measures is the scientist's judgement, not yours. "
+    "When the context says the answer options are shown below the question, ask "
+    "the bare question only: no example and no list."
 )
 
 _INTERPRET_SYSTEM_PROMPT = (
@@ -797,6 +799,8 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
             more = len(candidates) - len(shown)
             listing = "; ".join(shown) + (f"; …and {more} more" if more > 0 else "")
             parts.append(f"Options in this crate (offer these, do not pick one): {listing}")
+    if gap_context.get("choices_shown"):
+        parts.append("The answer options are shown below the question.")
     return "\n".join(parts)
 
 
@@ -973,6 +977,8 @@ _EXTRACT_FILE_SYSTEM_PROMPT = (
     "the file's text. Return the clean value for that field if — and only if — the "
     "file clearly supplies it; rewrite it into a proper, concise field value. If "
     "the file does not contain the answer, return an EMPTY value (do not guess). "
+    "Also return the QUOTE: the exact passage of the file text the value comes "
+    "from, copied verbatim, or empty when there is no value. "
     "NEVER fabricate or extract identifiers (CAS, InChIKey, SMILES, PubChem CID, "
     "ORCID, ROR, DOI, accessions, ontology codes): those are resolved by lookup "
     "services, so for an identifier field return an empty value."
@@ -995,22 +1001,30 @@ def _extract_file_schema() -> dict[str, Any]:
                     "The clean field value extracted from the file text, or an "
                     "empty string when the file does not contain it."
                 ),
-            }
+            },
+            "quote": {
+                "type": "string",
+                "description": (
+                    "The exact passage of the file text the value comes from, "
+                    "copied verbatim; empty when there is no value."
+                ),
+            },
         },
-        "required": ["value"],
+        "required": ["value", "quote"],
         "additionalProperties": False,
     }
 
 
-def extract_field_from_file(
+def extract_field_with_quote(
     field: str,
     file_text: str,
     gap_context: dict[str, Any],
     *,
     overrides: ModelOverrides | None = None,
     usage_sink: UsageSink | None = None,
-) -> str:
-    """Extract the value of ``field`` from ``file_text`` for a gap (#257, fix C).
+) -> tuple[str, str]:
+    """Extract the value of ``field`` from ``file_text`` for a gap, with the passage
+    it was read from (#257, #811).
 
     A pure bounded leaf: a SINGLE structured-output call on the drafter tier
     (``_build_chat_model(role="drafter")``) that reads the (already-read,
@@ -1035,15 +1049,16 @@ def extract_field_from_file(
         usage_sink: Optional token-usage callback (see :func:`draft_entity_fields`).
 
     Returns:
-        The extracted clean value, or ``""`` when the file does not supply it (or
-        the field is identifier-bearing — D5).
+        ``(value, quote)``: the clean value and the verbatim passage it comes from,
+        or ``("", "")`` when the file does not supply it (or the field is
+        identifier-bearing — D5). The caller checks the quote against the file.
     """
     # D5: never extract an identifier from file text — those come from lookups.
     target = _local_property_name(field) or _local_property_name(gap_context.get("property"))
     if is_identifier_field(target):
-        return ""
+        return "", ""
     if not file_text or not file_text.strip():
-        return ""
+        return "", ""
 
     llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     messages = [
@@ -1061,10 +1076,25 @@ def extract_field_from_file(
     ]
     result = _invoke_structured_with_usage(llm, _extract_file_schema(), messages, usage_sink)
     if isinstance(result, dict):
-        value = result.get("value")
+        value, quote = result.get("value"), result.get("quote")
         if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
+            return value.strip(), quote.strip() if isinstance(quote, str) else ""
+    return "", ""
+
+
+def extract_field_from_file(
+    field: str,
+    file_text: str,
+    gap_context: dict[str, Any],
+    *,
+    overrides: ModelOverrides | None = None,
+    usage_sink: UsageSink | None = None,
+) -> str:
+    """The value :func:`extract_field_with_quote` reads from ``file_text``, without
+    its quote: what the "it is in this file" reply needs (#257, fix C)."""
+    return extract_field_with_quote(
+        field, file_text, gap_context, overrides=overrides, usage_sink=usage_sink
+    )[0]
 
 
 _DESCRIBE_SYSTEM_PROMPT = (
@@ -1183,6 +1213,7 @@ __all__ = [
     "describe_files",
     "draft_entity_fields",
     "extract_field_from_file",
+    "extract_field_with_quote",
     "extract_plan",
     "interpret_gap_reply",
     "phrase_gap_question",

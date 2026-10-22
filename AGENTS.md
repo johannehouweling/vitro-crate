@@ -3406,6 +3406,18 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   gap — which re-emits every round until a `ScholarlyArticle` is wired — is re-asked
   every round (#179).
 
+  **A scanned deposit is read before anything is asked (#811).** With a provider and
+  a scanned deposit, `_ask_from_the_deposit` looks for the answer first: up to three
+  deposit documents (`_gap_documents`: a step's SOPs first, ranked by the words their
+  names share with the step's; the deposit's own description first otherwise) are
+  read by `extract_field_with_quote`, and a value counts only when the passage it
+  quotes is in that file. No value means no question: the gap stays in the report.
+  Otherwise the gap is ONE multiple-choice question, each value shown with the file
+  it came from, then `SKIP_CHOICE` and `STOP_CHOICE` (which ends guidance), beside
+  the console's own typed-answer row. A picked value is committed; a typed answer is
+  interpreted once and never followed by another question. A session with no scanned
+  deposit keeps the exchange below, because there is nothing to read.
+
   **The per-gap LLM exchange (#244).** When a provider is configured (gated on
   `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a
   bounded **phrase → ask → interpret → commit** cycle using two new drafter-tier
@@ -3413,7 +3425,8 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   LLM-advertised tools):
   - **Phrase** (`phrase_gap_question(gap_context) -> str`) turns the gap
     (property, entity_type, tier, MIT/FAIR rationale, suggestion) into ONE clear
-    question with a concrete example — never raw SHACL shapes / FAIR indicator
+    question with a concrete example (none when the options are shown as rows) —
+    never raw SHACL shapes / FAIR indicator
     codes / property IRIs. On an empty/failed result it falls back to the
     deterministic human-readable prompt.
   - **Interpret** (`interpret_gap_reply(question, reply, gap_context) -> dict`)

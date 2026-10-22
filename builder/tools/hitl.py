@@ -263,6 +263,11 @@ _DENY_ALLOW_CHOICES = ["No, keep the current access", "Yes, allow this folder"]
 # the pre-selected row and the number keys of the offered choices are unchanged.
 OWN_ANSWER_CHOICE = "Something else — let me type an answer"
 
+# The rows every deposit-backed guidance question offers beside the options it
+# found (#811): one skips the question, the other ends the questions and builds.
+SKIP_CHOICE = "Skip this question"
+STOP_CHOICE = "Stop asking and build the crate"
+
 _AFFIRMATIVE = {"y", "yes", "approve", "approved", "ok", "okay", "confirm", "continue"}
 _NEGATIVE = {"n", "no", "reject", "rejected", "deny", "decline", "cancel"}
 
@@ -475,6 +480,7 @@ class ConsoleHumanInterface:
             "build",
             "build the crate",
             "build the rocrate",
+            STOP_CHOICE.casefold(),
         }
         return normalized in stop_words or normalized.startswith("can you stop here")
 
@@ -949,8 +955,10 @@ __all__ = [
     "CONVERSATION_FIELD_TYPE",
     "OWN_ANSWER_CHOICE",
     "SCAN_ROOT_PURPOSE",
+    "SKIP_CHOICE",
     "SMOKE_TEST_ANSWER",
     "SMOKE_TEST_CONVERSATION_TURNS",
+    "STOP_CHOICE",
     "SYNTHETIC_ANSWER_NOTICE",
     "ConsoleHumanInterface",
     "HumanInterface",
