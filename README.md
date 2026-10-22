@@ -130,6 +130,11 @@ uv run python -m main --interactive -i /path/to/experiment/
 
 # The pipeline arm is folder-driven: with no --input there is nothing to scan, so
 # it prints a notice and exits. To start with no input folder, use --react below.
+#
+# Before it asks you anything, the pipeline looks for the answer in the folder's own
+# documents. You pick from what it found, each option naming the file it came from,
+# or type your own; "Skip this question" and "Stop asking and build the crate" are
+# always offered. What the folder does not state is not asked.
 
 # Specify provider / model / endpoint:
 uv run python -m main --interactive --provider openai --model gpt-4o-mini

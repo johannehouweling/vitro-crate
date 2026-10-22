@@ -120,6 +120,7 @@ from builder.tools.field_kinds import (
     is_resolvable_reference,
 )
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
+from builder.tools.hitl import SKIP_CHOICE, STOP_CHOICE
 
 # (#275) The ORCID lookup, re-exported at module scope as the single stable
 # monkeypatch target for tests. A person/agent-typed gap (creator/author/…)
@@ -139,9 +140,13 @@ from builder.tools.lookups import lookup_orcid
 phrase_gap_question: Callable[..., str] | None
 interpret_gap_reply: Callable[..., dict[str, Any]] | None
 extract_field_from_file: Callable[..., str] | None
+extract_field_with_quote: Callable[..., tuple[str, str]] | None
 try:  # pragma: no cover — exercised by both branches across the test matrix
     from builder.agents.pipeline.leaves import (
         extract_field_from_file as _extract_file_leaf,
+    )
+    from builder.agents.pipeline.leaves import (
+        extract_field_with_quote as _extract_quoted_leaf,
     )
     from builder.agents.pipeline.leaves import (
         interpret_gap_reply as _interpret_leaf,
@@ -153,10 +158,12 @@ try:  # pragma: no cover — exercised by both branches across the test matrix
     phrase_gap_question = _phrase_leaf
     interpret_gap_reply = _interpret_leaf
     extract_field_from_file = _extract_file_leaf
+    extract_field_with_quote = _extract_quoted_leaf
 except Exception:  # pragma: no cover — langchain absent: LLM path is gated off anyway
     phrase_gap_question = None
     interpret_gap_reply = None
     extract_field_from_file = None
+    extract_field_with_quote = None
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -178,6 +185,10 @@ _DEFAULT_MAX_ROUNDS = 20
 # budget); this is a final per-gap belt-and-braces cap so one big file can't blow
 # the bounded leaf's token budget. One read per gap.
 _MAX_FILE_EXTRACT_CHARS = 32 * 1024
+
+# (#811) How many deposit documents are read for one question before it is asked:
+# one extraction call each, so this bounds the wait before every question.
+_DOCUMENTS_READ_PER_QUESTION = 3
 
 # Cap on clarifying follow-ups within a SINGLE ask-user turn (#244). The interpret
 # leaf may ask for clarification, but a vague user could otherwise loop forever;
@@ -1239,6 +1250,7 @@ def _phrase_question(
     *,
     usage_sink: UsageSink | None,
     overrides: ModelOverrides | None = None,
+    choices_shown: bool = False,
 ) -> str:
     """Phrase ``gap`` as one human question via the LLM leaf, with a safe fallback.
 
@@ -1248,9 +1260,11 @@ def _phrase_question(
     """
     if phrase_gap_question is not None:
         try:
-            question = phrase_gap_question(
-                _gap_context(engine, gap), usage_sink=usage_sink, overrides=overrides
-            )
+            context = _gap_context(engine, gap)
+            if choices_shown:
+                # The options are rows below the question (#811): no example.
+                context["choices_shown"] = True
+            question = phrase_gap_question(context, usage_sink=usage_sink, overrides=overrides)
         except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
             logger.warning("guidance: phrase leaf failed: %s", exc)
             question = ""
@@ -1315,6 +1329,124 @@ def _interpret_reply(
         return _deterministic_decision(gap, reply)
 
 
+def _squash(text: str) -> str:
+    """*text* lower-cased with its whitespace collapsed, for quote matching."""
+    return " ".join(text.casefold().split())
+
+
+def _gap_documents(engine: AgentEngine, gap: Gap) -> list[str]:
+    """The deposit documents read for ``gap``, at most :data:`_DOCUMENTS_READ_PER_QUESTION`.
+
+    Protocols and metadata files only. A step's SOPs come first, ranked by the words
+    their names share with the step's name; for anything else the deposit's own
+    description (its README, its BioStudies record) comes first (#811).
+    """
+    from builder.tools.document_discovery import (
+        CLASS_METADATA,
+        CLASS_PROTOCOL,
+        classification_of,
+    )
+
+    state = engine.state
+    entity = state.get_entity(_resolve_entity_id(engine, gap) or "")
+    name = (_entity_display_name(entity) or "") if entity is not None else ""
+    words = set(re.findall(r"[a-z0-9]{3,}", name.casefold()))
+
+    def shared(path: str) -> int:
+        return len(words & set(re.findall(r"[a-z0-9]{3,}", Path(path).name.casefold())))
+
+    protocols: list[str] = []
+    metadata: list[str] = []
+    for file in state.scanned_files:
+        kind = classification_of(file, input_root=state.metadata.input_path or "")
+        if kind == CLASS_PROTOCOL:
+            protocols.append(file.path)
+        elif kind == CLASS_METADATA:
+            metadata.append(file.path)
+    protocols.sort(key=shared, reverse=True)
+    step = entity is not None and entity.type == "LabProcess"
+    return (protocols + metadata if step else metadata + protocols)[:_DOCUMENTS_READ_PER_QUESTION]
+
+
+def _deposit_options(
+    engine: AgentEngine,
+    gap: Gap,
+    *,
+    usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
+) -> list[tuple[str, str]]:
+    """What the deposit's documents state for ``gap``: ``(value, file name)`` pairs.
+
+    Each value is read from one of :func:`_gap_documents` by the bounded extraction
+    leaf and kept only when the passage it quotes is in that file, so a value the
+    model made up never reaches the user as an option (#811). Identifier fields get
+    none: identifiers come from lookups (D5).
+    """
+    field = _local_name(gap.property) or (gap.property or "")
+    if extract_field_with_quote is None or _is_identifier_field(field):
+        return []
+    context = _gap_context(engine, gap)
+    found: dict[str, str] = {}
+    for path in _gap_documents(engine, gap):
+        text = _read_pointed_file(engine, [path])
+        if text is None:
+            continue
+        try:
+            value, quote = extract_field_with_quote(
+                field, text, context, usage_sink=usage_sink, overrides=overrides
+            )
+        except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
+            logger.warning("guidance: deposit extraction failed for %s: %s", path, exc)
+            continue
+        if value.strip() and quote.strip() and _squash(quote) in _squash(text):
+            found.setdefault(value.strip(), Path(path).name)
+    return list(found.items())
+
+
+def _ask_from_the_deposit(
+    engine: AgentEngine,
+    human: HumanInterface,
+    gap: Gap,
+    *,
+    usage_sink: UsageSink | None,
+    overrides: ModelOverrides | None = None,
+) -> str | None:
+    """Ask ``gap`` as one multiple-choice question built from the deposit (#811).
+
+    The options are what the deposit states (:func:`_deposit_options`), each named
+    with its file, then :data:`SKIP_CHOICE` and :data:`STOP_CHOICE`; the console adds
+    its own "type an answer" row. With no option nothing is asked: the gap stays in
+    the report. A picked option is the value; a typed answer is interpreted once and
+    never followed by another question.
+    """
+    options = _deposit_options(engine, gap, usage_sink=usage_sink, overrides=overrides)
+    if not options:
+        logger.info("guidance: the deposit states nothing for %s; not asked (#811).", gap.property)
+        return None
+    labels = [f"{value}  (from {source})" for value, source in options]
+    question = _phrase_question(
+        engine, gap, usage_sink=usage_sink, overrides=overrides, choices_shown=True
+    )
+    decision = human.present(question, [*labels, SKIP_CHOICE, STOP_CHOICE])
+    picked = decision.get("comments")
+    if decision.get("action") == "approved" and picked in labels:
+        value, source = options[labels.index(picked)]
+        _notify(human, f"Recorded {value!r} from {source}.")
+        return value
+    typed = str((decision.get("edits") or {}).get("value") or "").strip()
+    if decision.get("action") != "edited" or not typed:
+        return None
+    reply = _interpret_reply(
+        engine, gap, question, typed, usage_sink=usage_sink, overrides=overrides
+    )
+    if reply.get("action") == "from_file":
+        return _resolve_from_file(
+            engine, gap, typed, reply.get("filename"), usage_sink=usage_sink, overrides=overrides
+        )
+    value = reply.get("value") if reply.get("action") == "commit" else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _resolve_ask_user(
     engine: AgentEngine,
     human: HumanInterface,
@@ -1355,6 +1487,13 @@ def _resolve_ask_user(
             return None
         value = _deterministic_decision(gap, reply).get("value")
         return value.strip() if isinstance(value, str) and value.strip() else None
+
+    # A scanned deposit is read before anything is asked (#811): the user picks from
+    # what it states, and what it does not state is not asked.
+    if engine.state.scanned_files:
+        return _ask_from_the_deposit(
+            engine, human, gap, usage_sink=usage_sink, overrides=overrides
+        )
 
     question = _phrase_question(engine, gap, usage_sink=usage_sink, overrides=overrides)
     response = human.request_input(question)

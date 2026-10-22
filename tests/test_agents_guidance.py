@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 
 from builder.engine import AgentEngine
-from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.state import CrateState, Entity, EntityProvenance, EntityType, FileClassification
 from builder.tools.gap_analysis import Gap, GapReport, Tier, assess_gaps
 from builder.tools.hitl import HumanResponse, InputResponse
 
@@ -3141,3 +3141,80 @@ class TestTheGuidanceTailHonoursTheModelPin:
 
         assert seen, "no gap was resolved — the fixture must produce an actionable gap"
         assert all(o is pinned for o in seen)
+
+
+# ---------------------------------------------------------------------------
+# #811 — a scanned deposit is read before anything is asked
+# ---------------------------------------------------------------------------
+
+
+class TestTheDepositIsReadBeforeAsking:
+    """The answer is looked for in the deposit's own documents first. What it states
+    is offered as a choice; what it does not state is not asked; nothing is asked
+    twice (#811)."""
+
+    VALUE = "OATP1C1-mediated thyroxine uptake in CHO-K1 cells"
+
+    def _engine(self, monkeypatch, tmp_path, *, quote):
+        from builder.agents.pipeline import guidance
+
+        readme = tmp_path / "README.txt"
+        readme.write_text("This study measures OATP1C1-mediated thyroxine uptake in CHO-K1 cells.\n")
+        state = _backbone()
+        state.approved_scan_roots.add(str(tmp_path))
+        state.scanned_files = [
+            FileClassification(
+                path=str(readme), filename="README.txt", size=80, mime_type="text/plain",
+                classification="metadata",
+            )
+        ]
+        monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
+        _single_ask_gap_report(
+            monkeypatch, _study_desc_gap(), counts={"must_open": 1, "should_open": 0, "may_open": 0}
+        )
+        monkeypatch.setattr(guidance, "phrase_gap_question", lambda _ctx, **_kw: "What is the study about?")
+        monkeypatch.setattr(
+            guidance, "extract_field_with_quote", lambda _f, _t, _c, **_kw: (self.VALUE, quote)
+        )
+        return AgentEngine(state=state)
+
+    def test_what_the_deposit_states_is_offered_as_a_choice(self, monkeypatch, tmp_path):
+        from builder.agents.pipeline.guidance import run_guidance
+        from builder.tools.hitl import SKIP_CHOICE, STOP_CHOICE
+
+        engine = self._engine(monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake")
+        label = f"{self.VALUE}  (from README.txt)"
+        human = ScriptedHuman(present_answers=[{"action": "approved", "comments": label, "edits": None}])
+        run_guidance(engine, human, max_rounds=3)
+
+        ((_question, options, _purpose),) = human.presented
+        assert options == [label, SKIP_CHOICE, STOP_CHOICE]
+        assert human.inputs == []
+        assert _get(engine, "st1").fields.get("description") == self.VALUE
+
+    def test_an_answer_the_deposit_does_not_state_is_not_asked(self, monkeypatch, tmp_path):
+        """A value whose quoted passage is not in the file is invented: no option, so no question."""
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._engine(monkeypatch, tmp_path, quote="a sentence the README does not contain")
+        human = ScriptedHuman()
+        run_guidance(engine, human, max_rounds=3)
+
+        assert human.presented == [] and human.inputs == []
+        assert _get(engine, "st1").fields.get("description") == "d"
+
+    def test_a_typed_answer_is_read_once_and_never_asked_again(self, monkeypatch, tmp_path):
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._engine(monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake")
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply",
+            lambda *_a, **_kw: {"action": "clarify", "question": "Which uptake do you mean?"},
+        )
+        typed: HumanResponse = {"action": "edited", "comments": "uptake", "edits": {"value": "uptake"}}
+        human = ScriptedHuman(present_answers=[typed])
+        run_guidance(engine, human, max_rounds=3)
+
+        assert len(human.presented) == 1 and human.inputs == []
+        assert _get(engine, "st1").fields.get("description") == "d"

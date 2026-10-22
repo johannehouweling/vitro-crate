@@ -444,6 +444,17 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
         assert human.present("Proceed?")["action"] == "skipped"
         assert human.is_done()
 
+    def test_the_stop_row_ends_guidance(self):
+        """#811: the row every deposit-backed question offers ends the questions."""
+        from builder.tools.hitl import STOP_CHOICE
+
+        human = ConsoleHumanInterface(
+            select_func=lambda choices, _default: choices.index(STOP_CHOICE),
+            prompt_func=lambda _ft: "",
+        )
+        assert human.present("Duration?", ["2 h  (from SOP.docx)", STOP_CHOICE])["action"] == "skipped"
+        assert human.is_done()
+
     def test_a_scan_root_escalation_stays_a_plain_allow_or_deny(self):
         """Widening filesystem access is one fail-closed decision, never prose (#197)."""
         from builder.tools.hitl import OWN_ANSWER_CHOICE, SCAN_ROOT_PURPOSE
