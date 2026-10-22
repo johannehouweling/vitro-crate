@@ -2760,30 +2760,37 @@ quota — **not** scientific accuracy.
 > the biases do not all point the same way, so the net direction is unknown until a
 > re-run.
 
-### D16: ISA-Tox Specialization via `additionalType`, Not `@type` Arrays
+### D16: ISA-Tox Specialization via Ontology Terms, Not `@type` Arrays
 
-Every ISA-Tox specialization is expressed as `@type: <bare base token>` +
-`additionalType: <discriminator string>` — **not** a JSON-LD `@type` array:
+Every ISA-Tox specialization is expressed by an existing ontology term on the bare base
+`@type` — **not** a JSON-LD `@type` array, and not a label of the profile's own:
 
-- A test-system source is `@type: "Sample"` (`bioschemas:Sample`) + `additionalType:
-  "CellLine"|"PrimaryCell"` + a `sampleType` DefinedTerm (NCIT:C16403 or EFO:0002660;
-  `profiles/shapes/tox/1_cell_line_sample.ttl`, isa_tox.md §Sample - Cell-based Test
+- A test-system source is `@type: "Sample"` (`bioschemas:Sample`) typed by its
+  `sampleType` DefinedTerm, NCIT:C16403 cell line or EFO:0002660 primary cell
+  (`profiles/shapes/tox/1_cell_line_sample.ttl`, isa_tox.md §Sample - Cell-based Test
   System, §Sample - Primary Cells). Both are one `CellLineSample` state type, told apart
-  by `source_kind` as `LabProcess` is by `process_type`.
-- LabProcess steps are `@type: "LabProcess"` + `additionalType:
-  "TestSystemPreparation"|"Exposure"|"EndpointReadout"|"DataAnalysis"`; ISA backbone nodes are
-  `@type: "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`. `"CellCulture"` is
-  the deprecated alias of `"TestSystemPreparation"`: the tox rule reads it, and a resumed
-  session is migrated on load.
+  by `source_kind` as `LabProcess` is by `process_type`. A Sample a test system
+  preparation consumes is a source whatever it states, so one with no `sampleType` is
+  still reported.
+- A LabProcess step is `@type: "LabProcess"` typed by the `intendedUse` of the protocol
+  record it executes (D17): growth protocol EFO:0003789 or transfection OBI:0001152,
+  treatment protocol EFO:0003969, assay protocol BAO:0000523, data transformation
+  OBI:0200000. ISA backbone nodes keep the ISA profile's own convention, `@type:
+  "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`.
+- The `additionalType` labels older crates carry on steps and sources
+  (`"TestSystemPreparation"`, `"CellCulture"`, `"Exposure"`, `"EndpointReadout"`,
+  `"DataAnalysis"`, `"CellLine"`, `"PrimaryCell"`) are aliases: the tox rules and the
+  readers (`assessment_graph.with_kinds`) still read them, and a resumed session is
+  migrated on load. The build writes none.
 
 The specialized `tox:` class is **inferred by the validator**, not asserted in the crate:
 each tox shape carries a SHACL `TripleRule` that adds `rdf:type tox:CellLineSample` (etc.)
-when the discriminator matches (`FindCellLineSamples`). A generic RO-Crate consumer sees
-the base type; the ISA-Tox validator sees the specialization — this is why `@type` stays
-the bare token.
+when the term matches (`FindCellLineSamples`). A generic RO-Crate consumer sees the base
+type; the ISA-Tox validator sees the specialization — this is why `@type` stays the bare
+token. A term outside the profile's closed lists (`sh:in`) is a warning.
 
 Consequences the builder respects: `_crate_mapping` emits the bare base `@type` plus the
-discriminator (never a `@type` array), and a single conceptual entity is ONE node — a
+term (never a `@type` array), and a single conceptual entity is ONE node — a
 `CellLineSample` already IS a Sample, so modelling it as a *separate* `Sample` +
 `CellLineSample` (two entities sharing a bare `entity_id`) is discouraged by RO-Crate 1.2
 (§Contextual entities) and warns at `CrateState.add_entity` (#366).

@@ -35,3 +35,23 @@ tox:LabProcessExecutesOneProtocol a sh:NodeShape ;
         sh:message "An ISA-Tox LabProcess SHOULD execute at most one LabProtocol" ;
         sh:severity sh:Warning ;
     ] .
+
+# The protocol types ISA-Tox knows (#799). A record typed outside them leaves its step
+# unrecognised, so every check for that kind of step is skipped; a warning first.
+tox:ProtocolRecordTypeIsKnown a sh:NodeShape ;
+    sh:name "A protocol record SHOULD carry an ISA-Tox protocol type" ;
+    sh:description "The intendedUse of an executed LabProtocol SHOULD be one of the ISA-Tox protocol types" ;
+    sh:targetObjectsOf bioschemas-prop:executesLabProtocol ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path bioschemas-prop:intendedUse ;
+        sh:in (
+            <http://www.ebi.ac.uk/efo/EFO_0003789>
+            <http://purl.obolibrary.org/obo/OBI_0001152>
+            <http://www.ebi.ac.uk/efo/EFO_0003969>
+            <http://www.bioassayontology.org/bao#BAO_0000523>
+            <http://purl.obolibrary.org/obo/OBI_0200000>
+        ) ;
+        sh:message "A protocol record's intendedUse SHOULD be one of the ISA-Tox protocol types: growth protocol, transfection, treatment protocol, assay protocol or data transformation" ;
+        sh:severity sh:Warning ;
+    ] .

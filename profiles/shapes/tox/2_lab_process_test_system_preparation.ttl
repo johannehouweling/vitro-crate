@@ -1,8 +1,10 @@
 # LabProcessTestSystemPreparation — test system preparation (biological model preparation).
-# A bioschemas:LabProcess discriminated by additionalType "TestSystemPreparation",
-# or by "CellCulture", the deprecated alias crates exported before it carry.
+# A bioschemas:LabProcess whose protocol record's intendedUse is EFO:0003789 growth
+# protocol or OBI:0001152 transfection (#799). The additionalType labels
+# "TestSystemPreparation" and "CellCulture" that older crates carry are aliases.
 
 @prefix bioschemas: <https://bioschemas.org/> .
+@prefix bioschemas-prop: <https://bioschemas.org/properties/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -31,6 +33,34 @@ tox:FindTestSystemPreparationProcesses a sh:NodeShape, validator:HiddenShape ;
         sh:condition [
             a sh:NodeShape ;
             sh:property [ sh:path schema:additionalType ; sh:hasValue "CellCulture" ; sh:minCount 1 ] ;
+        ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessTestSystemPreparation ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
+                sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0003789> ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessTestSystemPreparation ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
+                sh:hasValue <http://purl.obolibrary.org/obo/OBI_0001152> ;
+                sh:minCount 1 ;
+            ] ;
         ] ;
     ] .
 

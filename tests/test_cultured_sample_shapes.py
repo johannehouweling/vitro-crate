@@ -19,6 +19,7 @@ import warnings
 import pytest
 
 from builder.state import CrateState, Entity, EntityProvenance
+from builder.tools.assessment_graph import with_kinds
 from builder.tools.builder import build_crate
 from profiles.validator import validate_crate_dict
 
@@ -169,7 +170,8 @@ class TestACoCultureIsAMixture:
 
 def _preparations(doc):
     """The crate's test-system preparation steps."""
-    steps = [n for n in doc["@graph"] if n.get("additionalType") == "TestSystemPreparation"]
+    kinds = {n["@id"]: n.get("additionalType") for n in with_kinds(doc["@graph"])}
+    steps = [n for n in doc["@graph"] if kinds[n["@id"]] == "TestSystemPreparation"]
     assert steps, "no TestSystemPreparation step in the fixture"
     return steps
 

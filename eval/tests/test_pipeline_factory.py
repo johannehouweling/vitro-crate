@@ -76,6 +76,7 @@ class TestPipelineAgentWiring:
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
             or "reagent" in str(issue.get("message", ""))
+            or str(issue.get("property", "")).endswith("sampleType")
             for issue in verdict["issues"]
         ), verdict["issues"]
 

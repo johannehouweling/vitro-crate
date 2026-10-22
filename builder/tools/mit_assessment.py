@@ -532,8 +532,10 @@ def graph_nodes(graph: Any) -> list[dict[str, Any]]:
     Accepts either the whole ``{"@context":…, "@graph":[…]}`` document or a bare
     node list, so callers can pass whichever they are holding.
     """
+    from builder.tools.assessment_graph import with_kinds
+
     nodes = graph.get("@graph", []) if isinstance(graph, dict) else (graph or [])
-    return [n for n in nodes if isinstance(n, dict) and "@id" in n]
+    return with_kinds([n for n in nodes if isinstance(n, dict) and "@id" in n])
 
 
 def slot_matcher(

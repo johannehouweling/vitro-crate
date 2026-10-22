@@ -1,5 +1,6 @@
 # LabProcessExposure — exposure process (exposure module).
-# A bioschemas:LabProcess discriminated by additionalType "Exposure". Takes the
+# A bioschemas:LabProcess whose protocol record's intendedUse is EFO:0003969 treatment
+# protocol (#799); the additionalType label "Exposure" older crates carry is an alias. Takes the
 # cultured cell Sample as input and emits the EXPOSED Sample as its result.
 #
 # The compounds are the reagents of the protocol record the Exposure executes: ISA
@@ -27,6 +28,20 @@ tox:FindExposureProcesses a sh:NodeShape, validator:HiddenShape ;
         sh:condition [
             a sh:NodeShape ;
             sh:property [ sh:path schema:additionalType ; sh:hasValue "Exposure" ; sh:minCount 1 ] ;
+        ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessExposure ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
+                sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0003969> ;
+                sh:minCount 1 ;
+            ] ;
         ] ;
     ] .
 

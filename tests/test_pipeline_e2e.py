@@ -680,6 +680,7 @@ class TestPipelineE2ENoProviderSafety:
         assert all(
             str(issue.get("property", "")).endswith("additionalProperty")
             or "reagent" in str(issue.get("message", ""))
+            or str(issue.get("property", "")).endswith("sampleType")
             for issue in result["issues"]
         ), result["issues"]
         # The scaffold path still laid the ISA backbone.

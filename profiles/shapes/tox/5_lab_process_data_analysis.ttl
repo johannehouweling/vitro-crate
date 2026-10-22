@@ -1,5 +1,6 @@
 # LabProcessDataAnalysis — data analysis process (analysis module).
-# A bioschemas:LabProcess discriminated by additionalType "DataAnalysis".
+# A bioschemas:LabProcess whose protocol record's intendedUse is OBI:0200000 data
+# transformation (#799); the additionalType label "DataAnalysis" is an alias.
 # Consumes raw/condition data and produces processed-data outputs.
 
 @prefix bioschemas: <https://bioschemas.org/> .
@@ -22,6 +23,20 @@ tox:FindDataAnalysisProcesses a sh:NodeShape, validator:HiddenShape ;
         sh:condition [
             a sh:NodeShape ;
             sh:property [ sh:path schema:additionalType ; sh:hasValue "DataAnalysis" ; sh:minCount 1 ] ;
+        ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessDataAnalysis ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
+                sh:hasValue <http://purl.obolibrary.org/obo/OBI_0200000> ;
+                sh:minCount 1 ;
+            ] ;
         ] ;
     ] .
 

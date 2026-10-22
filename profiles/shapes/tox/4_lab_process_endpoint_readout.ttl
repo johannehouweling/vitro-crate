@@ -1,9 +1,11 @@
 # LabProcessEndpointReadout — endpoint readout process (endpoint read-out module).
-# A bioschemas:LabProcess discriminated by additionalType "EndpointReadout".
+# A bioschemas:LabProcess whose protocol record's intendedUse is BAO:0000523 assay
+# protocol (#799); the additionalType label "EndpointReadout" is an alias.
 # Measures the exposed Sample (the culture in a characterisation run, a deposited
 # File in a re-analysis) and yields the raw measurement File(s).
 
 @prefix bioschemas: <https://bioschemas.org/> .
+@prefix bioschemas-prop: <https://bioschemas.org/properties/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -22,6 +24,20 @@ tox:FindEndpointReadoutProcesses a sh:NodeShape, validator:HiddenShape ;
         sh:condition [
             a sh:NodeShape ;
             sh:property [ sh:path schema:additionalType ; sh:hasValue "EndpointReadout" ; sh:minCount 1 ] ;
+        ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:LabProcessEndpointReadout ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
+                sh:hasValue <http://www.bioassayontology.org/bao#BAO_0000523> ;
+                sh:minCount 1 ;
+            ] ;
         ] ;
     ] .
 

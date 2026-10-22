@@ -1,6 +1,8 @@
 # CellLineSample — the test-system source (biological model module).
-# A bioschemas:Sample discriminated by additionalType "CellLine" or "PrimaryCell",
-# carrying a sampleType DefinedTerm. A cell line carries a Cellosaurus identifier;
+# A bioschemas:Sample typed by its sampleType: NCIT:C16403 cell line or EFO:0002660
+# primary cell (#799). The additionalType labels "CellLine" and "PrimaryCell" older
+# crates carry are aliases. A Sample a preparation step consumes is a test-system
+# source whatever it states, so a source missing its sampleType is still caught. A cell line carries a Cellosaurus identifier;
 # primary cells have none (Cellosaurus FAQ Q19) and state species and cell type.
 
 @prefix bioschemas: <https://bioschemas.org/> .
@@ -29,6 +31,16 @@ tox:FindCellLineSamples a sh:NodeShape, validator:HiddenShape ;
                 sh:minCount 1 ;
             ] ;
         ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:CellLineSample ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:sampleType ; sh:hasValue <http://purl.obolibrary.org/obo/NCIT_C16403> ; sh:minCount 1 ] ;
+        ] ;
     ] .
 
 # Inference: type a Sample as tox:PrimaryCellSample when additionalType == "PrimaryCell".
@@ -50,6 +62,38 @@ tox:FindPrimaryCellSamples a sh:NodeShape, validator:HiddenShape ;
                 sh:minCount 1 ;
             ] ;
         ] ;
+    ] ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:PrimaryCellSample ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [ sh:path schema:sampleType ; sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0002660> ; sh:minCount 1 ] ;
+        ] ;
+    ] .
+
+# Inference: a Sample a test system preparation consumes is a test-system source.
+# Ordered after the process rules (11), which type the preparation step.
+tox:FindTestSystemSources a sh:NodeShape, validator:HiddenShape ;
+    sh:name "Identify test-system sources within the RO-Crate" ;
+    sh:description "A Sample a test system preparation consumes is the test-system source." ;
+    sh:targetClass bioschemas:Sample ;
+    sh:order 12 ;
+    sh:rule [
+        a sh:TripleRule ;
+        sh:subject sh:this ;
+        sh:predicate rdf:type ;
+        sh:object tox:TestSystemSource ;
+        sh:condition [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path [ sh:inversePath schema:object ] ;
+                sh:qualifiedValueShape [ sh:class tox:LabProcessTestSystemPreparation ] ;
+                sh:qualifiedMinCount 1 ;
+            ] ;
+        ] ;
     ] .
 
 tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
@@ -57,6 +101,7 @@ tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
     sh:description "The test-system source (cell line or primary cells) MUST be categorised via sampleType" ;
     sh:targetClass tox:CellLineSample ;
     sh:targetClass tox:PrimaryCellSample ;
+    sh:targetClass tox:TestSystemSource ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:sampleType ;
@@ -97,5 +142,23 @@ tox:PrimaryCellSampleShouldDescribeSource a sh:NodeShape ;
         ] ;
         sh:qualifiedMinCount 1 ;
         sh:message "Primary-cell Sample SHOULD state its cell type as a characteristic (schema:additionalProperty with propertyID EFO:0000324)" ;
+        sh:severity sh:Warning ;
+    ] .
+
+# The sample types ISA-Tox knows (#799); a warning first.
+tox:SampleTypeIsKnown a sh:NodeShape ;
+    sh:name "A Sample's sampleType SHOULD be an ISA-Tox sample type" ;
+    sh:description "A sampleType SHOULD be one of the ISA-Tox sample types" ;
+    sh:targetSubjectsOf schema:sampleType ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:sampleType ;
+        sh:in (
+            <http://purl.obolibrary.org/obo/NCIT_C16403>
+            <http://www.ebi.ac.uk/efo/EFO_0002660>
+            <http://purl.obolibrary.org/obo/NCIT_C93168>
+            <http://purl.obolibrary.org/obo/OBI_0001876>
+        ) ;
+        sh:message "A Sample's sampleType SHOULD be one of the ISA-Tox sample types: cell line, primary cell, co-culture or cell culture" ;
         sh:severity sh:Warning ;
     ] .

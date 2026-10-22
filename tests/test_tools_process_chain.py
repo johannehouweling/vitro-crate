@@ -22,6 +22,7 @@ import pytest
 
 from builder.engine import AgentEngine
 from builder.state import CrateState, FileClassification
+from builder.tools.assessment_graph import with_kinds
 from builder.tools.composites import draft_process_chain, scaffold_isa_backbone
 from builder.tools.validation import build_and_validate
 
@@ -284,18 +285,22 @@ class TestChainPassesValidation:
 
     @staticmethod
     def _dosed() -> tuple[CrateState, str, list[dict]]:
-        """The scaffold plus the compound its Exposure applies, which the tox
-        profile requires of an Exposure's protocol record (#783)."""
-        from builder.tools.drafters import draft_molecular_entity
+        """The scaffold plus the cells its culture grows and the compound its
+        Exposure applies, which the tox profile requires: a source states its
+        sampleType (#799), an Exposure's record its compound (#783)."""
+        from builder.tools.drafters import draft_cell_line_sample, draft_molecular_entity
 
         state, assay_id = _scaffold()
         chem = draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"})
+        line = draft_cell_line_sample(state, "HepG2", {}).entity_id
         chain = copy.deepcopy(_FULL_CHAIN)
         for step in chain:
+            hints = step["hints"]
+            assert isinstance(hints, dict)
             if step["process_type"] == "Exposure":
-                hints = step["hints"]
-                assert isinstance(hints, dict)
                 hints["chemicals"] = chem.entity_id
+            if step["process_type"] == "TestSystemPreparation":
+                hints["cell_line"] = line
         return state, assay_id, chain
 
     def test_no_dangling_output_violations(self):
@@ -390,12 +395,16 @@ class TestTheExposureReachesItsCompounds:
         flow: the chain is drafted first, then the compounds are wired onto the
         Exposure via the ``chemicals`` ref field (as ``_materialize_plan`` does).
         """
-        from builder.tools.drafters import draft_molecular_entity
+        from builder.tools.drafters import draft_cell_line_sample, draft_molecular_entity
 
         state, assay_id = _scaffold()
         chem1 = draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"})
         chem2 = draft_molecular_entity(state, "Sodium iodide", {"pubchem_cid": "5238"})
         draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        line = draft_cell_line_sample(state, "HepG2", {}).entity_id
+        _processes_by_subtype(state)["TestSystemPreparation"][0].set_fields_from_dict(
+            {"cell_line": line}, source="llm"
+        )
 
         exp = _processes_by_subtype(state)["Exposure"][0]
         exp.set_fields_from_dict(
@@ -414,7 +423,7 @@ class TestTheExposureReachesItsCompounds:
             materialize_payload=False,
             include_all_scanned=False,
         )
-        return crate.metadata.generate()["@graph"]
+        return with_kinds(crate.metadata.generate()["@graph"])
 
     def test_the_condition_table_still_carries_the_compounds(self) -> None:
         """#285's guarantee, re-pointed by #650 and #783.
@@ -625,12 +634,16 @@ class TestExposureProducesTheExposedSample:
     """
 
     def _exposure_chain_state(self) -> tuple[CrateState, list[str]]:
-        from builder.tools.drafters import draft_molecular_entity
+        from builder.tools.drafters import draft_cell_line_sample, draft_molecular_entity
 
         state, assay_id = _scaffold()
         chem1 = draft_molecular_entity(state, "Methimazole", {"pubchem_cid": "1349907"})
         chem2 = draft_molecular_entity(state, "Sodium iodide", {"pubchem_cid": "5238"})
         draft_process_chain(state, assay_id, chain=_FULL_CHAIN)
+        line = draft_cell_line_sample(state, "HepG2", {}).entity_id
+        _processes_by_subtype(state)["TestSystemPreparation"][0].set_fields_from_dict(
+            {"cell_line": line}, source="llm"
+        )
 
         exp = _processes_by_subtype(state)["Exposure"][0]
         exp.set_fields_from_dict(
@@ -649,7 +662,7 @@ class TestExposureProducesTheExposedSample:
             materialize_payload=False,
             include_all_scanned=False,
         )
-        return crate.metadata.generate()["@graph"]
+        return with_kinds(crate.metadata.generate()["@graph"])
 
     @staticmethod
     def _process(graph: list[dict], subtype: str) -> dict:
@@ -792,7 +805,7 @@ class TestTheChainFlowsThroughTheExposure:
             materialize_payload=False,
             include_all_scanned=False,
         )
-        return crate.metadata.generate()["@graph"]
+        return with_kinds(crate.metadata.generate()["@graph"])
 
     @staticmethod
     def _process(graph: list[dict], subtype: str) -> dict:
@@ -968,7 +981,7 @@ def test_a_test_system_preparation_step_grows_the_cell_line() -> None:
     crate = assemble_crate(
         state, output_dir=None, materialize_payload=False, include_all_scanned=False
     )
-    by_id = {n["@id"]: n for n in crate.metadata.generate()["@graph"]}
+    by_id = {n["@id"]: n for n in with_kinds(crate.metadata.generate()["@graph"])}
 
     step = next(n for n in by_id.values() if n.get("name") == "Seed")
     assert step["additionalType"] == "TestSystemPreparation"
@@ -1017,7 +1030,7 @@ class TestTheExposureConsumesWhereThePreparationEnded:
         crate = assemble_crate(
             state, output_dir=None, materialize_payload=False, include_all_scanned=False
         )
-        return {n["@id"]: n for n in crate.metadata.generate()["@graph"]}
+        return {n["@id"]: n for n in with_kinds(crate.metadata.generate()["@graph"])}
 
     @staticmethod
     def _step(by_id: dict[str, dict], name: str) -> dict:

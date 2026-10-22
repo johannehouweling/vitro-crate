@@ -13,6 +13,13 @@ failure names the perturbation rather than the fixture.
 from __future__ import annotations
 
 from builder.state import CrateState, Entity, EntityProvenance
+from builder.tools.assessment_graph import with_kinds
+
+
+def _steps(crate, kind):
+    """The crate's steps of *kind*, read from their records as the reports read them (#799)."""
+    kinds = {n["@id"]: n.get("additionalType") for n in with_kinds(crate.metadata.generate()["@graph"])}
+    return [e for e in crate.get_entities() if kinds.get(e.id) == kind]
 from builder.tools.validation import build_and_validate
 
 
@@ -62,11 +69,7 @@ class TestExposureInputFloor:
             {"process_type": "Exposure", "name": "Amiodarone exposure"},
         )
         crate = assemble_crate(state, output_dir=None, materialize_payload=False)
-        node = next(
-            e
-            for e in crate.get_entities()
-            if e.properties().get("additionalType") == "Exposure"
-        )
+        node = _steps(crate, "Exposure")[0]
         objects = node.properties().get("input")
         assert objects, "Exposure emitted no schema:object at all"
         assert not isinstance(objects, str)
@@ -107,11 +110,7 @@ class TestEndpointReadoutInputFloor:
             {"process_type": "EndpointReadout", "name": "Viability readout"},
         )
         crate = assemble_crate(state, output_dir=None, materialize_payload=False)
-        node = next(
-            e
-            for e in crate.get_entities()
-            if e.properties().get("additionalType") == "EndpointReadout"
-        )
+        node = _steps(crate, "EndpointReadout")[0]
         assert node.properties().get("input") is not None
 
     def test_the_floor_never_displaces_the_exposed_sample(self):
@@ -179,8 +178,8 @@ class TestEndpointReadoutInputFloor:
             items = value if isinstance(value, list) else [value]
             return {i.get("@id") for i in items if isinstance(i, dict)}
 
-        readout = next(n for n in graph if n.get("additionalType") == "EndpointReadout")
-        exposure = next(n for n in graph if n.get("additionalType") == "Exposure")
+        readout = next(n for n in with_kinds(graph) if n.get("additionalType") == "EndpointReadout")
+        exposure = next(n for n in with_kinds(graph) if n.get("additionalType") == "Exposure")
         consumed = _ids(readout.get("input")) | _ids(readout.get("object"))
         exposed = _ids(exposure.get("output")) | _ids(exposure.get("result"))
         assert consumed & exposed, (
@@ -278,7 +277,7 @@ class TestEndpointReadoutInputFloor:
             items = value if isinstance(value, list) else [value]
             return {i.get("@id") for i in items if isinstance(i, dict)}
 
-        cultures = [n for n in graph if n.get("additionalType") == "TestSystemPreparation"]
+        cultures = [n for n in with_kinds(graph) if n.get("additionalType") == "TestSystemPreparation"]
         assert len(cultures) == 2, "the per-line split (#678) did not fire"
         produced = set()
         for culture in cultures:
@@ -371,7 +370,7 @@ class TestEndpointReadoutInputFloor:
             items = value if isinstance(value, list) else [value]
             return {i.get("@id") for i in items if isinstance(i, dict)}
 
-        readout = next(n for n in graph if n.get("additionalType") == "EndpointReadout")
+        readout = next(n for n in with_kinds(graph) if n.get("additionalType") == "EndpointReadout")
         consumed = _ids(readout.get("input")) | _ids(readout.get("object"))
         assert consumed == {"#Sample_own_material"}, consumed
 
@@ -616,10 +615,6 @@ class TestCultureMediumIsNotFabricated:
         Cosmetic while the fabricated default masked it - JSON-LD drops nulls -
         and reachable on the ordinary no-medium path once the default is gone.
         """
-        node = next(
-            e
-            for e in self._build({}).get_entities()
-            if e.properties().get("additionalType") == "TestSystemPreparation"
-        )
+        node = _steps(self._build({}), "TestSystemPreparation")[0]
 
         assert None not in (node.properties().get("parameter") or [])

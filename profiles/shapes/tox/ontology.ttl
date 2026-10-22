@@ -1,10 +1,11 @@
 # ISA-Tox RO-Crate Profile — ontology of validation-internal discriminated types.
 #
 # These tox: classes exist ONLY in the validation graph. They are inferred by the
-# HiddenShape/TripleRule rules in the entity files (keyed on schema:additionalType
-# / @type) and used as sh:targetClass anchors. They are NEVER serialized into a
-# crate: crate entities stay typed with Schema.org / Bioschemas + an additionalType
-# discriminator, matching the ISA convention, the paper's "no new RDF classes" in
+# HiddenShape/TripleRule rules in the entity files (keyed on a step's protocol type, a
+# Sample's sampleType, or the additionalType labels older crates carry) and used as
+# sh:targetClass anchors. They are NEVER serialized into a crate: crate entities stay
+# typed with Schema.org / Bioschemas and ontology terms (#799), matching the paper's
+# "no new RDF classes" in
 # the published crate, and the MIT crate_slot keying — except that the MIT slot for
 # the preparation step keeps its upstream name, LabProcessCellCulture. Each tox
 # process/sample type is declared a subclass of the corresponding isa-ro-crate
@@ -26,19 +27,25 @@ bioschemas:LabProcess rdf:type owl:Class ; rdfs:label "LabProcess"@en .
 bioschemas:MolecularEntity rdf:type owl:Class ; rdfs:label "MolecularEntity"@en .
 bioschemas:Sample rdf:type owl:Class ; rdfs:label "Sample"@en .
 
-# Cell-based test system: a bioschemas:Sample (additionalType "CellLine").
+# Cell-based test system: a bioschemas:Sample whose sampleType is NCIT:C16403 cell line.
 tox:CellLineSample rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Sample ;
     rdfs:comment "The cell-based test system (e.g., a cell line) in a toxicology study" ;
     rdfs:label "CellLineSample"@en .
 
-# Primary-cell test-system source: a bioschemas:Sample (additionalType "PrimaryCell").
+# Primary-cell test-system source: a bioschemas:Sample whose sampleType is EFO:0002660.
 tox:PrimaryCellSample rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Sample ;
     rdfs:comment "Cells taken directly from donor tissue as the test-system source in a toxicology study" ;
     rdfs:label "PrimaryCellSample"@en .
 
-# Workflow processes, discriminated by additionalType on a bioschemas:LabProcess.
+# Any test-system source: a bioschemas:Sample a test system preparation consumes.
+tox:TestSystemSource rdf:type owl:Class ;
+    rdfs:subClassOf isa-ro-crate:Sample ;
+    rdfs:comment "The cells a test system preparation starts from, whatever they state" ;
+    rdfs:label "TestSystemSource"@en .
+
+# Workflow processes, typed by the protocol type of the record a bioschemas:LabProcess executes.
 tox:LabProcessTestSystemPreparation rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Process ;
     rdfs:comment "A test system preparation process in a toxicology study" ;

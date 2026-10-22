@@ -31,6 +31,7 @@ import pytest
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.tools.assessment_graph import with_kinds
 from builder.tools._crate_mapping import populate_crate
 from builder.tools.validation import build_and_validate
 from profiles.context import ISA_TOX_CONTEXT
@@ -453,7 +454,7 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
         doc = self._document(_exposure_state())
         exposed = {
             i
-            for e in doc["@graph"]
+            for e in with_kinds(doc["@graph"])
             if e.get("additionalType") == "Exposure"
             for i in _ids(e.get("output"))
         }
@@ -523,11 +524,54 @@ class TestTheExposureProtocolShapes:
             ("required", True)
         ], "a reagent that is not a MolecularEntity names no compound"
 
+    @staticmethod
+    def _first_id(value) -> str:
+        return (value[0] if isinstance(value, list) else value)["@id"]
+
+    def test_a_step_is_known_by_its_protocol_type(self):
+        """#799: a step's tox class comes from its record's intendedUse, and the old
+        additionalType label is only an alias. Without the label a broken Exposure is
+        still caught; without the term the label alone still works; a term outside
+        the list of protocol types is a warning."""
+        doc = self._document()
+        by_id = _by_id(doc["@graph"])
+        exposure = by_id["#LabProcess_proc_exp"]
+        exposure.pop("additionalType", None)
+        for key in ("result", "output"):
+            exposure.pop(key, None)
+        rule = "Exposure process MUST have at least one schema:result"
+        assert [i.severity for i in self._findings(doc, rule)] == ["required"]
+        record = by_id[self._first_id(exposure["executesLabProtocol"])]
+        record["intendedUse"] = {"@id": "http://example.org/not-a-protocol-type"}
+        assert self._findings(doc, rule) == []
+        assert [i.severity for i in self._findings(doc, "protocol types")] == ["recommended"]
+        exposure["additionalType"] = "Exposure"
+        assert [i.severity for i in self._findings(doc, rule)] == ["required"]
+
+    def test_a_source_is_known_by_its_sample_type_or_by_what_consumes_it(self):
+        """#799: a test-system source is typed by sampleType. One stating none is still
+        a source, because a preparation step consumes it, so its sampleType MUST can
+        fire; a term outside the list of sample types is a warning."""
+        doc = self._document()
+        by_id = _by_id(doc["@graph"])
+        tsp = by_id["#LabProcess_proc_tsp"]
+        source = by_id[self._first_id(tsp.get("input") or tsp.get("object"))]
+        source.pop("additionalType", None)
+        assert self._findings(doc, "Cellosaurus"), "a cell line by its sampleType"
+        must = "MUST have a schema:sampleType"
+        assert self._findings(doc, must) == []
+        source["sampleType"] = {"@id": "http://example.org/not-a-sample-type"}
+        assert [i.severity for i in self._findings(doc, "sample types")] == ["recommended"]
+        del source["sampleType"]
+        assert [i.severity for i in self._findings(doc, must)] == ["required"]
+
     def test_a_second_protocol_warns_and_none_violates(self):
         doc = self._document()
         assert not self._findings(doc, "LabProtocol"), "the built crate executes one each"
         by_id = _by_id(doc["@graph"])
         exposure, culture = by_id["#LabProcess_proc_exp"], by_id["#LabProcess_proc_tsp"]
+        # A step with no record is typed by nothing but the old label (#799).
+        culture["additionalType"] = "TestSystemPreparation"
         exposure["executesLabProtocol"] = [
             exposure["executesLabProtocol"], culture.pop("executesLabProtocol")
         ]
