@@ -4,7 +4,7 @@ LLM-assisted builder for profile-conformant RO-Crates of in vitro toxicology dat
 
 [![CI](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml/badge.svg)](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml)
 
-The builder is a toolbox-based agent system that helps researchers create ISA-Tox profile-compliant RO-Crates. It ships **two first-class, LangChain-powered build architectures over the same toolbox** — entity drafting, lookups, validation, assessment: a **deterministic pipeline + HITL guidance tail** (the `--interactive` default — code owns the step ordering and the LLM is confined to bounded leaves), and a **ReAct agent loop** (`--react` — the LLM dynamically decides which tools to call based on the current state of the crate). Both are maintained; this is an ongoing exploration, not a one-way migration.
+The builder is a toolbox-based agent system that helps researchers create ISA-Tox profile-compliant RO-Crates. It ships LangChain-powered build architectures over the same toolbox — entity drafting, lookups, validation, assessment: a deterministic pipeline + HITL guidance tail (the `--interactive` default — code owns the step ordering and the LLM is confined to bounded leaves), and a ReAct agent loop (`--react` — the LLM dynamically decides which tools to call based on the current state of the crate). Both are maintained; this is an ongoing exploration, not a one-way migration.
 
 ---
 
