@@ -650,7 +650,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.output:
         engine.state.metadata.output_path = args.output
     elif args.input:
-        engine.state.metadata.output_path = str(_default_output_dir(args.input))
+        engine.state.metadata.output_path = str(
+            _default_output_dir(engine.state.metadata.input_path or args.input)
+        )
     elif args.resume and engine.state.metadata.output_path:
         # A continued session must never silently overwrite its previous crate.
         # Version the prior destination for each resumed export unless the user
