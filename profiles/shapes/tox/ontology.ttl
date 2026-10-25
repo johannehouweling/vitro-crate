@@ -45,6 +45,20 @@ tox:TestSystemSource rdf:type owl:Class ;
     rdfs:comment "The cells a test system preparation starts from, whatever they state" ;
     rdfs:label "TestSystemSource"@en .
 
+# The test system preparation types (#785): a published DefinedTermSet, not a class.
+# A step whose protocol record's intendedUse is one of its terms, stated in the crate
+# with inDefinedTermSet, is a test system preparation. The builder writes the same
+# terms (profiles.models.tox.PREPARATION_TYPES).
+tox:preparation-types rdf:type schema:DefinedTermSet ;
+    schema:name "ISA-Tox test system preparation types" ;
+    schema:hasDefinedTerm <http://www.ebi.ac.uk/efo/EFO_0003789> ,
+        <http://purl.obolibrary.org/obo/OBI_0001152> ,
+        <http://purl.obolibrary.org/obo/GO_0030154> .
+
+<http://www.ebi.ac.uk/efo/EFO_0003789> schema:name "growth protocol" .
+<http://purl.obolibrary.org/obo/OBI_0001152> schema:name "transfection" .
+<http://purl.obolibrary.org/obo/GO_0030154> schema:name "cell differentiation" .
+
 # Workflow processes, typed by the protocol type of the record a bioschemas:LabProcess executes.
 tox:LabProcessTestSystemPreparation rdf:type owl:Class ;
     rdfs:subClassOf isa-ro-crate:Process ;

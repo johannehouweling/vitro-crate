@@ -8,6 +8,7 @@
 
 @prefix bioschemas-prop: <https://bioschemas.org/properties/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix schema: <http://schema.org/> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 
 tox:LabProcessExecutesAProtocol a sh:NodeShape ;
@@ -45,13 +46,16 @@ tox:ProtocolRecordTypeIsKnown a sh:NodeShape ;
     sh:property [
         a sh:PropertyShape ;
         sh:path bioschemas-prop:intendedUse ;
-        sh:in (
-            <http://www.ebi.ac.uk/efo/EFO_0003789>
-            <http://purl.obolibrary.org/obo/OBI_0001152>
-            <http://www.ebi.ac.uk/efo/EFO_0003969>
-            <http://www.bioassayontology.org/bao#BAO_0000523>
-            <http://purl.obolibrary.org/obo/OBI_0200000>
+        sh:or (
+            [ sh:path schema:inDefinedTermSet ; sh:hasValue tox:preparation-types ]
+            [ sh:in (
+                <http://www.ebi.ac.uk/efo/EFO_0003789>
+                <http://purl.obolibrary.org/obo/OBI_0001152>
+                <http://www.ebi.ac.uk/efo/EFO_0003969>
+                <http://www.bioassayontology.org/bao#BAO_0000523>
+                <http://purl.obolibrary.org/obo/OBI_0200000>
+            ) ]
         ) ;
-        sh:message "A protocol record's intendedUse SHOULD be one of the ISA-Tox protocol types: growth protocol, transfection, treatment protocol, assay protocol or data transformation" ;
+        sh:message "A protocol record's intendedUse SHOULD be one of the ISA-Tox protocol types: a test system preparation type, treatment protocol, assay protocol or data transformation" ;
         sh:severity sh:Warning ;
     ] .

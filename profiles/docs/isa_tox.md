@@ -108,12 +108,13 @@ Protocol --isBasedOn--> DataFile
 >   material is constrained: at most one cell line, or two or more for a co-culture (#678).
 >
 > The four LabProcess shapes are **selected by the `intendedUse` of the protocol record a
-> step executes**: growth protocol EFO:0003789 or transfection OBI:0001152, treatment
+> step executes**: a term of the test system preparation types set, treatment
 > protocol EFO:0003969, assay protocol BAO:0000523, data transformation OBI:0200000. A
 > `LabProcess` whose record carries none of these is targeted by no tox shape and is
 > checked only by the base + ISA layers, and a type outside the list is a warning. The
 > `additionalType` labels older crates carry (`TestSystemPreparation`, `CellCulture`,
-> `Exposure`, `EndpointReadout`, `DataAnalysis`) are read as aliases. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
+> `Exposure`, `EndpointReadout`, `DataAnalysis`) are read as aliases, as are growth
+> protocol and transfection stated without the set. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
 > is reported but does not fail the CLI exit code (which tracks the base pass).
 
 ## Conformance
@@ -256,9 +257,18 @@ Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, n
 ### LabProcess - Test System Preparation
 
 Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.org/LabProcess) type
-([ISA LabProcess](isa.md#labprocess)), typed by its protocol record's `intendedUse`, growth protocol (EFO:0003789) or transfection
-(OBI:0001152), to represent preparation of the biological model from its source cells, such as its maintenance in
-culture.
+([ISA LabProcess](isa.md#labprocess)), typed by its protocol record's `intendedUse`, a term of the test system preparation types set, to represent
+preparation of the biological model from its source cells, such as its maintenance in culture. A test system may be
+prepared in several steps, each typed by what it does. A stably modified line is the source itself, not a step.
+
+The set is a [DefinedTermSet](https://schema.org/DefinedTermSet), `https://w3id.org/ro/crate/isa-tox/1.0/preparation-types`, published with this
+profile; the term states it with `inDefinedTermSet`:
+
+| Preparation type | Term |
+|------------------|------|
+|Culture, plating|[EFO:0003789](http://www.ebi.ac.uk/efo/EFO_0003789) *growth protocol*|
+|Transient transfection|[OBI:0001152](http://purl.obolibrary.org/obo/OBI_0001152) *transfection*|
+|Differentiation|[GO:0030154](http://purl.obolibrary.org/obo/GO_0030154) *cell differentiation*|
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -398,7 +408,7 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 
 | Step | intendedUse |
 |------|-------------|
-|Test System Preparation|[EFO:0003789](http://www.ebi.ac.uk/efo/EFO_0003789) *growth protocol*|
+|Test System Preparation|a term of the [test system preparation types](#labprocess---test-system-preparation) set|
 |Exposure|[EFO:0003969](http://www.ebi.ac.uk/efo/EFO_0003969) *treatment protocol*|
 |Endpoint Readout|[BAO:0000523](http://www.bioassayontology.org/bao#BAO_0000523) *assay protocol*|
 |Data Analysis|[OBI:0200000](http://purl.obolibrary.org/obo/OBI_0200000) *data transformation*: no protocol-type term exists, so the OBI process class stands in, as ISA's reference dataset BII-I-1 does for extraction|

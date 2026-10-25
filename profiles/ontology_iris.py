@@ -26,6 +26,7 @@ PREFIXES: dict[str, str] = {
     "EFO": "http://www.ebi.ac.uk/efo/EFO_",
     # OBO Foundry ontologies — canonical OBO PURLs
     "CHEBI": "http://purl.obolibrary.org/obo/CHEBI_",
+    "GO": "http://purl.obolibrary.org/obo/GO_",
     "IAO": "http://purl.obolibrary.org/obo/IAO_",
     "MSIO": "http://purl.obolibrary.org/obo/MSIO_",
     "NCIT": "http://purl.obolibrary.org/obo/NCIT_",
