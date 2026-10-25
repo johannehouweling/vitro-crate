@@ -2524,9 +2524,8 @@ def _render_chemicals_panel(inv: dict[str, Any]) -> tuple[str, str]:
             f'<p class="chem-warn">{_mk("no")}<span><b>{unreached} of {total} compounds '
             "cannot be reached from any process.</b> ISA forbids a MolecularEntity as a "
             "LabProcess <code>object</code>, so a compound is linked <em>through</em> the "
-            "Exposure&rsquo;s condition table — give the table an <code>about</code> "
-            "pointing at the compound (and the <code>compound</code> column a "
-            "<code>valueUrl</code>), or the substance stays described but unused.</span></p>"
+            "protocol the Exposure executes — list it as that protocol&rsquo;s "
+            "<code>reagent</code>, or the substance stays described but unused.</span></p>"
         )
     else:
         route_note = (
