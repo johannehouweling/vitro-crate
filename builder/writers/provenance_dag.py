@@ -11,10 +11,11 @@ This writer reads a serialized metadata document — the ``@graph`` from
 a Mermaid ``flowchart`` of that derivation chain, drawn **from real data** rather
 than by hand. It plots only the provenance subgraph: each ``LabProcess`` and the
 entities it consumes (``schema:object``) and produces (``schema:result``), plus
-the optional ``about`` / ``derivesFrom`` annotation edges that connect the
-compound (a ``MolecularEntity``, never a process object) through the condition
-table. Contextual entities off the chain (people, organisations, parameters,
-protocols) are deliberately excluded so the DAG stays a derivation graph.
+the ``about`` / ``derivesFrom`` annotation edges and the ``reagent`` of the
+protocol a step executes, which is how a compound (a ``MolecularEntity``, never a
+process object) enters the chain (#783). Contextual entities off the chain
+(people, organisations, parameters, protocols) are deliberately excluded so the
+DAG stays a derivation graph.
 
 The edge vocabulary mirrors ``builder.tools.provenance`` (``_INPUT_FIELDS`` /
 ``_OUTPUT_FIELDS``) and the ``@context`` aliases in ``profiles.context`` so the
@@ -650,8 +651,8 @@ def _derivation_edges(nodes: dict[str, Any]) -> list[tuple[str, str, str]]:
 def _route_hop_ids(process: str | None, via: str | None) -> list[str]:
     """The hops on a member's route back to a process, rightmost last.
 
-    Two hops for the indirect route a compound takes (``process --result-->
-    table --about--> compound``); one when a process references the member
+    Two hops for the indirect route a compound takes (``process --executes-->
+    protocol --reagent--> compound``); one when a process references the member
     itself (a ``TestSystemPreparation`` consuming its cell line) — drawing that process in
     both columns with a ``result`` edge between them would depict a step the
     crate does not contain; none when nothing links the member at all.
@@ -1521,19 +1522,21 @@ _EXTRA_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
 
 # Relations by which some other entity can point AT a compound, most canonical
 # first — the order decides which route is drawn when a compound is reachable
-# more than one way. ``about`` is the condition table's link, ``valueUrl`` the
-# per-well column link, ``mentions`` (which subsumes the ``chemicals`` alias) the
-# Study-level one; ``input``/``parameter`` are non-conformant but real, and a
-# crate that uses them should see them rather than be told it has no route.
+# more than one way. ``reagent`` is the link of the protocol an Exposure executes
+# (#783, #791); ``about`` and the per-well column's ``valueUrl`` are a data
+# table's, ``mentions`` (which subsumes the ``chemicals`` alias) the Study-level
+# one; ``input``/``parameter`` are non-conformant but real, and a crate that uses
+# them should see them rather than be told it has no route.
 _CHEM_LINK_RELATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (_REAGENT_KEYS, "reagent"),
     (_ABOUT_KEYS, "about"),
     (_VALUEURL_KEYS, "valueUrl"),
     (_MENTIONS_KEYS, "mentions"),
     (_INPUT_KEYS, "input"),
 ) + _EXTRA_LINK_RELATIONS
 # Containment relations walked *upward* from a referrer to the entity a process
-# actually produced: a `compound` column is owned by a csvw:Schema, which is the
-# tableSchema of the condition table, which is the Exposure's result.
+# produced: a `compound` column is owned by a csvw:Schema, which is the
+# tableSchema of a table, which a process may have produced.
 _CHEM_CONTAINMENT_KEYS: tuple[tuple[str, ...], ...] = (_TABLESCHEMA_KEYS, _COLUMNS_KEYS)
 _CHEM_ANCHOR_HOPS = 3
 
@@ -1693,13 +1696,15 @@ def _route_resolver(
     """Build ``resolve(member_id) -> route | None`` for a routed inventory.
 
     A *route* is how a reader gets from a ``LabProcess`` to the entity:
-    ``{process, via, link, edge}``. Some referrers are not themselves produced by
-    a process — a CSVW column is owned by a schema which is the ``tableSchema`` of
-    the table a process actually produced — so the referrer is walked up the
-    containment chain to the nearest process-produced ancestor before giving up.
+    ``{process, via, link, edge}``. A referrer counts when a process produced it
+    or executes it — a protocol whose ``reagent`` is the entity (#791). Others are
+    walked up the containment chain — a CSVW column is owned by a schema which is
+    the ``tableSchema`` of the table a process produced — to the nearest such
+    ancestor before giving up.
 
     ``process`` is ``None`` when the entity is referenced in-crate but by nothing
-    a process produced; the whole route is ``None`` when nothing references it.
+    a process produced or executes; the whole route is ``None`` when nothing
+    references it.
     """
     referrers = _referrers_to(nodes, member_ids, relations)
 
@@ -1707,14 +1712,14 @@ def _route_resolver(
     parents: dict[str, list[str]] = {}
     for nid, node in nodes.items():
         if _is_process(node):
-            for dst in _refs(node, _OUTPUT_KEYS):
+            for dst in _refs(node, _OUTPUT_KEYS + _PROTOCOL_KEYS):
                 producers.setdefault(dst, []).append(nid)
         for keys in _CHEM_CONTAINMENT_KEYS:
             for ref in _refs(node, keys):
                 parents.setdefault(ref, []).append(nid)
 
     def _anchor_of(ref_id: str) -> str | None:
-        """Nearest ancestor of *ref_id* (itself included) that a process produced."""
+        """Nearest ancestor of *ref_id* (itself included) a process produced or executes."""
         seen: set[str] = set()
         frontier = [ref_id]
         for _ in range(_CHEM_ANCHOR_HOPS + 1):
@@ -1829,8 +1834,9 @@ def build_chemical_inventory(
     """Model the crate's compounds: their route into the experiment + their identity.
 
     For every ``MolecularEntity`` the crate declares, resolve how it is reachable
-    from a ``LabProcess`` — normally ``process --result--> table --about--> compound``,
-    or via the condition table's ``compound`` column ``valueUrl`` — and how many
+    from a ``LabProcess`` — normally as a ``reagent`` of the protocol an Exposure
+    executes (#783), or through a table a process produced (``about``, or its
+    ``compound`` column's ``valueUrl``) — and how many
     of the identification fields (CAS / PubChem CID / DTXSID / InChIKey / SMILES /
     formula / mass) it actually carries.
 
@@ -1848,7 +1854,7 @@ def build_chemical_inventory(
         Each chemical: ``{id, label, tag, resolvable, identifiers, structure,
         met, total, state, route}`` where ``state`` is ``"wired"`` (reachable
         from a process), ``"mentioned"`` (referenced in-crate but by nothing a
-        process produced) or ``"unlinked"`` (referenced by nothing at all).
+        process produced or executes) or ``"unlinked"`` (referenced by nothing at all).
 
         ``groups`` are the diagram's route bands — compounds sharing the same
         ``(process, via)`` pair — ordered wired → mentioned → unlinked. ``counts``

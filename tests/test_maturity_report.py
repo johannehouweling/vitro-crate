@@ -2131,9 +2131,10 @@ class TestChemicalsSection:
     def test_unwired_compound_is_called_out_with_the_fix(self) -> None:
         page = self._page(wire=False)
         assert "1 of 1 compounds cannot be reached from any process." in page
-        # The callout names the actual remedy, not just the defect.
-        assert "condition table" in page
-        assert "<code>about</code>" in page
+        # The callout names the actual remedy, not just the defect: the link the
+        # builder writes (#791).
+        assert "protocol the Exposure executes" in page
+        assert "<code>reagent</code>" in page
         assert 'class="chem-flag"' in page
 
     def test_identification_is_scored_separately_from_wiring(self) -> None:

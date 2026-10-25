@@ -228,10 +228,11 @@ class TestSharedSelectors:
 def _chemicals_graph() -> dict:
     """A crate exercising all four ways a compound can (fail to) reach a process.
 
-    ``#c_about`` is wired the canonical way (Exposure → condition table →
-    ``about``); ``#c_valueurl`` only through the table's ``compound`` column
-    (table → tableSchema → columns → ``valueUrl``); ``#c_mentioned`` is named by
-    the Study but produced by nothing; ``#c_orphan`` is referenced by nobody.
+    ``#c_about`` is wired through a table the Exposure produced (``about``), the
+    route older crates use (the builder's is ``reagent``, #791); ``#c_valueurl``
+    only through the table's ``compound`` column (table → tableSchema → columns →
+    ``valueUrl``); ``#c_mentioned`` is named by the Study but produced by nothing;
+    ``#c_orphan`` is referenced by nobody.
     """
     return {
         "@graph": [
@@ -323,7 +324,7 @@ class TestBuildChemicalInventory:
 
     def test_classifies_every_route_state(self) -> None:
         chems = self._by_name(build_chemical_inventory(_chemicals_graph()))
-        # The canonical ISA route: the compound hangs off the Exposure's result.
+        # Through a table the Exposure produced.
         assert chems["Aflatoxin B1"]["state"] == "wired"
         # Reached only through the condition table's compound column.
         assert chems["Bisphenol A"]["state"] == "wired"
@@ -337,6 +338,32 @@ class TestBuildChemicalInventory:
         assert route["process"] == "#exposure"
         assert route["via"] == "#table"
         assert route["edge"] == "about"
+
+    def test_a_reagent_of_the_executed_protocol_is_wired(self, tmp_path) -> None:
+        """The builder's route (#791): Exposure → its protocol record → ``reagent``."""
+        state = _exposure_state()
+        state.add_entity(
+            Entity(
+                entity_id="chem_1",
+                type="MolecularEntity",
+                fields={"name": "Methimazole"},
+                _provenance=EntityProvenance(created_by="llm"),
+            )
+        )
+        exposure_entity = state.get_entity("proc_exp")
+        assert exposure_entity is not None
+        exposure_entity.fields["chemicals"] = "chem_1"
+        crate = ROCrate()
+        crate.metadata.extra_contexts = ISA_TOX_CONTEXT
+        populate_crate(state, crate, tmp_path, materialize_payload=False)
+        graph = crate.metadata.generate()["@graph"]
+        exposure = next(n for n in graph if n.get("name") == "Exposure step")
+
+        chem = self._by_name(build_chemical_inventory(graph))["Methimazole"]
+        assert chem["state"] == "wired", chem["route"]
+        assert chem["route"]["process"] == exposure["@id"]
+        assert chem["route"]["via"] == exposure["executesLabProtocol"]["@id"]
+        assert chem["route"]["edge"] == "reagent"
 
     def test_valueurl_route_walks_the_csvw_containment_chain(self) -> None:
         # column → schema → table → the process that produced it: the compound is
