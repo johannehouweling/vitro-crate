@@ -3656,6 +3656,14 @@ never perturb the built `@graph`:
   so the wiring is unit-tested with no disk / no SHACL (`tests/test_agents_build.py`,
   `tests/test_agents_pipeline.py`).
 
+**Console notices are user copy (#813).** An interactive session routes every log
+record at INFO or above to the console as a dim `·` line (`main.py` installs
+`ui.NoticeHandler` at INFO), so such a record is written for the person running the
+build: plain English, with no issue numbers, hedged plurals (`file(s)`) or module
+tags (`guidance:`), and a count after a label (`Files attached: 91`). What only a
+developer needs is logged at DEBUG and shown with `-v`.
+`tests/test_log_lines_are_user_copy.py` holds the rule.
+
 **Output location (CLI, `main.py`).** The on-disk destination is resolved at
 dispatch time with this precedence (#233, #315):
 
