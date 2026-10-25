@@ -1188,6 +1188,33 @@ def extract_deposit_doi(text: str) -> str | None:
     return None
 
 
+def extract_deposit_identity(text: str) -> tuple[str | None, str | None] | None:
+    """The ``(title, accession)`` a structured metadata document states for itself (#722).
+
+    Read from the top level only: a BioStudies descriptor states them as its ``accno``
+    and a ``Title`` attribute, a datapackage or DataCite record as ``title`` and
+    ``accession`` fields. A nested section or publication names something else.
+    """
+    parsed = _parse_structured(text)
+    if not isinstance(parsed, dict):
+        return None
+
+    def _text(value: Any) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    attributes = parsed.get("attributes")
+    title = next(
+        (
+            _text(a.get("value"))
+            for a in (attributes if isinstance(attributes, list) else [])
+            if isinstance(a, dict) and _text(a.get("name")).casefold() == "title"
+        ),
+        "",
+    ) or _text(parsed.get("title"))
+    accession = _text(parsed.get("accno")) or _text(parsed.get("accession"))
+    return (title or None, accession or None) if title or accession else None
+
+
 def extract_deposit_licence(text: str, *, filename: str = "") -> str | None:
     """The licence a structured metadata document declares (#535).
 

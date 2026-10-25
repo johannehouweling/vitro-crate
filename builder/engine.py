@@ -416,6 +416,56 @@ def _read_declared_licence(engine: AgentEngine) -> None:
     logger.info("Read the licence the deposit declares from %s: %s", path, licence)
 
 
+def _shallowest_declaration(engine: AgentEngine, extract: Any) -> Any:
+    """What *extract* reads from the shallowest metadata document declaring anything.
+
+    A file at the deposit root describes the deposit, while a bundled record four
+    directories down describes itself. ``None`` when no document declares it.
+    """
+    from builder.tools.file_readers import read_file
+
+    root = engine.state.metadata.input_path or ""
+    found: list[tuple[int, str, Any]] = []
+    for candidate in engine.state.scanned_files:
+        path = str(getattr(candidate, "path", "") or "")
+        if not _may_declare_a_licence(path):
+            continue
+        try:
+            text = read_file(path)
+        except Exception:  # noqa: BLE001 — an unreadable file is simply not the one
+            continue
+        value = extract(text or "")
+        if not value:
+            continue
+        try:
+            depth = len(Path(path).resolve().relative_to(Path(root).resolve()).parts)
+        except (ValueError, OSError):
+            depth = len(Path(path).parts)
+        found.append((depth, path, value))
+    if not found:
+        return None
+    _depth, path, value = min(found, key=lambda f: (f[0], f[1]))
+    logger.info("Read %s from %s", value, path)
+    return value
+
+
+def _read_declared_identity(engine: AgentEngine) -> None:
+    """Read the title and accession the deposit declares, as the DOI is read (#722).
+
+    DSM-1-R0 asks for an identifiable dataset descriptor, which the session title is,
+    and nothing wrote it on a pipeline build: every one sat at level 0 under the
+    scaffold's placeholder name. A value already set is left alone.
+    """
+    from builder.tools.file_readers import extract_deposit_identity
+
+    metadata = engine.state.metadata
+    if metadata.title and metadata.accession:
+        return
+    title, accession = _shallowest_declaration(engine, extract_deposit_identity) or (None, None)
+    metadata.title = metadata.title or title
+    metadata.accession = metadata.accession or accession
+
+
 def _read_declared_doi(engine: AgentEngine) -> None:
     """Read the DOI the deposit declares, before anyone mints an identifier (#682).
 
@@ -432,36 +482,11 @@ def _read_declared_doi(engine: AgentEngine) -> None:
     describes the deposit, while a bundled record four directories down describes
     itself. A DOI already set — by a resumed session, or by the model — is left alone.
     """
-    from builder.tools.file_readers import extract_deposit_doi, read_file
+    from builder.tools.file_readers import extract_deposit_doi
 
     metadata = engine.state.metadata
-    if metadata.doi:
-        return
-
-    root = metadata.input_path or ""
-    found: list[tuple[int, str, str]] = []
-    for candidate in engine.state.scanned_files:
-        path = str(getattr(candidate, "path", "") or "")
-        if not _may_declare_a_licence(path):
-            continue
-        try:
-            text = read_file(path)
-        except Exception:  # noqa: BLE001 — an unreadable file is simply not the one
-            continue
-        doi = extract_deposit_doi(text or "")
-        if not doi:
-            continue
-        try:
-            depth = len(Path(path).resolve().relative_to(Path(root).resolve()).parts)
-        except (ValueError, OSError):
-            depth = len(Path(path).parts)
-        found.append((depth, path, doi))
-
-    if not found:
-        return
-    _depth, path, doi = min(found)
-    metadata.doi = doi
-    logger.info("Read the DOI the deposit declares from %s: %s", path, doi)
+    if not metadata.doi:
+        metadata.doi = _shallowest_declaration(engine, extract_deposit_doi)
 
 
 class AgentEngine:
@@ -566,6 +591,10 @@ class AgentEngine:
                         _read_declared_doi(self)
                     except Exception as exc:  # noqa: BLE001 — best-effort, like the licence
                         logger.warning("Reading the declared DOI failed: %s", exc)
+                    try:
+                        _read_declared_identity(self)
+                    except Exception as exc:  # noqa: BLE001 — best-effort, like the DOI
+                        logger.warning("Reading the declared title failed: %s", exc)
             else:
                 logger.warning(
                     "Refusing to initialize scan on forbidden input path: %s", input_path
