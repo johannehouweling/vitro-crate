@@ -371,7 +371,7 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
 
         seen: dict[str, object] = {}
 
-        def fake_select(choices: list[str], default: int) -> int:
+        def fake_select(choices: list[str], default: int, _keys: str | None) -> int:
             seen["choices"] = list(choices)
             seen["default"] = default
             return 0
@@ -388,7 +388,7 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
         shown: list[str] = []
         human = ConsoleHumanInterface(
             show_func=shown.append,
-            select_func=lambda choices, _default: len(choices) - 1,
+            select_func=lambda choices, _default, _keys: len(choices) - 1,
             prompt_func=lambda _ft: "  The corresponding author, not the PI  ",
         )
 
@@ -407,7 +407,7 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
 
         seen: dict[str, list[str]] = {}
 
-        def fake_select(choices: list[str], default: int) -> int:
+        def fake_select(choices: list[str], default: int, _keys: str | None) -> int:
             seen["choices"] = list(choices)
             return len(choices) - 1
 
@@ -421,7 +421,7 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
 
     def test_an_empty_typed_answer_is_a_skip(self):
         human = ConsoleHumanInterface(
-            select_func=lambda choices, _default: len(choices) - 1,
+            select_func=lambda choices, _default, _keys: len(choices) - 1,
             prompt_func=lambda _ft: "   ",
         )
         assert human.present("Proceed?") == {"action": "skipped", "comments": None, "edits": None}
@@ -431,29 +431,58 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
             raise EOFError
 
         human = ConsoleHumanInterface(
-            select_func=lambda choices, _default: len(choices) - 1, prompt_func=_raise
+            select_func=lambda choices, _default, _keys: len(choices) - 1, prompt_func=_raise
         )
         assert human.present("Proceed?")["action"] == "skipped"
         assert human.is_done()
 
     def test_a_typed_stop_word_ends_guidance(self):
         human = ConsoleHumanInterface(
-            select_func=lambda choices, _default: len(choices) - 1,
+            select_func=lambda choices, _default, _keys: len(choices) - 1,
             prompt_func=lambda _ft: "build",
         )
         assert human.present("Proceed?")["action"] == "skipped"
         assert human.is_done()
 
-    def test_the_stop_row_ends_guidance(self):
-        """#811: the row every deposit-backed question offers ends the questions."""
-        from builder.tools.hitl import STOP_CHOICE
+    def test_ctrl_d_in_a_guidance_box_ends_guidance(self):
+        """#813: Ctrl+D takes the place of a stop row; the box raises EOFError, as input() does."""
+        from builder.tools.hitl import GUIDANCE_PURPOSE
 
-        human = ConsoleHumanInterface(
-            select_func=lambda choices, _default: choices.index(STOP_CHOICE),
-            prompt_func=lambda _ft: "",
-        )
-        assert human.present("Duration?", ["2 h  (from SOP.docx)", STOP_CHOICE])["action"] == "skipped"
+        def _ctrl_d(_choices: list[str], _default: int, _keys: str | None) -> int:
+            raise EOFError
+
+        human = ConsoleHumanInterface(select_func=_ctrl_d)
+        resp = human.present("Duration?", ["2 h  (from SOP.docx)"], GUIDANCE_PURPOSE)
+        assert resp["action"] == "skipped"
         assert human.is_done()
+
+    def test_esc_in_a_guidance_box_skips_and_elsewhere_still_declines(self):
+        """#813: Esc takes the place of a skip row."""
+        from builder.tools.hitl import GUIDANCE_PURPOSE
+
+        human = ConsoleHumanInterface(select_func=lambda _choices, _default, _keys: None)
+        resp = human.present("Duration?", ["2 h  (from SOP.docx)"], GUIDANCE_PURPOSE)
+        assert resp["action"] == "skipped"
+        assert not human.is_done()
+        assert human.present("Proceed?")["action"] == "rejected"
+
+    def test_a_guidance_box_names_its_keys_and_other_boxes_keep_their_own(self):
+        from builder.tools.hitl import GUIDANCE_PURPOSE
+
+        shown: list[str | None] = []
+
+        def fake_select(_choices: list[str], default: int, keys: str | None) -> int:
+            shown.append(keys)
+            return default
+
+        human = ConsoleHumanInterface(select_func=fake_select)
+        human.present("Duration?", ["2 h  (from SOP.docx)"], GUIDANCE_PURPOSE)
+        human.present("Proceed?")
+
+        guidance_keys, other_keys = shown
+        assert guidance_keys is not None
+        assert "esc skip" in guidance_keys and "ctrl+d build now" in guidance_keys
+        assert other_keys is None
 
     def test_a_scan_root_escalation_stays_a_plain_allow_or_deny(self):
         """Widening filesystem access is one fail-closed decision, never prose (#197)."""
@@ -461,7 +490,7 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
 
         seen: dict[str, list[str]] = {}
 
-        def fake_select(choices: list[str], default: int) -> int:
+        def fake_select(choices: list[str], default: int, _keys: str | None) -> int:
             seen["choices"] = list(choices)
             return default
 

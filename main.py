@@ -596,8 +596,8 @@ def main(argv: list[str] | None = None) -> int:
                 show_func=lambda text: ui.get_console().print(ui.render_reply(text)),
                 # Decisions render as the same rounded box as free text, with the
                 # expected answer pre-selected and arrow keys to change it.
-                select_func=lambda choices, default: ui.select_option(
-                    ui.get_console(), choices, default=default
+                select_func=lambda choices, default, keys: ui.select_option(
+                    ui.get_console(), choices, default=default, keys=keys
                 ),
                 # Questions whose honest answer is several of the choices get a
                 # checkbox box instead — space toggles, enter confirms the set.

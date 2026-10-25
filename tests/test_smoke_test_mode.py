@@ -75,13 +75,17 @@ class TestConfirmsThePreSelection:
         assert resp["action"] == "approved"
 
     def test_draft_confirmation_approves(self):
-        """The guidance tail's draft-confirm prompt offers ``["approve", "reject"]``.
+        """The guidance tail's draft-confirm prompt offers a yes and a no sentence.
 
         Confirming its pre-selection is what lets a drafted value commit and the
         loop advance to the next gap — the path the mode exists to walk.
         """
+        from builder.tools.hitl import GUIDANCE_PURPOSE
+
         resp = SmokeTestHumanInterface().present(
-            "Approve to commit this drafted value", options=["approve", "reject"]
+            "Drafted value: A study of uptake.",
+            options=["Yes, use this value", "No, not this one"],
+            purpose=GUIDANCE_PURPOSE,
         )
         assert resp["action"] == "approved"
 

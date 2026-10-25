@@ -1495,6 +1495,7 @@ def select_option(
     *,
     default: int = 0,
     hint: str | None = None,
+    keys: str | None = None,
     on_render: Callable[[], None] | None = None,
 ) -> int | None:
     """Choose one of *options* in a rounded box; return its index (``None`` = cancel).
@@ -1516,11 +1517,16 @@ def select_option(
             must fail closed (a filesystem-scope escalation) pass the denying
             option here so Enter cannot widen access by accident.
         hint: Optional one-line prompt shown above the choices.
+        keys: What Esc and Ctrl+D do, for the help line under the box
+            (``"esc skip · ctrl+d build now"``); ``None`` shows ``esc cancel``.
         on_render: Called after every repaint (the pinned footer's refresh).
 
     Returns:
         The selected index, or ``None`` when the user cancelled (Ctrl+C / Esc)
         or gave no answer.
+
+    Raises:
+        EOFError: on Ctrl+D, matching ``input()`` and :func:`boxed_input`.
     """
     if not options:
         return None
@@ -1563,6 +1569,7 @@ def select_option(
         return _fallback()
 
     cursor = {"index": default}
+    outcome: dict[str, Any] = {"eof": False}
 
     kb = KeyBindings()
 
@@ -1583,6 +1590,11 @@ def select_option(
     @kb.add("c-c")
     @kb.add("escape", eager=True)
     def _(event: Any) -> None:
+        event.app.exit(result=None)
+
+    @kb.add("c-d")
+    def _(event: Any) -> None:
+        outcome["eof"] = True
         event.app.exit(result=None)
 
     for position in range(min(len(options), 9)):
@@ -1632,7 +1644,12 @@ def select_option(
             Window(FormattedTextControl(_hline("╰", "╯")), height=1),
             Window(
                 FormattedTextControl(
-                    [("class:help", "  ↑/↓ move · enter select · 1-9 jump · esc cancel")]
+                    [
+                        (
+                            "class:help",
+                            f"  ↑/↓ move · enter select · 1-9 jump · {keys or 'esc cancel'}",
+                        )
+                    ]
                 ),
                 height=1,
             ),
@@ -1670,6 +1687,8 @@ def select_option(
     except Exception:
         return _fallback()
 
+    if outcome["eof"]:
+        raise EOFError
     if chosen is None:
         return None
     # The box was ephemeral — echo the choice so the transcript records it.
