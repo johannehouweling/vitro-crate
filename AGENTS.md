@@ -3416,11 +3416,19 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   names share with the step's; the deposit's own description first otherwise) are
   read by `extract_field_with_quote`, and a value counts only when the passage it
   quotes is in that file. No value means no question: the gap stays in the report.
-  Otherwise the gap is ONE multiple-choice question, each value shown with the file
-  it came from, then `SKIP_CHOICE` and `STOP_CHOICE` (which ends guidance), beside
-  the console's own typed-answer row. A picked value is committed; a typed answer is
-  interpreted once and never followed by another question. A session with no scanned
-  deposit keeps the exchange below, because there is nothing to read.
+  Otherwise the gap is ONE multiple-choice question whose rows are answers only: each
+  value with the file it came from, then the console's own typed-answer row. Skipping
+  and stopping are keys, not rows: a `GUIDANCE_PURPOSE` box skips the question on Esc,
+  ends guidance on Ctrl+D, and names both on its help line (#813). A picked value is
+  committed; a typed answer is interpreted once and never followed by another
+  question. A session with no scanned deposit keeps the exchange below, because there
+  is nothing to read.
+
+  **Nothing is asked whose answer could not be stored (#813).** An identifier is
+  looked up, never typed (D5), and a field that must name an entity takes words only
+  where a route resolves them (a person, the root citation, a Key Event, a
+  measurement method). `_answer_can_be_stored` holds those field-level refusals of
+  `_apply_value`, and every ask path checks it before asking.
 
   **The per-gap LLM exchange (#244).** When a provider is configured (gated on
   `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a

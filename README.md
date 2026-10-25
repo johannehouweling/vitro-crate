@@ -133,8 +133,8 @@ uv run python -m main --interactive -i /path/to/experiment/
 #
 # Before it asks you anything, the pipeline looks for the answer in the folder's own
 # documents. You pick from what it found, each option naming the file it came from,
-# or type your own; "Skip this question" and "Stop asking and build the crate" are
-# always offered. What the folder does not state is not asked.
+# or type your own. Esc skips a question; Ctrl+D stops the questions and builds the
+# crate. What the folder does not state is not asked.
 
 # Specify provider / model / endpoint:
 uv run python -m main --interactive --provider openai --model gpt-4o-mini

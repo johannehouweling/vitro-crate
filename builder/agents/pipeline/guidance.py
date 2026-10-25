@@ -120,7 +120,7 @@ from builder.tools.field_kinds import (
     is_resolvable_reference,
 )
 from builder.tools.gap_analysis import REPORT_ONLY, Gap, assess_gaps
-from builder.tools.hitl import SKIP_CHOICE, STOP_CHOICE
+from builder.tools.hitl import GUIDANCE_PURPOSE
 
 # (#275) The ORCID lookup, re-exported at module scope as the single stable
 # monkeypatch target for tests. A person/agent-typed gap (creator/author/…)
@@ -1379,11 +1379,10 @@ def _deposit_options(
 
     Each value is read from one of :func:`_gap_documents` by the bounded extraction
     leaf and kept only when the passage it quotes is in that file, so a value the
-    model made up never reaches the user as an option (#811). Identifier fields get
-    none: identifiers come from lookups (D5).
+    model made up never reaches the user as an option (#811).
     """
     field = _local_name(gap.property) or (gap.property or "")
-    if extract_field_with_quote is None or _is_identifier_field(field):
+    if extract_field_with_quote is None:
         return []
     context = _gap_context(engine, gap)
     found: dict[str, str] = {}
@@ -1414,10 +1413,10 @@ def _ask_from_the_deposit(
     """Ask ``gap`` as one multiple-choice question built from the deposit (#811).
 
     The options are what the deposit states (:func:`_deposit_options`), each named
-    with its file, then :data:`SKIP_CHOICE` and :data:`STOP_CHOICE`; the console adds
-    its own "type an answer" row. With no option nothing is asked: the gap stays in
-    the report. A picked option is the value; a typed answer is interpreted once and
-    never followed by another question.
+    with its file, and nothing else: the console adds its own "type an answer" row,
+    and skips or stops on a key (:data:`GUIDANCE_PURPOSE`, #813). With no option
+    nothing is asked: the gap stays in the report. A picked option is the value; a
+    typed answer is interpreted once and never followed by another question.
     """
     options = _deposit_options(engine, gap, usage_sink=usage_sink, overrides=overrides)
     if not options:
@@ -1427,7 +1426,7 @@ def _ask_from_the_deposit(
     question = _phrase_question(
         engine, gap, usage_sink=usage_sink, overrides=overrides, choices_shown=True
     )
-    decision = human.present(question, [*labels, SKIP_CHOICE, STOP_CHOICE])
+    decision = human.present(question, labels, purpose=GUIDANCE_PURPOSE)
     picked = decision.get("comments")
     if decision.get("action") == "approved" and picked in labels:
         value, source = options[labels.index(picked)]
@@ -1445,6 +1444,27 @@ def _ask_from_the_deposit(
         )
     value = reply.get("value") if reply.get("action") == "commit" else None
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _answer_can_be_stored(engine: AgentEngine, gap: Gap) -> bool:
+    """Whether :func:`_apply_value` could store an answer to ``gap`` (#813).
+
+    An identifier is looked up, never typed (D5), and a field that must name an
+    entity takes words only where a route resolves them: a person, the root
+    citation, a Key Event, a measurement method. These are the refusals that depend
+    on the field alone; one that depends on the crate (several entries of a type)
+    is still met at commit.
+    """
+    field = _local_name(gap.property) or (gap.property or "")
+    if _is_identifier_field(field):
+        return False
+    return (
+        not is_reference_field(field)
+        or _is_person_field(field)
+        or (_is_citation_field(field) and _gap_is_root(engine, gap))
+        or _is_key_event_gap(gap)
+        or field == "measurementMethod"
+    )
 
 
 def _resolve_ask_user(
@@ -1476,7 +1496,14 @@ def _resolve_ask_user(
     A free-text musing therefore can never become a field value (D5). With **no
     provider** configured this degrades to the deterministic :func:`_ask_user`
     (today's ask-and-set behavior), keeping offline runs deterministic.
+
+    Nothing is asked when the answer could not be stored
+    (:func:`_answer_can_be_stored`, #813).
     """
+    if not _answer_can_be_stored(engine, gap):
+        logger.debug("guidance: an answer to %s could not be stored; not asked.", gap.property)
+        return None
+
     # No provider -> deterministic ask-and-set (offline determinism, #244).
     # The reply goes through `_deterministic_decision` rather than straight back:
     # that is where the D5 identifier skip lives, and routing around it (#375) made
@@ -1638,21 +1665,15 @@ def _resolve_from_file(
     2. read the first one INSIDE an approved scan root (:func:`_read_pointed_file`)
        — one bounded read; an unreadable / outside-root file gracefully skips;
     3. extract the requested field's value from the file text via the bounded
-       :func:`extract_field_from_file` leaf (a flaky leaf -> skip, never crashes);
-    4. D5: never return a value for an identifier-bearing field — those come from
-       lookups, not file text — so an identifier gap always skips here.
+       :func:`extract_field_from_file` leaf (a flaky leaf -> skip, never crashes).
+
+    An identifier gap never reaches here: :func:`_resolve_ask_user` does not ask
+    it (:func:`_answer_can_be_stored`, D5).
 
     The user's reply prose is NEVER stored: only a value the leaf extracts from the
     file's text is returned.
     """
     field = _local_name(gap.property) or (gap.property or "")
-    # D5: identifiers come from lookups, never extracted from a file's prose.
-    if _is_identifier_field(field):
-        logger.info(
-            "guidance: from_file for identifier field %s -> skip (lookups only, D5).",
-            field,
-        )
-        return None
 
     if extract_field_from_file is None:  # pragma: no cover — provider gated elsewhere
         return None
@@ -1914,11 +1935,9 @@ def _resolve_gap(
         candidate = _drafted_value(engine, gap, usage_sink=usage_sink)
         if candidate is not None:
             decision = human.present(
-                context=(
-                    f"{gap.message}\n\nDrafted value:\n{candidate}\n\n"
-                    "Approve to commit this drafted value, or reject to enter your own."
-                ),
-                options=["approve", "reject"],
+                context=f"{gap.message}\n\nDrafted value:\n{candidate}",
+                options=["Yes, use this value", "No, not this one"],
+                purpose=GUIDANCE_PURPOSE,
             )
             action = decision.get("action")
             if action == "skipped":

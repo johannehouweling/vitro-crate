@@ -126,6 +126,12 @@ class MultiChoiceResponse(TypedDict):
 # the approver for filesystem access (fail-closed, #197).
 SCAN_ROOT_PURPOSE = "scan_root"
 
+# ``purpose`` of a guidance-tail question (#813). Its rows are answers only: the
+# console skips the question on Esc and ends the questions on Ctrl+D, and says so
+# on the box's help line (:data:`_GUIDANCE_KEYS`).
+GUIDANCE_PURPOSE = "guidance"
+_GUIDANCE_KEYS = "esc skip · ctrl+d build now"
+
 
 @runtime_checkable
 class HumanInterface(Protocol):
@@ -263,11 +269,6 @@ _DENY_ALLOW_CHOICES = ["No, keep the current access", "Yes, allow this folder"]
 # the pre-selected row and the number keys of the offered choices are unchanged.
 OWN_ANSWER_CHOICE = "Something else — let me type an answer"
 
-# The rows every deposit-backed guidance question offers beside the options it
-# found (#811): one skips the question, the other ends the questions and builds.
-SKIP_CHOICE = "Skip this question"
-STOP_CHOICE = "Stop asking and build the crate"
-
 _AFFIRMATIVE = {"y", "yes", "approve", "approved", "ok", "okay", "confirm", "continue"}
 _NEGATIVE = {"n", "no", "reject", "rejected", "deny", "decline", "cancel"}
 
@@ -357,12 +358,15 @@ def match_choice(raw: str, choices: list[str], default: int) -> int | None:
     return None
 
 
-def _default_console_select(choices: list[str], default: int) -> int | None:
+def _default_console_select(
+    choices: list[str], default: int, _keys: str | None = None
+) -> int | None:
     """Plain-terminal chooser — the default when no UI selector is injected.
 
     Prints the numbered choices with the default marked and reads one line;
-    empty takes the default. The CLI injects the arrow-navigable rounded box
-    (:func:`builder.agents.ui.select_option`) instead.
+    empty takes the default. It reads a line, so it has no keys to name. The CLI
+    injects the arrow-navigable rounded box (:func:`builder.agents.ui.select_option`)
+    instead.
     """
     for index, choice in enumerate(choices, start=1):
         marker = "❯" if index - 1 == default else " "
@@ -429,7 +433,7 @@ class ConsoleHumanInterface:
         self,
         prompt_func: Callable[[str], str] | None = None,
         show_func: Callable[[str], None] | None = None,
-        select_func: Callable[[list[str], int], int | None] | None = None,
+        select_func: Callable[[list[str], int, str | None], int | None] | None = None,
         select_many_func: Callable[[str, list[str]], list[int] | None] | None = None,
     ) -> None:
         """Build the interface, optionally injecting the prompt reader + display.
@@ -443,8 +447,10 @@ class ConsoleHumanInterface:
                 Defaults to :func:`_default_console_show` (a plain ``print``). The
                 CLI passes a renderer that styles it as a green-● reply
                 (:func:`builder.agents.ui.render_reply`).
-            select_func: A ``(choices, default_index) -> index | None`` chooser
-                used by :meth:`present`. Defaults to
+            select_func: A ``(choices, default_index, keys) -> index | None``
+                chooser used by :meth:`present`; ``keys`` names what Esc and
+                Ctrl+D do when they mean more than "cancel" (``None`` otherwise),
+                and raising ``EOFError`` is Ctrl+D. Defaults to
                 :func:`_default_console_select` (numbered lines + ``input()``).
                 The CLI passes the arrow-navigable rounded box
                 (:func:`builder.agents.ui.select_option`), so a decision and a
@@ -457,7 +463,7 @@ class ConsoleHumanInterface:
         """
         self._read: Callable[[str], str] = prompt_func or _default_console_prompt
         self._show: Callable[[str], None] = show_func or _default_console_show
-        self._select: Callable[[list[str], int], int | None] = (
+        self._select: Callable[[list[str], int, str | None], int | None] = (
             select_func or _default_console_select
         )
         self._select_many: Callable[[str, list[str]], list[int] | None] = (
@@ -480,7 +486,6 @@ class ConsoleHumanInterface:
             "build",
             "build the crate",
             "build the rocrate",
-            STOP_CHOICE.casefold(),
         }
         return normalized in stop_words or normalized.startswith("can you stop here")
 
@@ -505,6 +510,10 @@ class ConsoleHumanInterface:
         caller that only knows its offered rows sees neither an approval nor a
         rejection it was not given. An empty line there is a skip.
 
+        A :data:`GUIDANCE_PURPOSE` question offers answers only (#813): Esc skips
+        it, Ctrl+D also ends the questions (:meth:`is_done`), and the box's help
+        line says so. Anywhere else Esc declines.
+
         Fail-closed is preserved for a scan-root escalation: its default lands on
         the denying choice, so an accidental Enter never widens filesystem
         access. It is also the one prompt whose choices are stated as an explicit
@@ -512,6 +521,7 @@ class ConsoleHumanInterface:
         because widening access is a decision, not prose (#197).
         """
         deny_by_default = purpose == SCAN_ROOT_PURPOSE
+        guidance = purpose == GUIDANCE_PURPOSE
         choices = list(options or [])
         if not choices:
             choices = _DENY_ALLOW_CHOICES if deny_by_default else _APPROVE_CHOICES
@@ -526,7 +536,12 @@ class ConsoleHumanInterface:
         # is not fighting a Rich Live repaint (ReAct loop scan-root approval).
         with suspend_console_animation():
             self._show(context)
-            chosen = self._select(choices, default_index)
+            try:
+                chosen = self._select(choices, default_index, _GUIDANCE_KEYS if guidance else None)
+            except EOFError:
+                # Ctrl+D: stop asking, as EOF does in the text box.
+                self._done = True
+                chosen = None
             if own_answer and chosen == len(choices) - 1:
                 typed = self._read_answer("text")
                 if typed is None:
@@ -534,8 +549,10 @@ class ConsoleHumanInterface:
                 return {"action": "edited", "comments": typed, "edits": {"value": typed}}
 
         if chosen is None:
-            # Cancelled / EOF: decline without ending guidance, and fail closed.
-            return {"action": "rejected", "comments": None, "edits": None}
+            # Esc or Ctrl+D: a guidance question is skipped; anything else
+            # declines, failing closed.
+            action = "skipped" if guidance else "rejected"
+            return {"action": action, "comments": None, "edits": None}
         answer = choices[chosen]
         if self._is_stop_command(answer):
             self._done = True
@@ -953,12 +970,11 @@ def request_input(
 
 __all__ = [
     "CONVERSATION_FIELD_TYPE",
+    "GUIDANCE_PURPOSE",
     "OWN_ANSWER_CHOICE",
     "SCAN_ROOT_PURPOSE",
-    "SKIP_CHOICE",
     "SMOKE_TEST_ANSWER",
     "SMOKE_TEST_CONVERSATION_TURNS",
-    "STOP_CHOICE",
     "SYNTHETIC_ANSWER_NOTICE",
     "ConsoleHumanInterface",
     "HumanInterface",

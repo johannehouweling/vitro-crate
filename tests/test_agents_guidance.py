@@ -22,6 +22,8 @@ lookups so there is NO network and NO real LLM call.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from builder.engine import AgentEngine
@@ -377,6 +379,12 @@ class TestDraftable:
         # The drafter was consulted and the user CONFIRMED before committing (D5).
         assert called.get("entity_type") == "Study"
         assert human.presented, "a draftable gap must show the user the draft first"
+        # The rows say what they do (#813), and the box offers the guidance keys.
+        from builder.tools.hitl import GUIDANCE_PURPOSE
+
+        ((_context, options, purpose),) = human.presented
+        assert options == ["Yes, use this value", "No, not this one"]
+        assert purpose == GUIDANCE_PURPOSE
         # The confirmed draft was committed to state.
         assert _get(engine, "st1").fields.get("description") == "A drafted value."
         assert any(r.get("fix_hint") == "draft" for r in summary["resolved"])
@@ -1319,30 +1327,30 @@ class TestQuestionNamesEntity:
         engine = AgentEngine(state=_backbone_with_compound("Silychristin A"))
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
 
-        cas_gap = Gap(
+        # A field the answer can be stored in: an identifier gap is never asked (#813).
+        description_gap = Gap(
             tier="SHOULD",
             source="shacl",
             entity_id="chem1",
             entity_type="MolecularEntity",
-            property="cas",
-            message="MolecularEntity SHOULD record a CAS number.",
-            suggestion="A CAS Registry Number like 103-90-2.",
+            property="description",
+            message="MolecularEntity SHOULD have a description.",
+            suggestion="A short free-text description.",
             fix_hint="ask-user",
             auto_fixable=False,
         )
         _single_ask_gap_report(
             monkeypatch,
-            cas_gap,
+            description_gap,
             counts={"must_open": 0, "should_open": 1, "may_open": 0},
         )
 
         # A realistic phrase leaf: it echoes the entity name it is handed.
         def _phrase(ctx, **_kw):
             name = ctx.get("entity_name") or "this chemical substance"
-            return f"What is the CAS Registry Number for {name}?"
+            return f"How would you describe {name}?"
 
         monkeypatch.setattr(guidance, "phrase_gap_question", _phrase)
-        # An identifier gap: the user's prose can never become the value (D5).
         monkeypatch.setattr(
             guidance, "interpret_gap_reply", lambda _q, _r, _c, **_kw: {"action": "skip"}
         )
@@ -3179,18 +3187,38 @@ class TestTheDepositIsReadBeforeAsking:
         return AgentEngine(state=state)
 
     def test_what_the_deposit_states_is_offered_as_a_choice(self, monkeypatch, tmp_path):
+        """The rows are answers only (#813): skipping and stopping are the box's keys."""
         from builder.agents.pipeline.guidance import run_guidance
-        from builder.tools.hitl import SKIP_CHOICE, STOP_CHOICE
+        from builder.tools.hitl import GUIDANCE_PURPOSE
 
         engine = self._engine(monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake")
         label = f"{self.VALUE}  (from README.txt)"
         human = ScriptedHuman(present_answers=[{"action": "approved", "comments": label, "edits": None}])
         run_guidance(engine, human, max_rounds=3)
 
-        ((_question, options, _purpose),) = human.presented
-        assert options == [label, SKIP_CHOICE, STOP_CHOICE]
+        ((_question, options, purpose),) = human.presented
+        assert options == [label]
+        assert purpose == GUIDANCE_PURPOSE
         assert human.inputs == []
         assert _get(engine, "st1").fields.get("description") == self.VALUE
+
+    def test_a_field_that_must_name_an_entity_is_not_asked(self, monkeypatch, tmp_path):
+        """#813: a picked value for ``additionalProperty`` could never be stored, so the
+        deposit stating one is no reason to ask."""
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._engine(
+            monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake"
+        )
+        gap = replace(_study_desc_gap(), property="https://schema.org/additionalProperty")
+        _single_ask_gap_report(
+            monkeypatch, gap, counts={"must_open": 1, "should_open": 0, "may_open": 0}
+        )
+        human = ScriptedHuman()
+        run_guidance(engine, human, max_rounds=3)
+
+        assert human.presented == [] and human.inputs == []
+        assert "additionalProperty" not in _get(engine, "st1").fields
 
     def test_an_answer_the_deposit_does_not_state_is_not_asked(self, monkeypatch, tmp_path):
         """A value whose quoted passage is not in the file is invented: no option, so no question."""
