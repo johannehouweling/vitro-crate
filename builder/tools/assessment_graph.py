@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from profiles.models.tox import PREPARATION_TYPES
 from profiles.ontology_iris import iri
 
 if TYPE_CHECKING:
@@ -81,10 +82,9 @@ OPEN_MEDIA_TYPES = frozenset(
 
 # What a step's protocol type or a source's sampleType makes it, under the labels the
 # readers name kinds by: the additionalType labels older crates carry (#799). The tox
-# shapes infer their classes from the same terms.
+# shapes infer their classes from the same terms; every preparation type is one (#785).
 _KIND_OF_TERM: dict[str, str] = {
-    iri("EFO:0003789"): "TestSystemPreparation",
-    iri("OBI:0001152"): "TestSystemPreparation",
+    **{iri(curie): "TestSystemPreparation" for curie in PREPARATION_TYPES},
     iri("EFO:0003969"): "Exposure",
     iri("BAO:0000523"): "EndpointReadout",
     iri("OBI:0200000"): "DataAnalysis",

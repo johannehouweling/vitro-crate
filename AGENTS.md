@@ -2773,7 +2773,8 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
   preparation consumes is a source whatever it states, so one with no `sampleType` is
   still reported.
 - A LabProcess step is `@type: "LabProcess"` typed by the `intendedUse` of the protocol
-  record it executes (D17): growth protocol EFO:0003789 or transfection OBI:0001152,
+  record it executes (D17): a term of the ISA-Tox preparation-types set (growth
+  protocol EFO:0003789, transfection OBI:0001152, cell differentiation GO:0030154),
   treatment protocol EFO:0003969, assay protocol BAO:0000523, data transformation
   OBI:0200000. ISA backbone nodes keep the ISA profile's own convention, `@type:
   "Dataset"` + `additionalType: "Investigation"|"Study"|"Assay"`.
@@ -2971,9 +2972,12 @@ process one protocol. The record sits at `<process @id>_protocol` and states onl
 what the deposit states:
 
 - `intendedUse`, the step's protocol type as an ontology term (a `DefinedTerm`):
-  TestSystemPreparation EFO:0003789 *growth protocol*, Exposure EFO:0003969 *treatment
-  protocol*, EndpointReadout BAO:0000523 *assay protocol*, DataAnalysis OBI:0200000
-  *data transformation*;
+  TestSystemPreparation a term of the profile's preparation-types `DefinedTermSet`
+  (`profiles.models.tox.PREPARATION_TYPES`, published in `shapes/tox/ontology.ttl`),
+  the step's stated `preparation_type` or else EFO:0003789 *growth protocol*, stated
+  with `inDefinedTermSet` (#785); Exposure EFO:0003969 *treatment protocol*,
+  EndpointReadout BAO:0000523 *assay protocol*, DataAnalysis OBI:0200000 *data
+  transformation*;
 - `isBasedOn`, the documents the deposit places on the step; a document the drafter
   named counts only where the deposit places none (#789);
 - on the Exposure, `reagent`: the compounds it applied, at least one (the tox

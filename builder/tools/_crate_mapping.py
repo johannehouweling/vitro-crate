@@ -36,6 +36,8 @@ from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, LabProtocol, Sample, param_id
 from profiles.models.tox import (
     _PLACEHOLDER_VALUES,
+    PREPARATION_TYPES,
+    PREPARATION_TYPES_SET,
     CellLineSample,
     LabProcessDataAnalysis,
     LabProcessEndpointReadout,
@@ -241,6 +243,12 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "name": _NAME,
             "description": _DESC,
             "culture_medium": "TestSystemPreparation: the culture medium used.",
+            "preparation_type": (
+                "TestSystemPreparation: what the step does to the cells, only when the "
+                "documents say so: 'culture' (the default, plating included), "
+                "'transfection' (transient) or 'differentiation'. A stably transfected "
+                "line is the cell line itself, not a transfection step."
+            ),
             "duration": "Exposure: exposure duration.",
             "cell_seeding_density": "Exposure: cell seeding density.",
             "microplate": "Exposure: microplate format.",
@@ -444,6 +452,9 @@ _STRUCT_FIELDS = frozenset(
         # nodes (#143 passage/growth, #180 organ/tissue, #788 cell_type) and its
         # `source_kind` discriminator — consumed structurally, never raw literals.
         "source_kind",
+        # A preparation step's `preparation_type`, consumed as its protocol record's
+        # intendedUse (#785): the step's type, never a parameter of it.
+        "preparation_type",
         "passage",
         "growth",
         "cell_type",
@@ -1533,6 +1544,7 @@ def _protocol_record(
     reagents: list[Any],
     reserved: frozenset[str] = frozenset(),
     stated: dict[str, Any] | None = None,
+    preparation: str | None = None,
 ) -> LabProtocol | None:
     """The one protocol a step executes: a record of what the deposit states (D17).
 
@@ -1542,7 +1554,8 @@ def _protocol_record(
     protocol the drafter recorded from the deposit: its name, description and url
     fill the record (#789). Nothing else is written: a builder sentence would
     satisfy the checks that ask for a description (#670). ``None`` for an untyped
-    step with no document and nothing stated.
+    step with no document and nothing stated. A preparation step's record takes the
+    *preparation* type it states, from the profile's set (:data:`PREPARATION_TYPES`).
 
     The record sits at ``<pid>_protocol`` unless an entity already holds that id or
     a step in *reserved* will: a step drafted as "Exposure protocol" beside
@@ -1550,12 +1563,17 @@ def _protocol_record(
     ``crate.add`` replaces silently, so the record takes ``<pid>_protocol_<n>``.
     """
     curie, term = _STEP_PROTOCOL_TYPES.get(ptype, (None, None))
+    if curie in PREPARATION_TYPES:
+        curie = _PREPARATION_TYPE_WORDS.get(str(preparation or "").strip().lower(), curie)
+        term = PREPARATION_TYPES[curie]
     stated = stated or {}
     if curie is None and not documents and not stated:
         return None
     intended_use = None
     if curie is not None:
         props = {"@type": "DefinedTerm", "name": term, "termCode": curie}
+        if curie in PREPARATION_TYPES:
+            props["inDefinedTermSet"] = {"@id": PREPARATION_TYPES_SET}
         intended_use = crate.add(ContextEntity(crate, iri(curie), properties=props))
     record_id, n = f"{pid}_protocol", 1
     while record_id in reserved or crate.dereference(record_id) is not None:
@@ -2158,6 +2176,16 @@ _STEP_PROTOCOL_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("DataAnalysis", _ANALYSIS_PROTOCOL_CUE),
 )
 _DEFAULT_PROTOCOL_STEP = "EndpointReadout"
+# A preparation step's stated `preparation_type`, by the words it may take, as a term
+# of the profile's preparation-types set (#785). Anything else stays a growth
+# protocol, "stable transfection" included: a stably transfected line is the source.
+_PREPARATION_TYPE_WORDS: dict[str, str] = {
+    **{curie.lower(): curie for curie in PREPARATION_TYPES},
+    **{name: curie for curie, name in PREPARATION_TYPES.items()},
+    "culture": "EFO:0003789",
+    "transient transfection": "OBI:0001152",
+    "differentiation": "GO:0030154",
+}
 
 
 def _culture_cell_lines(f: dict[str, Any], idx: dict[str, Any], name: str) -> list[Any]:
@@ -3575,7 +3603,9 @@ def _build_process(
     obj = _resolve_many(idx, f.get("object")) or _resolve_many(idx, f.get("input"))
     result = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
     chems = _resolve_many(idx, f.get("chemicals")) if ptype == "Exposure" else []
-    protocol = _protocol_record(crate, pid, ptype, name, documents, chems, reserved, stated)
+    protocol = _protocol_record(
+        crate, pid, ptype, name, documents, chems, reserved, stated, f.get("preparation_type")
+    )
 
     if ptype == "TestSystemPreparation":
         # TestSystemPreparation MUST take a cell-line Sample as object; synthesize a

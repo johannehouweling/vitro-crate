@@ -11,6 +11,16 @@ from profiles.models.isa import (
 )
 from profiles.ontology_iris import iri
 
+# The test system preparation types: the DefinedTermSet the ISA-Tox profile publishes
+# (shapes/tox/ontology.ttl), by CURIE and name. A step whose protocol record's
+# intendedUse is one of them is a test system preparation (#785).
+PREPARATION_TYPES_SET = "https://w3id.org/ro/crate/isa-tox/1.0/preparation-types"
+PREPARATION_TYPES: dict[str, str] = {
+    "EFO:0003789": "growth protocol",
+    "OBI:0001152": "transfection",
+    "GO:0030154": "cell differentiation",
+}
+
 # Values that state nothing. A parameter carrying one of these is not a
 # measurement, it is the absence of one dressed up as data — see :func:`_pv`.
 _PLACEHOLDER_VALUES = {"", "unknown", "n/a", "na", "none", "not applicable", "not recorded"}
