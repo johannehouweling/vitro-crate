@@ -1213,7 +1213,7 @@ def read_multiple_files(
     total_elapsed = time.monotonic() - total_start
     count = len(results)
     logger.info(
-        "Read %d file(s) from %d path(s) in %.2fs",
+        "Files read: %d (paths given: %d, %.2fs)",
         count,
         len(paths),
         total_elapsed,

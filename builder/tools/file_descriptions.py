@@ -175,5 +175,5 @@ def describe_payload_files(
             written.append((entity.entity_id, text))
 
     if written:
-        logger.info("Described %d payload file(s) from their content", len(written))
+        logger.info("Files described from their content: %d", len(written))
     return written

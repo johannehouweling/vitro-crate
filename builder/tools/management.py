@@ -499,8 +499,8 @@ def set_fields(
         # behaviour change to every existing caller.
         if is_reference_field(field) and not is_resolvable_reference(state, value):
             logger.warning(
-                "set_fields: %r on %s is a reference-only property but %r does not "
-                "resolve to an entity — the build will drop it",
+                "%r on %s must name an entity in the crate, and %r does not, so the "
+                "build will drop it.",
                 field,
                 entity_id,
                 value,

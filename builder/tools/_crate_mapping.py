@@ -1130,7 +1130,7 @@ def _file_source(fe: Entity, input_path: str | None) -> str | None:
 
         if _contain(src, {str(Path(input_path).resolve())}) is None:
             logger.warning(
-                "Refusing File source %s — realpath escapes input tree %s (#167)",
+                "Refused file %s: it resolves outside the input folder %s.",
                 src,
                 input_path,
             )

@@ -987,7 +987,7 @@ def _draft_standard_chain(
     """
     assay_id = _first_entity_id(engine, "Assay")
     if not assay_id:
-        logger.warning("No Assay scaffolded; skipping process-chain materialization (#262).")
+        logger.warning("The crate has no assay yet, so its process steps were not built.")
         return 0, []
 
     chain = _merge_plan_chain_names(plan)
@@ -999,10 +999,8 @@ def _draft_standard_chain(
 
     process_ids = list(chain_result.get("process_ids") or [])
     logger.info(
-        "Materialized %d-step process chain under %s: %s (#262).",
-        len(process_ids),
-        assay_id,
-        ", ".join(s["process_type"] for s in _STANDARD_CHAIN),
+        "Process steps built for the assay: %s.",
+        " → ".join(s["process_type"] for s in _STANDARD_CHAIN),
     )
     return len(process_ids), list(chain_result.get("steps") or [])
 
@@ -1029,14 +1027,16 @@ def _attach_scanned_files(engine: AgentEngine) -> int:
 
     target_id = _first_entity_id(engine, "Assay") or _first_entity_id(engine, "Study")
     if not target_id:
-        logger.warning("No Assay/Study scaffolded; cannot attach scanned files (#262).")
+        logger.warning(
+            "The crate has no assay or study yet, so the scanned files were not attached."
+        )
         return 0
 
     paths = [fc.path for fc in engine.state.scanned_files]
     try:
         result = engine.run_tool("attach_files", to=target_id, paths=paths)
     except Exception as exc:  # noqa: BLE001 - a bad batch must not break the spine
-        logger.warning("attach_files failed for %d file(s): %s", len(paths), exc)
+        logger.warning("Could not attach the scanned files (%d): %s", len(paths), exc)
         return 0
 
     ids = list(result.get("file_ids") or [])
@@ -1046,10 +1046,13 @@ def _attach_scanned_files(engine: AgentEngine) -> int:
         if entity.entity_id in set(ids)
     )
     logger.info(
-        "Attached %d file(s) under %s (#262): %s",
+        "Files attached: %d (%s)",
         len(ids),
-        target_id,
-        ", ".join(f"{count} {name}" for name, count in sorted(classes.items())) or "(none)",
+        ", ".join(
+            f"{count} {name.removesuffix('_file').replace('_', ' ')}"
+            for name, count in sorted(classes.items())
+        )
+        or "none",
     )
     return len(ids)
 
@@ -1573,9 +1576,7 @@ def _populate_condition_table_from_deposit(engine: AgentEngine, exposure_id: str
             # header-only table either way. Name the files, loudly.
             names = ", ".join(sorted(PurePath(path).name for path, _ in unreadable))
             logger.warning(
-                "Condition table: %d scanned table(s) could not be READ (%s); "
-                "proposing from crate entities instead (#422).",
-                len(unreadable),
+                "Condition table: could not read %s, so it is proposed from the crate instead.",
                 names,
             )
             return _fall_back_to_proposal(
@@ -1652,7 +1653,7 @@ def _populate_condition_table_from_deposit(engine: AgentEngine, exposure_id: str
             },
         )
 
-    logger.info("Populated condition table from %s: %s row(s) (#408).", named, outcome.get("rows"))
+    logger.info("Condition table filled from %s (rows: %s).", named, outcome.get("rows"))
     return {
         "populated": True,
         "reason": "",
@@ -2228,7 +2229,7 @@ def _materialize_plan(
             # Crossref with the filename, and do NOT defer the filename as a
             # "title" to retry; a filename can never become a confident match).
             logger.info(
-                "Skipping publication %r — no DOI/title recoverable from its PDF (#245).",
+                "Skipped publication %r: its PDF gives no DOI or title.",
                 title,
             )
             continue
@@ -2350,7 +2351,7 @@ def _validate_one_table(engine: AgentEngine, path: str) -> list[dict[str, Any]]:
 
     issues = result.get("issues") or []
     if issues:
-        logger.info("Data-content validation: %d issue(s) in %s (#409).", len(issues), path)
+        logger.info("Issues in the data of %s: %d", path, len(issues))
     return issues
 
 
@@ -2416,7 +2417,7 @@ def _fold_back_compound_twin(engine: AgentEngine, target_id: str, outcome: Any) 
         # carry the same provenance and field status the composite gave them.
         engine.run_tool("set_fields", entity_id=target_id, fields=recovered)
     engine.run_tool("remove_entity", entity_id=twin_id)
-    logger.info(
+    logger.debug(
         "folded duplicate MolecularEntity %r back into %r (%d field(s))",
         twin_id,
         target_id,

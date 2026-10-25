@@ -153,20 +153,20 @@ def read_excel_rows(
     """
     src = Path(path)
     if not src.is_file():
-        logger.warning("read_excel_rows: not a file: %s", path)
+        logger.warning("Not a file: %s", path)
         return None
     if src.stat().st_size > max_bytes:
-        logger.warning("read_excel_rows: %s exceeds %d bytes — skipped", path, max_bytes)
+        logger.warning("Skipped %s: it is larger than %d bytes.", path, max_bytes)
         return None
     try:
         import openpyxl
     except ImportError:
-        logger.error("read_excel_rows: openpyxl is not installed")
+        logger.error("Cannot read Excel files: openpyxl is not installed.")
         return None
     try:
         book = openpyxl.load_workbook(src, read_only=True, data_only=True, keep_links=False)
     except Exception:
-        logger.exception("read_excel_rows: could not open %s", path)
+        logger.exception("Could not open %s", path)
         return None
 
     def _cell(value: Any) -> Any:

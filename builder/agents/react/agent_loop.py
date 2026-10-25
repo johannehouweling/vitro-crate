@@ -3727,7 +3727,7 @@ def _drop_unanswered_tool_calls(messages: list) -> list:
         if not (set(_call_ids(m)) & doomed)
         and str(getattr(m, "tool_call_id", "") or "") not in doomed
     ]
-    logger.warning(
+    logger.debug(
         "Dropped %d message(s) for %d tool call(s) that never got a result — "
         "usually an interrupted turn",
         len(messages) - len(kept),
@@ -4952,7 +4952,7 @@ def run_interactive_agent(
                         outstanding = open_items(engine.state)
                         if outstanding:
                             self_continues += 1
-                            logger.info(
+                            logger.debug(
                                 "Self-continue %d/%d — %d item(s) still open",
                                 self_continues,
                                 _MAX_SELF_CONTINUES,
