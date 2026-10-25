@@ -310,7 +310,7 @@ def describe_external_references(crate: ROCrate) -> int:
         crate.add(ContextEntity(crate, iri, properties={"@type": "DefinedTerm", "name": name}))
         added += 1
     if added:
-        logger.info("Described %d externally-referenced ontology term(s)", added)
+        logger.debug("Described %d externally-referenced ontology term(s)", added)
     return added
 
 
@@ -357,7 +357,7 @@ def add_schema_org_types(crate: ROCrate) -> int:
         entity._jsonld["@type"] = types + [companion]
         updated += 1
     if updated:
-        logger.info("Added a published schema.org supertype to %d entit(ies)", updated)
+        logger.debug("Added a published schema.org supertype to %d entit(ies)", updated)
     return updated
 
 

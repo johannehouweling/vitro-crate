@@ -660,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     entity_count = len(engine.state.list_entities())
-    logger.info(
+    logger.debug(
         "State initialized: %d files scanned, %d entities",
         len(engine.state.scanned_files),
         entity_count,

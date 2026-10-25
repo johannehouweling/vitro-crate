@@ -36,7 +36,6 @@ class TestCrossTypeIdCollisionWarning:
 
         msgs = " ".join(r.getMessage() for r in caplog.records)
         assert "shared across types" in msgs, msgs
-        assert "#366" in msgs, msgs
 
     def test_no_cross_type_warning_for_same_type_reuse(self, caplog):
         import logging

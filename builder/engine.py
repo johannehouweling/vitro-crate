@@ -337,7 +337,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     # breakdown counted the whole deposit instead of the files it hid (#599).
     engine.state.documents = [c.to_dict() for c in candidates]
     if candidates and engine.state.metadata:
-        logger.info("Document discovery: %d candidates", len(candidates))
+        logger.info("Documents that may describe the study: %d", len(candidates))
 
 
 # Formats that carry a NAMED licence field, and the filenames whose whole
@@ -850,7 +850,7 @@ class AgentEngine:
             return _GATE_OK
 
         logger.warning(
-            "Refusing %s on %s — not inside an approved scan root (#167)",
+            "Refused %s on %s: it is outside the approved folders.",
             tool_name,
             path,
         )
@@ -917,8 +917,8 @@ class AgentEngine:
             # Headless/simulated: never widen filesystem access on the agent's
             # say-so. Surface the reason rather than a silent empty result.
             logger.warning(
-                "Refusing scan of unapproved path %s — no interactive human to "
-                "approve a new scan root (#197/#198).",
+                "Refused to scan %s: it is outside the approved folders, and nobody "
+                "is at the keyboard to approve it.",
                 path,
             )
             self.state.log_reasoning(

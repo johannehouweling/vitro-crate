@@ -716,7 +716,7 @@ def build_and_validate(
     issues, citations = _partition_citations(issues, _cited_iris(metadata_doc))
     if citations:
         logger.info(
-            "%d finding(s) are about vocabulary this crate cites, not about the crate",
+            "Findings about vocabulary the crate cites, not about the crate itself: %d",
             len(citations),
         )
 

@@ -1363,7 +1363,7 @@ class CrateState:
                 "entity_id %r is shared across types (%s + %s). RO-Crate 1.2 discourages "
                 "two conceptually-different entities sharing an identifier; if these are "
                 "the same thing, model it as ONE entity (a CellLineSample already is a "
-                "Sample). See #366.",
+                "Sample).",
                 entity.entity_id,
                 existing.type,
                 entity.type,

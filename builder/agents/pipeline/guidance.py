@@ -475,7 +475,7 @@ def _verified_orcid_for(family: str, bare_orcid: str) -> str | None:
     try:
         verified = _verify_orcid(bare_orcid, family, lookup_orcid)
     except Exception as exc:  # noqa: BLE001 — a flaky lookup must not break the loop
-        logger.warning("guidance: ORCID verification failed for %s: %s", bare_orcid, exc)
+        logger.warning("Could not verify the ORCID %s: %s", bare_orcid, exc)
         return None
     return bare_orcid if verified is not None else None
 
@@ -492,7 +492,7 @@ def _apply_measurement_method(
 
         result = lookup_bao_term(value.strip())
     except Exception as exc:  # noqa: BLE001 — a lookup failure is a guidance skip
-        logger.warning("guidance: measurement method lookup failed: %s", exc)
+        logger.warning("Could not look up the measurement method: %s", exc)
         result = {"found": False}
     data = result.get("data") if isinstance(result, dict) else None
     if not result.get("found") or not isinstance(data, dict) or not data.get("@id"):
@@ -658,7 +658,7 @@ def _apply_citation_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
         result = engine.run_tool("resolve_publication", title=text)
         return isinstance(result, dict) and bool(result.get("ok"))
     except Exception as exc:  # noqa: BLE001 — a flaky lookup must not break the loop
-        logger.warning("guidance: citation resolution failed for %r: %s", text, exc)
+        logger.warning("Could not resolve the citation %r: %s", text, exc)
         return False
 
 
@@ -719,7 +719,7 @@ def _apply_key_event_value(
             event_name=names if len(names) > 1 else names[0],
         )
     except Exception as exc:  # noqa: BLE001 — a tool failure is a guidance skip
-        logger.warning("guidance: key event link failed for %r: %s", text, exc)
+        logger.warning("Could not link the key event %r: %s", text, exc)
         return False
 
     if isinstance(result, dict) and result.get("ok"):
@@ -800,7 +800,7 @@ def _notify(human: HumanInterface | None, message: str) -> None:
             return
         except Exception:  # noqa: BLE001 — a frontend hiccup must not break the loop
             pass
-    logger.info("guidance: %s", message)
+    logger.info("%s", message)
 
 
 def _apply_value(
@@ -988,7 +988,7 @@ def _drafted_value(
             overrides=overrides,
         )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
-        logger.warning("guidance: drafter leaf failed for %s: %s", entity_type, exc)
+        logger.warning("The model could not draft a value for the %s: %s", entity_type, exc)
         return None
     if not isinstance(fields, dict):
         return None
@@ -1266,7 +1266,7 @@ def _phrase_question(
                 context["choices_shown"] = True
             question = phrase_gap_question(context, usage_sink=usage_sink, overrides=overrides)
         except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
-            logger.warning("guidance: phrase leaf failed: %s", exc)
+            logger.warning("The model could not phrase the question: %s", exc)
             question = ""
         if question and question.strip():
             return question.strip()
@@ -1325,7 +1325,7 @@ def _interpret_reply(
             overrides=overrides,
         )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
-        logger.warning("guidance: interpret leaf failed (%s); deterministic fallback", exc)
+        logger.warning("The model could not read your answer (%s), so it is taken as typed.", exc)
         return _deterministic_decision(gap, reply)
 
 
@@ -1395,7 +1395,7 @@ def _deposit_options(
                 field, text, context, usage_sink=usage_sink, overrides=overrides
             )
         except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
-            logger.warning("guidance: deposit extraction failed for %s: %s", path, exc)
+            logger.warning("The model could not read %s: %s", Path(path).name, exc)
             continue
         if value.strip() and quote.strip() and _squash(quote) in _squash(text):
             found.setdefault(value.strip(), Path(path).name)
@@ -1420,7 +1420,7 @@ def _ask_from_the_deposit(
     """
     options = _deposit_options(engine, gap, usage_sink=usage_sink, overrides=overrides)
     if not options:
-        logger.info("guidance: the deposit states nothing for %s; not asked (#811).", gap.property)
+        logger.debug("guidance: the deposit states nothing for %s; not asked (#811).", gap.property)
         return None
     labels = [f"{value}  (from {source})" for value, source in options]
     question = _phrase_question(
@@ -1638,10 +1638,10 @@ def _read_pointed_file(engine: AgentEngine, candidates: list[str]) -> str | None
         try:
             body = read_file(str(resolved))
         except (OSError, ValueError, ImportError) as exc:
-            logger.warning("guidance: from_file read failed for %s: %s", candidate, exc)
+            logger.warning("Could not read %s: %s", candidate, exc)
             continue
         except Exception as exc:  # noqa: BLE001 — a malformed file must not break the loop
-            logger.warning("guidance: unexpected from_file read error for %s: %s", candidate, exc)
+            logger.warning("Could not read %s (unexpected error): %s", candidate, exc)
             continue
         if body and body.strip():
             return body[:_MAX_FILE_EXTRACT_CHARS]
@@ -1680,12 +1680,15 @@ def _resolve_from_file(
 
     candidates = _candidate_file_paths(engine, filename, reply)
     if not candidates:
-        logger.info("guidance: from_file but no file could be located; skipping (#257).")
+        logger.info("The file you pointed to could not be found, so the question is skipped.")
         return None
 
     file_text = _read_pointed_file(engine, candidates)
     if file_text is None:
-        logger.info("guidance: from_file file unreadable / outside scan roots; skipping (#257).")
+        logger.info(
+            "The file you pointed to could not be read or is outside the approved "
+            "folders, so the question is skipped."
+        )
         return None
 
     try:
@@ -1697,14 +1700,14 @@ def _resolve_from_file(
             overrides=overrides,
         )
     except Exception as exc:  # noqa: BLE001 — a flaky leaf must not break the loop
-        logger.warning("guidance: from_file extraction leaf failed: %s", exc)
+        logger.warning("The model could not read an answer from the file you pointed to: %s", exc)
         return None
 
     if isinstance(value, str) and value.strip():
-        logger.info("guidance: extracted %s from a pointed-at file (#257).", field)
+        logger.info("Read %s from the file you pointed to.", field)
         return value.strip()
     logger.info(
-        "guidance: pointed-at file did not yield a value for %s; skipping (#257).",
+        "The file you pointed to does not state %s, so the question is skipped.",
         field,
     )
     return None
