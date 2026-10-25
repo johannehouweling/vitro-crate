@@ -331,7 +331,9 @@ arm-specific.)
 #### 4.2.1 Scanner (`builder/tools/scanner.py`)
 Examines an input directory (or zip archive) and builds a raw file inventory
 (path, size, mime type, first lines of readable files). Never reads entire
-large files into context. The inventory is not the whole of initialization — file classification,
+large files into context. An archive is extracted to `<stem>_extracted/`, and
+that folder is the session's `input_path`: every file source, relative path and
+crate name resolves against it (#819). The inventory is not the whole of initialization — file classification,
 document ranking and the declared-licence read all run before the agent loop
 (§1) — but it is what the agent uses during entity drafting to bind files to
 `LabProcess` instances as annotations emerge. Restricted by approved scan

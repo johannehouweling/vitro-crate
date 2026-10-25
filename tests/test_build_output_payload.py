@@ -112,6 +112,38 @@ class TestPayloadCopied:
         no_source = [str(w.message) for w in caught if "No source" in str(w.message)]
         assert not no_source, f"unexpected No-source warnings: {no_source}"
 
+    def test_a_file_scanned_from_an_archive_is_copied(self, tmp_path: Path) -> None:
+        """#819: an archive is scanned under ``<stem>_extracted``, and its files are
+        copied into the crate like a folder's, with no 'No source' warning."""
+        import zipfile
+
+        from builder.engine import AgentEngine
+
+        archive = tmp_path / "deposit.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("Assay_A/plate1.csv", "well,value\nA1,1\n")
+        engine = AgentEngine()
+        engine.initialize(str(archive))
+        backbone = engine.run_tool(
+            "scaffold_isa_backbone",
+            investigation={"name": "I"},
+            study={"name": "S"},
+            assay={"name": "A"},
+        )
+        engine.run_tool("attach_files", to=backbone["assay_id"])
+
+        out = tmp_path / "out"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = build_crate(engine.state, str(out))
+
+        assert result["success"], result["error"]
+        assert engine.state.metadata.input_path == str((tmp_path / "deposit_extracted").resolve())
+        copied = list(out.rglob("plate1.csv"))
+        assert copied, "the archive's file was not copied into the crate"
+        assert copied[0].read_text(encoding="utf-8") == "well,value\nA1,1\n"
+        assert not [str(w.message) for w in caught if "No source" in str(w.message)]
+
     def test_in_place_build_keeps_file_no_warning(self, tmp_path: Path) -> None:
         """Building the crate in place (output_path == input_path) must not crash
         (no SameFileError) and must not warn — the source already sits at dest."""

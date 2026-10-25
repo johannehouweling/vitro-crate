@@ -553,7 +553,7 @@ class AgentEngine:
 
     def initialize(self, input_path: str | None = None) -> CrateState:
         """Run initialization: scan files, discover documents, create initial state."""
-        from builder.tools.scanner import scan_files
+        from builder.tools.scanner import _is_archive, scan_files
 
         if input_path:
             # Approve the directory whose contents we inventory (the extraction
@@ -571,6 +571,11 @@ class AgentEngine:
                 # scan too; the persistent root remains the extraction dir.
                 scan_roots = self.state.approved_scan_roots | {str(Path(input_path).resolve())}
                 self.state.scanned_files = scan_files(input_path, approved_roots=scan_roots)
+                # An archive is read from its extraction folder, so that folder is
+                # the input every file source, relative path and crate name is
+                # resolved against (#819).
+                if _is_archive(Path(input_path).resolve()):
+                    self.state.metadata.input_path = approved
 
                 # --- Document discovery (#179) ---
                 # After the file inventory is built, run the deterministic,
