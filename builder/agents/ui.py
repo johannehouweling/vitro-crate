@@ -770,7 +770,7 @@ def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
         summary.add_row("Breakdown:", parts)
 
     title = "Resumed Session" if resumed else "Session"
-    return Panel(summary, title=f"[yellow]{title}[/yellow]", border_style="yellow")
+    return Panel(summary, title=f"[yellow]{title}[/yellow]", border_style="yellow", expand=False)
 
 
 def render_goodbye(
@@ -860,7 +860,7 @@ def render_goodbye(
             f"uv run python -m main [cyan]--resume {session_id}[/cyan] [dim]--interactive[/dim]",
         )
 
-    return Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow")
+    return Panel(t, title="[yellow]Goodbye![/yellow]", border_style="yellow", expand=False)
 
 
 # ---------------------------------------------------------------------------

@@ -311,6 +311,14 @@ def test_render_goodbye_zero_entities_when_empty() -> None:
     assert "0" in text
 
 
+def test_summary_panels_fit_their_content_not_the_terminal() -> None:
+    """#813: on a 200-column terminal the panels stay as wide as what they say."""
+    session = _render(ui.render_resume_summary(_snapshot(), resumed=False), width=200)
+    goodbye = _render(ui.render_goodbye("sess-9", {"Study": 2}, resumable=True), width=200)
+    for text in (session, goodbye):
+        assert max(len(line.rstrip()) for line in text.splitlines()) < 120
+
+
 # ---------------------------------------------------------------------------
 # print_* helpers — the shared "snapshot → render → print" both arms call
 # ---------------------------------------------------------------------------
