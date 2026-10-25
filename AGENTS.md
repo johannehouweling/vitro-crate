@@ -80,7 +80,7 @@ The ReAct variant gives an LLM agent a set of tools and lets it decide the order
    │  scan_files                      │
    │   → classify every scanned file  │ ──► agent loop
    │   → rank documents               │
-   │   → read declared licence        │
+   │   → read declared metadata       │
    └──────────────────────────────────┘
 
    Feedback loops:
@@ -104,9 +104,9 @@ The orchestration is **emergent** — the agent dynamically routes itself based 
 Fixed initialization runs before the agent loop, in order:
 1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). The scanner itself does **no role classification** — just a list of what's in the input directory.
 2. Document discovery — stamps **every** scanned file with one classification (`metadata` / `protocol` / `raw_data_file` / `processed_data_file`), decided from content, and ranks the readable scientific documentation into `state.documents`. Classification reads content, so it stays a step beside the scanner and is never folded back into `scan_files`.
-3. The declared-licence read — a licence the deposit itself states is recorded on `metadata.license` with `license_from_deposit` set, before anything drafts one.
+3. The declared-metadata read — the licence, DOI, title and accession the deposit itself states are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
 
-Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence — it never has to bootstrap those itself. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
+Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title and accession — it never has to bootstrap those itself. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
 
 ### Guard Rails: Approved Scan Roots
 The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. The guard **fails closed** (#197): with no approved roots, *nothing* is scannable. When the agent calls `scan_files(path)`:
