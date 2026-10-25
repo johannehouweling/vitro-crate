@@ -1943,6 +1943,10 @@ without weakening D5 (identifiers still come from the authority and are verified
 - **Bounded concurrency gate** (`_ResolveConcurrency`, default 4) admits only a
   few resolves at once, so a burst does not all storm PubChem and trip its rate
   limiter — complementing the per-host throttle, which spaces each request.
+- **Parallel prefetch** (`prefetch_compound_lookups`, #821): the pipeline fetches
+  every plan compound's lookups (PubChem, then CompTox by the key
+  `resolve_compound` uses) through that gate before its serial resolve loop, which
+  then creates the entities from warm caches. No state is written concurrently.
 
 > **Status: the shipped default no longer matches the bound stated below.**
 > `DEFAULT_RESOLVE_TIMEOUT` (`builder/tools/_resolve_cache.py`) is currently
