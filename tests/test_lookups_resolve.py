@@ -214,3 +214,70 @@ class TestResolveConcurrencyThrottle:
         assert max_observed <= throttle.limit, (
             f"throttle let {max_observed} run at once (limit {throttle.limit})"
         )
+
+
+class TestPrefetchCompoundLookups:
+    """#821: a deposit's compounds are fetched in parallel, then resolved from warm caches."""
+
+    def test_fetches_overlap_and_resolving_afterwards_fetches_nothing(self, monkeypatch):
+        import functools
+
+        names = ["Rifampicin", "Diclofenac", "Lesinurad", "Probenecid"]
+        calls: list[str] = []
+        in_flight = peak = 0
+        lock = threading.Lock()
+
+        def slow(kind: str, answer):  # noqa: ANN001, ANN202
+            # Cached like the real lookups, so a repeated key costs no call.
+            @functools.lru_cache(maxsize=None)
+            def fake(query: str) -> dict:
+                nonlocal in_flight, peak
+                with lock:
+                    calls.append(f"{kind}:{query}")
+                    in_flight += 1
+                    peak = max(peak, in_flight)
+                time.sleep(0.05)
+                with lock:
+                    in_flight -= 1
+                return answer(query)
+
+            return fake
+
+        monkeypatch.setattr(
+            composites,
+            "lookup_compound",
+            slow(
+                "pubchem",
+                lambda q: {
+                    "found": True,
+                    "data": {
+                        **_PUBCHEM_HIT,
+                        "cas": f"cas-{q}",
+                        "pubchem_cid": f"cid-{q}",
+                        "inchikey": f"KEY-{q}",
+                    },
+                    "error": None,
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            composites,
+            "lookup_dtxsid",
+            slow(
+                "comptox",
+                lambda q: {"found": True, "data": {"dtxsid": f"DTXSID-{q}"}, "error": None},
+            ),
+        )
+        monkeypatch.setattr(composites, "verify_identifier", _always_verify)
+
+        composites.prefetch_compound_lookups(names)
+        assert peak >= 2, "the lookups ran one at a time"
+        fetched = len(calls)
+
+        state = CrateState()
+        for name in names:
+            composites.resolve_compound(state, name=name)
+        assert len(calls) == fetched, f"resolving fetched again: {calls[fetched:]}"
+        assert {e.fields.get("dtxsid") for e in state.list_entities()} == {
+            f"DTXSID-cas-{n}" for n in names
+        }
