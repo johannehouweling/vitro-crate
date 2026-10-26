@@ -15,10 +15,9 @@ pure waste on the dict path — there is no crate on disk; the descriptor id is 
 fixed convention ``ro-crate-metadata.json`` (exactly what the upstream walk falls
 back to when it finds nothing).
 
-``profiles.validator`` installs an idempotent patch
-(``_patch_in_memory_descriptor_id``) that pre-seeds the cached descriptor id with
-the canonical constant for crates built from a dict, so the CWD walk is skipped.
-These tests pin:
+roc-validator 0.13 resolves the descriptor id without searching the disk on the
+dict path (crs4/rocrate-validator#192), so the local patch that skipped the walk
+is gone (#534). These tests pin:
 
 1. The hot path performs **no recursive walk of the current working directory**
    (the regression guard for the bottleneck).
@@ -109,11 +108,8 @@ class TestNoCwdWalk:
 
     def test_from_metadata_dict_descriptor_id_is_canonical(self):
         """The in-memory crate reports the canonical descriptor id without a walk."""
-        # importing profiles.validator installs the patch at import time
         from rocrate_validator.rocrate.base import ROCrate as RVROCrate
         from rocrate_validator.rocrate.metadata import ROCrateMetadata
-
-        import profiles.validator  # noqa: F401
 
         crate = RVROCrate.from_metadata_dict(_base_valid_doc())
         assert crate.metadata_descriptor_id == ROCrateMetadata.METADATA_FILE_DESCRIPTOR
@@ -133,49 +129,12 @@ class TestResultsUnchanged:
     """The optimization must not weaken validation: same pass, same failures."""
 
     def test_base_pass_still_clean_for_base_valid_doc(self):
-        """The base pass (the one doing the CWD walk) still passes at REQUIRED."""
+        """The base pass (the one that walked the CWD) still passes at REQUIRED."""
         from profiles.validator import validate_crate_dict
 
         results = validate_crate_dict(_base_valid_doc(), severity="required", profile="all")
         base = next(r for r in results if r.profile == "base")
         assert base.passed_required is True
-
-    # Two full SHACL sweeps (patched vs unpatched, profile="all", severity="optional")
-    # sit right at the 30s edge on CI's 2-vCPU runner, intermittently tripping the
-    # global --timeout=30 (Issue #278). Give this intentionally-heavy comparison its
-    # own budget; the rest of the suite keeps the tight 30s default.
-    @pytest.mark.timeout(120)
-    def test_patched_results_byte_identical_to_unpatched(self, monkeypatch):
-        """Issue sets at every severity are identical with and without the patch.
-
-        Temporarily restores the original (un-wrapped) ``from_metadata_dict`` —
-        the CWD-walking behaviour — and asserts the full issue signature over the
-        bad fixture matches the patched (no-walk) path. This is the core
-        correctness guarantee: the speedup changes *how* the descriptor id is
-        resolved, never *what* issues are reported.
-        """
-        from rocrate_validator.rocrate.base import ROCrate as RVROCrate
-
-        import profiles.validator  # noqa: F401
-        from profiles.validator import validate_crate_dict
-
-        doc = _isa_bad_doc()
-
-        # Patched (no-walk) signature, at the most permissive gate.
-        patched_sig = _issue_signature(
-            validate_crate_dict(doc, severity="optional", profile="all")
-        )
-
-        # Restore the original CWD-walking factory and re-measure.
-        original = getattr(RVROCrate.from_metadata_dict, "__wrapped__", None)
-        assert original is not None, "patch not installed; cannot compare"
-        monkeypatch.setattr(RVROCrate, "from_metadata_dict", staticmethod(original))
-
-        unpatched_sig = _issue_signature(
-            validate_crate_dict(doc, severity="optional", profile="all")
-        )
-
-        assert patched_sig == unpatched_sig
 
     def test_known_bad_crate_still_fails_isa_required(self):
         from profiles.validator import validate_crate_dict

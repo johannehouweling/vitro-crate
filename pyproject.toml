@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "rocrate>=0.15.0",
-    "roc-validator>=0.11.0",
+    "roc-validator>=0.13.0",
     "requests>=2.31.0",
     "pyyaml>=6.0",
     "openpyxl>=3.1.0",

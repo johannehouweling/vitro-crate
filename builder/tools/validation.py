@@ -461,8 +461,8 @@ def _assemble_and_validate(
     """
     # Imported lazily (not at module top) so validate()'s ImportError handling
     # stays intact. profiles.validator installs the roc-validator bootstrap shim
-    # + bundled-ISA-ontology patch on import; importing validate_crate_dict here
-    # runs that shim before any rocrate_validator import is triggered.
+    # on import; importing validate_crate_dict here runs that shim before any
+    # rocrate_validator import is triggered.
     from builder.tools.builder import assemble_crate
     from profiles.validator import validate_crate_dict
 

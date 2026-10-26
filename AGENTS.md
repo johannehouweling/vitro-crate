@@ -574,20 +574,11 @@ Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
   IRI, `check_id`, `severity`, and `profile`. This backs `build_and_validate`
   and is the no-disk fast path.
 
-**The in-memory path must not walk the working directory.**
-`services.validate_metadata_as_dict` builds the crate through
-`rocrate_validator`'s `ROCrate.from_metadata_dict`, which hardcodes the crate URI
-to `"./"` and then resolves the metadata-descriptor id by `rglob`-ing it — a
-recursive walk of the entire current working directory on every pass, every call,
-and pure waste on a path where no crate exists on disk. `profiles/validator.py`
-installs `_patch_in_memory_descriptor_id()`, an idempotent module-level patch
-(alongside the offline-context and ISA-ontology patches) that pre-seeds the cached
-`_metadata_descriptor_id` with the canonical `ro-crate-metadata.json` constant —
-the same value the upstream walk falls back to, so results are byte-identical.
-**The patch stays scoped to `from_metadata_dict`**, which only the dict path uses,
-so the on-disk `validate_crate` (which legitimately discovers a descriptor in a
-real crate directory) is untouched. Its docstring carries the upstream bug it
-works around and the condition for deleting it.
+**The in-memory path must not walk the working directory.** On a path where no
+crate exists on disk, a recursive search of the current working directory for a
+metadata descriptor costs most of a validation sweep (#115). roc-validator 0.13
+resolves the descriptor id without that search (crs4/rocrate-validator#192), and
+`tests/test_validator_perf.py` pins it.
 
 **Messages on the in-memory path keep their text.** `rocrate_validator`
 relativises URIs in every result message by substring-replacing the crate path
