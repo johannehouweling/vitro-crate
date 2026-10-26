@@ -585,6 +585,14 @@ so the on-disk `validate_crate` (which legitimately discovers a descriptor in a
 real crate directory) is untouched. Its docstring carries the upstream bug it
 works around and the condition for deleting it.
 
+**Messages on the in-memory path keep their text.** `rocrate_validator`
+relativises URIs in every result message by substring-replacing the crate path
+with `./`; on the dict path that path stringifies to `.`, so every dot in every
+message would become `./`. `_patch_make_uris_relative()` leaves a message
+untouched when the base is the bare current directory (#827). The constraint
+coverage test asserts each shape's `sh:message` verbatim through this path, so a
+regression here reddens it.
+
 **Cost levers.** The residual cost is profile *composition*, not inference:
 `rocrate_validator` recomposes the shapes/ontology graph and re-resolves check
 overrides on every `validate()` call with no reuse hook, so a long-lived worker
