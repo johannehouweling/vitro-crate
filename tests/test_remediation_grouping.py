@@ -385,18 +385,18 @@ class TestTheProtocolInstructionsNameTheirLever:
     match, and must match the rule's own words rather than a word it contains."""
 
     # Matches the generic ("protocol",) row, so each assertion below proves order.
-    RIVAL = "DataAnalysis SHOULD execute a protocol based on a deposited analysis script"
+    RIVAL = "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) based on a deposited analysis script"
 
     def test_each_protocol_finding_gets_its_own_instruction(self) -> None:
         from builder.tools.remediation import _wanted
 
         assert _wanted([
             self.RIVAL,
-            "Exposure process MUST execute a protocol whose reagents include at least "
+            "Exposure process MUST execute a protocol (bioschemas:executesLabProtocol) whose reagents include at least "
             "one test or control compound (MolecularEntity)",
         ]) == "Name the compounds the cells were exposed to"
         assert _wanted(
-            [self.RIVAL, "An ISA-Tox LabProcess SHOULD execute at most one LabProtocol"]
+            [self.RIVAL, "An ISA-Tox LabProcess SHOULD execute at most one LabProtocol (bioschemas:executesLabProtocol)"]
         ) == "Keep one protocol per step"
         assert _wanted([self.RIVAL, "Protocol entity SHOULD have an intended use"]) == (
             "Say what kind of protocol it is"
@@ -406,7 +406,7 @@ class TestTheProtocolInstructionsNameTheirLever:
         from builder.tools.remediation import _wanted
 
         message = (
-            "A cultured Sample MUST derive from at most one parent Sample — culture each "
+            "A cultured Sample MUST derive (schema:isBasedOn) from at most one parent Sample — culture each "
             "source separately, or type the material as a co-culture (NCIT:C93168)"
         )
         assert _wanted([message]) != "Keep one protocol per step"

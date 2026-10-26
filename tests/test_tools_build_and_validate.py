@@ -91,7 +91,7 @@ class TestBuildAndValidateRouting:
         from builder.tools.validation import answering_field, verify_isa_reachability
 
         script = (
-            "DataAnalysis SHOULD execute a protocol based on a deposited analysis "
+            "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) based on a deposited analysis "
             "script (schema:SoftwareSourceCode)"
         )
         assert answering_field(script, "executesLabProtocol") == "labprotocol"
