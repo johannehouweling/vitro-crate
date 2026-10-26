@@ -83,6 +83,6 @@ tox:ExposureRequirements a sh:NodeShape ;
             ] ;
         ] ;
         sh:qualifiedMinCount 1 ;
-        sh:message "Exposure process MUST execute a protocol whose reagents include at least one test or control compound (MolecularEntity)" ;
+        sh:message "Exposure process MUST execute a protocol (bioschemas:executesLabProtocol) whose reagents include at least one test or control compound (MolecularEntity)" ;
         sh:severity sh:Violation ;
     ] .

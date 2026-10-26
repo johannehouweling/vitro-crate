@@ -102,3 +102,23 @@ class TestValidateCrateDict:
 
         with pytest.raises(ValueError):
             validate_crate_dict(_minimal_doc(), profile="bogus")
+
+    def test_messages_keep_their_dots(self):
+        """#827: the in-memory crate's path is ``Path("./")``, whose ``str()`` is
+        ``"."``; relativising URIs in a message must not rewrite every dot as
+        ``"./"``. A cell line with no identifier draws the one tox message that
+        ends in an ellipsis."""
+        from profiles.validator import validate_crate_dict
+
+        cell_line = "http://purl.obolibrary.org/obo/NCIT_C16403"
+        doc = _minimal_doc()
+        doc["@graph"] += [
+            {"@id": "#hepg2", "@type": "Sample", "name": "HepG2", "sampleType": {"@id": cell_line}},
+            {"@id": cell_line, "@type": "DefinedTerm", "name": "cell line"},
+        ]
+        (tox,) = validate_crate_dict(doc, severity="recommended", profile="tox")
+        messages = [i.message for i in tox.issues]
+        assert (
+            "Cell-line Sample SHOULD have a schema:identifier resolving to a Cellosaurus "
+            "accession (CVCL_...)"
+        ) in messages, messages

@@ -70,3 +70,48 @@ def test_the_licence_shape_still_requires_a_licence() -> None:
         "profiles/shapes/tox/9_investigation_strict.ttl"
     )) if "license" in m)
     assert "MUST" in licence_message
+
+
+# --- #823: a message is unique and names the property it is about -----------
+#
+# The validator surfaces a finding as its message; the author reads it without
+# the shape in view. Two shapes sharing one message cannot be told apart in a
+# report, and a message that never names its ``sh:path`` leaves the reader
+# guessing which property to fill.
+
+
+def _property_messages() -> list[tuple[str, str, str]]:
+    """``(file, path local name, message)`` for every property shape with a message."""
+    from rdflib import Graph
+    from rdflib.namespace import SH
+
+    rows = []
+    for ttl in _SHAPES:
+        g = Graph().parse(ttl, format="turtle")
+        for shape, _, message in g.triples((None, SH.message, None)):
+            path = g.value(shape, SH.path)
+            if path is None:
+                continue  # a node shape speaks about the focus node, not one property
+            local = str(path).rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+            rows.append((ttl.name, local, str(message)))
+    return rows
+
+
+def test_every_message_is_unique_across_the_profile() -> None:
+    all_messages = [m for p in _SHAPES for m in _messages(p)]
+    duplicates = sorted({m for m in all_messages if all_messages.count(m) > 1})
+    assert duplicates == [], f"the same message is used by more than one shape: {duplicates}"
+
+
+def test_every_property_message_names_its_property() -> None:
+    rows = _property_messages()
+    assert len(rows) > 10, "expected property shapes with messages"
+    offenders = [
+        (file, local, message)
+        for file, local, message in rows
+        if local.lower() not in message.lower()
+    ]
+    assert offenders == [], (
+        "a validation message never names the property it checks "
+        f"(its sh:path local name): {offenders}"
+    )

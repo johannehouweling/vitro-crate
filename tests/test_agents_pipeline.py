@@ -1057,6 +1057,29 @@ class TestMaterializePlan:
         assert result["aops"] >= 1
         assert result["people"] >= 1
 
+    def test_the_plan_compounds_are_fetched_together_first(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#821: the compounds are fetched as one parallel batch before any is resolved."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(monkeypatch)
+        self._stub_lookups(monkeypatch)
+        engine = _engine(self._titled_state(), deposit=True)
+        batches: list[tuple[list[str], int]] = []
+        monkeypatch.setattr(
+            pipeline_mod,
+            "prefetch_compound_lookups",
+            lambda names: batches.append(
+                (list(names), len(self._by_type(engine, "MolecularEntity")))
+            ),
+        )
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        assert batches == [(["Methimazole", "Sodium iodide"], 0)]
+
     @pytest.mark.parametrize("process_hint", ["", "TestSystemPreparation"])
     def test_a_protocol_links_only_the_step_its_hint_names(
         self, monkeypatch: pytest.MonkeyPatch, process_hint: str

@@ -42,7 +42,8 @@ No new RDF types are introduced, and no change to the base RO-Crate specificatio
 
 Requirement levels use [RFC 2119](https://tools.ietf.org/html/rfc2119) keywords, as recommended by the RO-Crate 1.2
 profile conventions: MUST (required for conformance), SHOULD (recommended; absence is reported as a warning), and
-MAY (optional). 
+MAY (optional). The shapes are open-world: a property this profile does not name is neither checked nor
+forbidden (no shape declares `sh:closed`), so a crate may carry further metadata without affecting conformance.
 The following graph summarises the *in vitro* toxicology workflow in terms of the profile's entity types.
 
 ```mermaid
@@ -403,7 +404,7 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
 |description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
 |url|MAY|URL|Where the lab published the procedure, when it stated one.|
-|reagent|MUST|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|On the Exposure's record: the test and control compounds it applied, at least one.|
+|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
 |isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
 
 | Step | intendedUse |

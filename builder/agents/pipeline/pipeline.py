@@ -65,6 +65,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from builder.agents.llm import ModelOverrides, UsageSink, _as_int
 from builder.agents.llm import make_usage_logger as _make_usage_logger
 from builder.config import get_provider
+from builder.tools.composites import prefetch_compound_lookups
 from builder.tools.document_discovery import (
     DocumentationCandidate,
     format_document_context,
@@ -1926,6 +1927,15 @@ def _materialize_plan(
     # Collect each resolved MolecularEntity id so the test compounds can be WIRED
     # into the Exposure below (#273) — without this they are graph orphans.
     compound_ids: list[str] = []
+    # Fetch every compound's lookups in parallel first (#821): one at a time they
+    # were most of a run. The loop then creates the entities from warm caches.
+    prefetch_compound_lookups(
+        [
+            name
+            for compound in plan.get("compounds") or []
+            if (name := str((compound or {}).get("name") or "").strip())
+        ]
+    )
     for compound in plan.get("compounds") or []:
         name = str((compound or {}).get("name") or "").strip()
         if not name:

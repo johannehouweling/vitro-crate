@@ -73,7 +73,7 @@ tox:CulturedSampleDerivesFromOneLine a sh:NodeShape ;
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;
         sh:maxCount 1 ;
-        sh:message "A cultured Sample MUST derive from at most one parent Sample — culture each source separately, or type the material as a co-culture (NCIT:C93168)" ;
+        sh:message "A cultured Sample MUST derive (schema:isBasedOn) from at most one parent Sample — culture each source separately, or type the material as a co-culture (NCIT:C93168)" ;
         sh:severity sh:Violation ;
     ] .
 
@@ -85,6 +85,6 @@ tox:CoCultureDerivesFromSeveralLines a sh:NodeShape ;
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;
         sh:minCount 2 ;
-        sh:message "A Sample typed as a co-culture (NCIT:C93168) MUST derive from two or more parent Samples — one source grown alone is a cell culture (OBI:0001876)" ;
+        sh:message "A Sample typed as a co-culture (NCIT:C93168) MUST derive (schema:isBasedOn) from two or more parent Samples — one source grown alone is a cell culture (OBI:0001876)" ;
         sh:severity sh:Violation ;
     ] .

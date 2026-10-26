@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
@@ -1888,6 +1889,35 @@ def _verify_compound_identifier(
     return verify_identifier(state, entity.entity_id, field)
 
 
+def _dtxsid_query(data: Mapping[str, Any], display_name: str) -> str:
+    """The CompTox key for a resolved compound: the strongest exact one available."""
+    return data.get("cas") or data.get("inchikey") or display_name
+
+
+def prefetch_compound_lookups(names: Iterable[str], *, workers: int = 4) -> None:
+    """Fetch what :func:`resolve_compound` reads for each of *names*, in parallel (#821).
+
+    Only the lookups run here (PubChem, then CompTox by the key ``resolve_compound``
+    uses), through the same caches and gate, and no state is touched: the serial
+    ``resolve_compound`` loop that follows creates its entities from warm caches.
+    Best effort: a failed fetch is left for that loop to report.
+    """
+
+    def fetch(name: str) -> None:
+        with resolve_concurrency.slot():
+            lookup = lookup_compound(name)
+        if lookup.get("found"):
+            warm_compound_cache(name, lookup)
+            lookup_dtxsid(_dtxsid_query(lookup.get("data") or {}, " ".join(name.split()) or name))
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in [pool.submit(fetch, name) for name in names]:
+            try:
+                future.result()
+            except Exception:  # noqa: BLE001 — the resolve loop reports the failure
+                logger.debug("compound prefetch failed", exc_info=True)
+
+
 def resolve_compound(
     state: CrateState,
     name: str,
@@ -2078,7 +2108,7 @@ def resolve_compound(
     # failure never sinks an already-resolved compound (mirrors the graceful
     # handling of the primary lookup above).
     if not entity.fields.get("dtxsid"):
-        dtxsid_query = data.get("cas") or data.get("inchikey") or display_name
+        dtxsid_query = _dtxsid_query(data, display_name)
         try:
             dtxsid_hit = lookup_dtxsid(dtxsid_query)
         except Exception:

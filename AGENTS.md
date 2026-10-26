@@ -585,6 +585,14 @@ so the on-disk `validate_crate` (which legitimately discovers a descriptor in a
 real crate directory) is untouched. Its docstring carries the upstream bug it
 works around and the condition for deleting it.
 
+**Messages on the in-memory path keep their text.** `rocrate_validator`
+relativises URIs in every result message by substring-replacing the crate path
+with `./`; on the dict path that path stringifies to `.`, so every dot in every
+message would become `./`. `_patch_make_uris_relative()` leaves a message
+untouched when the base is the bare current directory (#827). The constraint
+coverage test asserts each shape's `sh:message` verbatim through this path, so a
+regression here reddens it.
+
 **Cost levers.** The residual cost is profile *composition*, not inference:
 `rocrate_validator` recomposes the shapes/ontology graph and re-resolves check
 overrides on every `validate()` call with no reuse hook, so a long-lived worker
@@ -1943,6 +1951,10 @@ without weakening D5 (identifiers still come from the authority and are verified
 - **Bounded concurrency gate** (`_ResolveConcurrency`, default 4) admits only a
   few resolves at once, so a burst does not all storm PubChem and trip its rate
   limiter — complementing the per-host throttle, which spaces each request.
+- **Parallel prefetch** (`prefetch_compound_lookups`, #821): the pipeline fetches
+  every plan compound's lookups (PubChem, then CompTox by the key
+  `resolve_compound` uses) through that gate before its serial resolve loop, which
+  then creates the entities from warm caches. No state is written concurrently.
 
 > **Status: the shipped default no longer matches the bound stated below.**
 > `DEFAULT_RESOLVE_TIMEOUT` (`builder/tools/_resolve_cache.py`) is currently
