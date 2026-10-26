@@ -220,7 +220,8 @@ class TestMaterializeBuild:
         assert aop["@id"] == "https://aopwiki.org/aops/610"
         ke_ids = {n["@id"] for n in kes}
         ker_ids = {n["@id"] for n in kers}
-        mie_targets = {r["@id"] for r in aop["has_molecular_initiating_event"]}
+        mies = aop["has_molecular_initiating_event"]
+        mie_targets = {r["@id"] for r in (mies if isinstance(mies, list) else [mies])}
         assert mie_targets <= ke_ids
         ker_targets = {r["@id"] for r in aop["has_key_event_relationship"]}
         assert ker_targets == ker_ids
@@ -438,7 +439,7 @@ class TestLinkAssayToKeyEvent:
         export_crate(state, str(out), validate=False)
         graph = json.loads((out / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
         assay = next(n for n in graph if n.get("additionalType") == "Assay")
-        assert assay["keyEvent"] == [{"@id": "https://aopwiki.org/events/177"}]
+        assert assay["keyEvent"] == {"@id": "https://aopwiki.org/events/177"}
 
 
 class TestLinkAssayToMaterializedKeyEvent:
@@ -483,7 +484,7 @@ class TestLinkAssayToMaterializedKeyEvent:
         link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
 
         assay_node = self._assay_node(state)
-        assert assay_node["keyEvent"] == [{"@id": self._MITOCHONDRIAL_DYSFUNCTION}]
+        assert assay_node["keyEvent"] == {"@id": self._MITOCHONDRIAL_DYSFUNCTION}
         # And the target really is a KeyEvent node in the SAME graph — the whole
         # point is an edge into the AOP subgraph, not a dangling reference.
         assert self._MITOCHONDRIAL_DYSFUNCTION in {e.entity_id for e in _by_type(state, "KeyEvent")}
