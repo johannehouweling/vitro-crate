@@ -556,6 +556,10 @@ allow-list, so an invented one fails CI instead of shipping inside crates, and a
 real validator over a crate carrying the real context — a shape whose `sh:class` and the crate's
 `@context` disagree does not fail, it finds no target and never runs.
 
+A property holding one value is written as that value, never as a one-item array: the compact
+JSON-LD form RO-Crate 1.2 recommends (`_write_single_values`, run after assembly and again before
+the write, since the preview and the report are added after assembly).
+
 #### 4.2.5 Validator (`builder/tools/validation.py`, `profiles/validator.py`)
 Runs three-pass SHACL validation via `profiles/validator.py`, which wraps
 [`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator).

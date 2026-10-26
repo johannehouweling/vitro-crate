@@ -203,7 +203,22 @@ def assemble_crate(
     if os.environ.get(_DESCRIBE_EXTERNAL_TERMS_ENV, "").strip().lower() in ("1", "true", "yes"):
         describe_external_references(crate)
     add_schema_org_types(crate)
+    _write_single_values(crate)
     return crate
+
+
+def _write_single_values(crate: ROCrate) -> None:
+    """Write a one-item list as its item: the compact JSON-LD form RO-Crate 1.2 recommends.
+
+    The two mean the same in RDF; roc-validator reports every one-item array as a
+    SHOULD finding. Keywords (``@type`` …) are left alone, and the crate's context
+    declares no ``@set``/``@list`` container that would make the array meaningful.
+    """
+    for entity in crate.get_entities():
+        properties = entity.properties()
+        for key, value in list(properties.items()):
+            if not key.startswith("@") and isinstance(value, list) and len(value) == 1:
+                properties[key] = value[0]
 
 
 # Properties whose value is an ontology term the crate points AT rather than
@@ -696,6 +711,8 @@ def export_crate(
             except Exception as report_err:  # noqa: BLE001 — never fail export on the report
                 logger.warning("Could not embed maturity report: %s", report_err)
 
+        # The preview and the report were added after assembly.
+        _write_single_values(crate)
         crate.write(str(output_dir))
 
         # Remember where it landed: without this the state cannot say where the

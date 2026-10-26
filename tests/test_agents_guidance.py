@@ -2370,7 +2370,7 @@ class TestKeyEventAnswerIsResolvedNotStored:
         ).metadata.generate()["@graph"]
         assay_node = next(n for n in graph if n.get("additionalType") == "Assay")
         # The point of the route: the answer SURVIVES the build as a reference.
-        assert assay_node.get("keyEvent") == [{"@id": self._MITOCHONDRIAL_DYSFUNCTION}]
+        assert assay_node.get("keyEvent") == {"@id": self._MITOCHONDRIAL_DYSFUNCTION}
 
     def test_unmatched_answer_is_not_progress_and_stores_nothing(self):
         """Honesty control — and the anti-re-ask guarantee.
