@@ -192,6 +192,39 @@ def _patch_in_memory_descriptor_id() -> None:
 _patch_in_memory_descriptor_id()
 
 
+def _patch_make_uris_relative() -> None:
+    """Keep the dots in SHACL messages on the in-memory path (#827).
+
+    rocrate-validator relativises URIs in every result message with a plain
+    ``text.replace(str(ro_crate_path), "./")``. ``from_metadata_dict`` gives the
+    crate the path ``Path("./")``, whose ``str()`` is ``"."``, so on the dict path
+    every dot in every message became ``"./"`` ("e.g." read "e./g./"). Those
+    messages are user copy in ``--interactive`` and the key the remediation
+    matcher reads. A bare current-directory base has nothing to relativise, so
+    the text is returned as is; a real crate directory is unaffected. The name
+    is imported into two modules, so all three bindings are replaced. Idempotent.
+    """
+    from rocrate_validator.requirements.shacl import checks as _checks
+    from rocrate_validator.requirements.shacl import utils as _utils
+    from rocrate_validator.requirements.shacl import validator as _shacl
+
+    original = _utils.make_uris_relative
+    if getattr(original, "__wrapped__", None) is not None:
+        return
+
+    def _keep_dots(text: str, ro_crate_path: Path | str) -> str:
+        if str(ro_crate_path) in ("", ".", "./"):
+            return text
+        return original(text, ro_crate_path)
+
+    _keep_dots.__wrapped__ = original  # ty: ignore[unresolved-attribute]
+    for module in (_utils, _checks, _shacl):
+        module.make_uris_relative = _keep_dots  # ty: ignore[invalid-assignment]
+
+
+_patch_make_uris_relative()
+
+
 # ---------------------------------------------------------------------------
 # Offline-safe context resolution (#117)
 # ---------------------------------------------------------------------------
