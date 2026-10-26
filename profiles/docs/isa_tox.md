@@ -403,7 +403,7 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
 |description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
 |url|MAY|URL|Where the lab published the procedure, when it stated one.|
-|reagent|MUST|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|On the Exposure's record: the test and control compounds it applied, at least one.|
+|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
 |isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
 
 | Step | intendedUse |
