@@ -121,12 +121,10 @@ exploration, not a one-way migration. See the architecture docs (`AGENTS.md` §1
 for the full comparison.
 
 ```bash
-# Default — the conversational ReAct agent, on a research data folder and set
-# working straight away:
-uv run python -m main --interactive -i /path/to/experiment/ --prompt "build the crate"
+# Default — the ReAct agent, on a research data folder: it starts building at once.
+uv run python -m main --interactive -i /path/to/experiment/
 
-# Without --prompt it waits for you to type; without --input it starts with an
-# empty crate and reads what you point it at.
+# Without --input it starts with an empty crate and waits for an instruction.
 uv run python -m main --interactive
 
 # Specify provider / model / endpoint:
@@ -172,12 +170,10 @@ uv run python -m main --smoke-test -i /path/to/experiment/
 - Filesystem access is **not** widened: a scan-root escalation pre-selects the
   refusal, so confirming the pre-selection denies it (see `AGENTS.md` D9).
 
-**Starting the ReAct agent.** The conversational arm greets you and then waits for
-an instruction — on its own it does no work, so a run left at the prompt builds
-nothing. Give it an opening instruction with `--prompt/-P` (or just type one) and
-it works autonomously from there, checking back only when it genuinely needs you.
-The session stays interactive afterwards. The --pipeline build needs none of
-this: it runs unprompted.
+**Starting the ReAct agent.** Given an input folder, the agent starts building and
+checks back only when it genuinely needs you; `--prompt/-P` replaces that first
+instruction with your own. Without a folder it waits for one. The session stays
+interactive throughout. The --pipeline build runs unprompted.
 
 **Looking at a crate you already have.** `--graph` writes the entity explorer for
 any crate and opens it — no LLM configuration needed:
@@ -351,9 +347,10 @@ Options:
                          has; without one it drives a few turns and stops. The
                          crate it writes holds synthesised answers, not curated
                          metadata
-  -P, --prompt TEXT      With --interactive, an opening instruction that starts
-                         the agent working immediately instead of waiting for
-                         you to type one. The session stays interactive
+  -P, --prompt TEXT      With --interactive, the agent's first instruction, in
+                         place of the default it gets with an input folder
+                         ("Build the crate and validate it."). Without a folder
+                         it waits for one. The session stays interactive
                          afterwards. Ignored by the --pipeline build, which runs
                          unprompted
   -p, --provider STR     LLM provider: 'openai' or 'anthropic' (auto-detected from env)

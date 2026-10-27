@@ -168,6 +168,31 @@ class TestInteractiveDispatch:
         assert main(["--interactive", "--react", "--prompt", "build the crate"]) == 0
         assert captured["initial_prompt"] == "build the crate"
 
+    def test_an_input_folder_starts_the_react_build(self, monkeypatch, tmp_path):
+        """A folder on the command line says what to do: no --prompt needed (#846)."""
+        from builder.agents.build import DEFAULT_INSTRUCTION
+
+        self._stub_config(monkeypatch)
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "test.txt").write_text("hello\n")
+        captured: dict = {}
+
+        import builder.agents.react.agent_loop as agent_loop
+
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda engine, **kw: captured.update(kw)
+        )
+
+        assert main(["--interactive", "--input", str(d)]) == 0
+        assert captured["initial_prompt"] == DEFAULT_INSTRUCTION
+
+        assert main(["--interactive", "--input", str(d), "--prompt", "only the LDH assay"]) == 0
+        assert captured["initial_prompt"] == "only the LDH assay"
+
+        assert main(["--interactive"]) == 0
+        assert captured["initial_prompt"] is None
+
     def test_verbose_reaches_the_react_loop(self, monkeypatch):
         """The diagnostic opt-in survives main -> run_build -> ReAct (#verbose)."""
         self._stub_config(monkeypatch)
