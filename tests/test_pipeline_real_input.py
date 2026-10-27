@@ -501,7 +501,7 @@ class TestRealInputPipeline:
         doc = json.loads(descriptor.read_text())
         doc["section"]["attributes"].append({"name": "AOP", "value": "https://aopwiki.org/aops/464"})
         descriptor.write_text(json.dumps(doc, indent=2))
-        rows = "well,value\n" + "\n".join(f"A{i},{i}" for i in range(200)) + "\n"
+        rows = "well,value\n" + "\n".join(f"A{i},{i}" for i in range(200))
         for k in range(40):
             (deposit / f"README_{k:02d}.txt").write_text(f"Folder {k} holds the plate {k} exports.\n")
             (deposit / f"plate_{k:02d}.csv").write_text(rows)
