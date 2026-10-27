@@ -335,9 +335,7 @@ def _plan_schema() -> dict[str, Any]:
                 {
                     "name": {
                         **str_field,
-                        "description": (
-                            "Cell-line name as the documents word it, no accession."
-                        ),
+                        "description": ("Cell-line name as the documents word it, no accession."),
                     },
                     # #372: the ONLY route from a descriptive phrase to a
                     # Cellosaurus record. `resolve_cell_line`'s exact+unique D5
@@ -548,6 +546,81 @@ def extract_plan(
 
     plan = dict(result) if isinstance(result, dict) else {}
     return _strip_plan_identifiers(plan)
+
+
+_STRUCTURE_SYSTEM_PROMPT = (
+    "You label the folder tree of a research data deposit as its studies and "
+    "assays. An assay is one experiment type that produced data; its folder "
+    "usually holds raw or processed data, a protocol or a metadata record, and "
+    "sometimes only the documents with the data still to come. A study is the "
+    "assays run on one test system or research question; its folder contains "
+    "its assays' folders. Run folders, dated folders, compound-series folders "
+    "and raw/processed folders belong to the assay above them and are never "
+    "assays themselves. Literature, resources and protocol folders are neither, "
+    "and a folder with no assay below it is not a study: leave it out. "
+    "A flat deposit is one study at '.' with one assay at '.'. Use only folder "
+    "paths that appear in the tree, spelled exactly as written ('.' is the "
+    "root). Name each study and assay from its folder name or README; never "
+    "invent a name."
+)
+
+
+def _structure_schema() -> dict[str, Any]:
+    """Studies of assays, a folder and a name each — nothing else (#852)."""
+    labelled = {
+        "type": "object",
+        "properties": {"folder": {"type": "string"}, "name": {"type": "string"}},
+        "required": ["folder", "name"],
+        "additionalProperties": False,
+    }
+    study = {
+        "type": "object",
+        "properties": {
+            "folder": {"type": "string"},
+            "name": {"type": "string"},
+            "assays": {"type": "array", "items": labelled},
+        },
+        "required": ["folder", "name", "assays"],
+        "additionalProperties": False,
+    }
+    return {
+        "title": "DepositStructure",
+        "description": "The studies and assays a deposit's folder tree states.",
+        "type": "object",
+        "properties": {"studies": {"type": "array", "items": study}},
+        "required": ["studies"],
+        "additionalProperties": False,
+    }
+
+
+def derive_deposit_structure(
+    tree_summary: str,
+    *,
+    overrides: ModelOverrides | None = None,
+    usage_sink: UsageSink | None = None,
+) -> dict[str, Any]:
+    """Label a deposit's folder tree as studies and assays, in one drafter call (#852).
+
+    *tree_summary* is :func:`builder.tools.deposit_structure.tree_summary`. The
+    answer is the raw labelling; :func:`builder.tools.deposit_structure.check_structure`
+    decides whether it is accepted, and the caller falls back when it is not.
+    Nothing here reads a file or touches state. An answer that is not an object
+    is an empty labelling, which the checks reject.
+    """
+    llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
+    messages = [
+        SystemMessage(content=_STRUCTURE_SYSTEM_PROMPT),
+        HumanMessage(
+            content=(
+                "Folder tree (one folder per line: its own files by class, some of "
+                "their names, what lies below, and its README where one was read):\n"
+                f"{tree_summary}\n\n"
+                "Label the studies and the assays under each study."
+            )
+        ),
+    ]
+    result = _invoke_structured_with_usage(llm, _structure_schema(), messages, usage_sink)
+    return dict(result) if isinstance(result, dict) else {}
 
 
 def draft_entity_fields(
@@ -1201,9 +1274,7 @@ def describe_files(
             )
         ),
     ]
-    result = _invoke_structured_with_usage(
-        llm, _describe_schema(len(files)), messages, usage_sink
-    )
+    result = _invoke_structured_with_usage(llm, _describe_schema(len(files)), messages, usage_sink)
     if isinstance(result, dict):
         items = result.get("descriptions")
         if isinstance(items, list) and len(items) == len(files):

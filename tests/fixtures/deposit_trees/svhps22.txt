@@ -1,0 +1,1468 @@
+S-VHPS22.json
+study_01_TH-DNT_Tier1_NeuralCellLines/Metadataveldenlijst_1.2.0.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/3.2 Protocol transporter assay radioactive T3 T4_EN.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/20231110_T3 T4 uptake PBDE99, Amiodarone (H4, SKNAS, MO3.13).xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231117_UPTAKE MO3.13 Amiodarone/004495 fout T2 ipv T3.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231117_UPTAKE MO3.13 Amiodarone/004496.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231117_UPTAKE MO3.13 Amiodarone/004497.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231117_UPTAKE MO3.13 Amiodarone/004498.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231117_UPTAKE MO3.13 Amiodarone/004501.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231117_UPTAKE MO3.13 Amiodarone/004502.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231123_UPTAKE MO3.13 H4 SKNAS amiodarone, PBDE99, Lesi/004509.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231123_UPTAKE MO3.13 H4 SKNAS amiodarone, PBDE99, Lesi/004510.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/20231123_UPTAKE MO3.13 H4 SKNAS amiodarone, PBDE99, Lesi/004513.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/BCA/20231213_BCA H4 uptake 23-11.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/BCA/20231213_BCA MO uptake 15-11.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/BCA/20231213_BCA MO uptake 23-11.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231110_uptake PBDE-99 en Amiodarone/raw data/BCA/20231213_BCA SK uptake 23-11.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/20231127_T3 T4 uptake MBP, cefuroxime, xanthohumol (H4, SKNAS, MO3.13).xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/20-12 uptake SKNAS cefu en xn/004540.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/20-12 uptake SKNAS cefu en xn/004541.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/20-12 uptake SKNAS cefu en xn/004542.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/20-12 uptake SKNAS cefu en xn/004543.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004514.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004515.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004516.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004517.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004518.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004519.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004520.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004521.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004522.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/30-11 uptake/004523.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/BCA/20231219_ BCA uptake 27-11 H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/BCA/20231219_ BCA uptake 27-11 MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/BCA/20231219_ BCA uptake 27-11 SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/BCA/20231219_ BCA uptake 27-11 Xn en Cefu MO3.13 en H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231127_uptake MBP, cefuroxime, xanthohumol/raw data/BCA/20231221_BCA SK cefu + xn.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/20231204_T3 T4 uptake PBDE99, Amiodarone, Lesinurad (H4, SKNAS, MO3.13).xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/004529.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/004530.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/004531.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/004532.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/20231221_BCA H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/20231221_BCA MO.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20231204_uptake PBDE-99, Amiodarone, Lesinurad/raw data/20231221_BCA SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/20240111_T3 T4 uptake MBP, cefuroxime, xanthohumol (H4, SKNAS, MO3.13).xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/004551.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/004552.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/004553.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/004554.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/20240119 BCA uptake H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/20240119 BCA uptake MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240111_uptake MBP, cefuroxime, xanthohumol/raw data/20240119 BCA uptake SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/20240119_T3 T4 uptake PBDE99, Amiodarone (H4, SKNAS, MO3.13).xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/004560.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/004561.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/004562.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/004563.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/20240126_BCA uptake amiodarone PBDE99 H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/20240126_BCA uptake amiodarone PBDE99 MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240119_uptake Amiodarone en PBDE-99/Raw data/20240126_BCA uptake amiodarone PBDE99 SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/20240129_T3 T4 uptake gaten.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/07-02-2024/004583.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/07-02-2024/004584.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/07-02-2024/004586.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/07-02-2024/004587.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/07-02-2024/20240209_BCA uptake MO+H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/07-02-2024/20240209_BCA uptake SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/14-02-2024/004597.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/14-02-2024/004598.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/14-02-2024/004599.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/14-02-2024/004600.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240129_uptake gaten/Raw data/14-02-2024/20240215 BCA uptake SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/20240221_ BSP, NH3, IOP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/raw data/004610.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/raw data/004611.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/raw data/004613.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/raw data/20240221_BCA H4 uptake.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/raw data/20240221_BCA MO uptake.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240221_BSP, IOP, NH3/raw data/20240221_BCA SK uptake.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/20240306_ CP, TBBPA, BSP, NH3, IOP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/004638.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/004639.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/004640.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/004640csv.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/20240306_BCA H4 uptake plate BSP CP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/20240306_BCA H4 uptake plate TB IOP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/20240306_BCA MO uptake plate BSP CP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240306_CP, TBBPA, BSP, IOP, NH3/raw data/20240306_BCA MO uptake plate TB IOP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/20240313_ CP, TBBPA, BSP, NH3, IOP.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/004650.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/004651.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/004652.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/004653.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/20240530_BCA H4 p1 13-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/20240530_BCA H4 p2 13-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240313_CP, TBBPA, BSP, IOP, NH3/raw data/20240530_BCA MO p1 13-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/20240321_ CP, TBBPA, MBP, Xn.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/004662.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/004666.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/20240530_BCA H4 p1 21-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/20240530_BCA H4 p2 21-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/20240530_BCA MO p1 21-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/20240530_BCA MO p2 21-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/20240530_BCA SK p1 21-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240321_CP, TBBPA, MPB, Xn/raw data/20240530_BCA SK p2 21-03.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240327_Xn reeks SK H4/20240327_Xn reeks Sk H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240327_Xn reeks SK H4/raw data/004668.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240327_Xn reeks SK H4/raw data/004669.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240328_Xn reeks H4 MO/20240328_Xn reeks H4 MO.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240328_Xn reeks H4 MO/raw data/004672.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240404_Xn reeks H4 MO SK/20240404_Xn reeks H4 MO SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240404_Xn reeks H4 MO SK/raw data/004678.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240404_Xn reeks H4 MO SK/raw data/004682.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240405_Xn reeks MO SK/20240405_Xn reeks MO SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/20240405_Xn reeks MO SK/raw data/004685.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/Combined uptake data EDCs.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/Combined uptake data EDCs_tidy.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/EDCs/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/1.0 Medium for different cell types.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/1.1 Cellen opstarten.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/1.2 Cellen doorzetten.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/1.3 Seeding cells.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/3.2 Protocol transporter assay radioactive T3 T4_EN.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/Cell model manuscript_draft_V2.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/Seeding densities.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Input files for toxtemp (temporary)/metadata_TH.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/Protocol transporter assay radioactive T3 T4 (need to translate).docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/README-template.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/TH_assay_metadata.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2022-08-01 T3 T4 uptake 0-60 min H4 MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2022-08-10 T3 T4 uptake 0-60 min H4 MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2023-03-01 0-60 min SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2023-03-08 T3 T4 uptake 0-60 min SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2023-03-09 0-60 min H4.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2023-03-22 0-60 min SKNAS.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/2023-05-10 0-60 min MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/Combined uptake data 0-60 min.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_processeddata/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/003648.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/003660.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004043.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004051.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004056.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004088.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/004192.csv
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_01_TH_uptake/characterisation uptake/assay1_rawdata/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/3.3 Bradford protocol.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/4.1 Deiodinase activity assay.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/20240119_Deiodase  IOP en XN MO en SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2522.28.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2522.58.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2523.28.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2523.58.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2600.28.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2600.58.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2601.28.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2601.58.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2602.28.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2602.58.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2603.28.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2603.58.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2604.28.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2604.58.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2605.28.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2605.58.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2606.28.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2606.58.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2607.28.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2607.58.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2608.28.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2608.58.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2609.28.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2609.58.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2610.28.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2610.58.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2611.28.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2611.58.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2612.28.26.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2612.58.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2613.28.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2613.58.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2614.28.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2614.58.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2615.28.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2615.58.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2616.28.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2616.58.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/2024-01-2617.28.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240119_IOP en Xn/raw data/20240125_bradford deiodinases XN IOP MO SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/20240212_Deiodase Amio, MBP, Cefu, P-99.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1520.43.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1521.13.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1521.43.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1522.13.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1522.43.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1523.13.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1523.43.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1600.13.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1600.43.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1601.13.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1601.43.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1602.13.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1602.43.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1603.13.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1603.43.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1604.13.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1604.43.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1605.13.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1605.43.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1606.13.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1606.43.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1607.13.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1607.43.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1608.13.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1608.43.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1609.13.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1609.43.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1610.13.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1610.43.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1611.13.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1611.43.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1612.13.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1612.43.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1613.13.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1613.43.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1614.13.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1614.43.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1615.13.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1615.43.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1616.13.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1616.43.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1617.13.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1617.43.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1618.13.26.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1618.43.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1619.13.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1619.43.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1620.13.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1620.43.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1621.13.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1621.43.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1622.13.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1622.43.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1623.13.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1623.43.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1700.13.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1700.43.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1701.13.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1701.43.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1702.13.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1702.43.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1703.13.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1703.43.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1704.13.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1704.43.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1705.13.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/2024-02-1705.43.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240212_Amio, MBP, Cefu, P-99/raw data/20240215_bradford deiodinases EDCs MO SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/20240219_Deiodase Amio, MBP, Cefu, P-99.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2121.09.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2121.39.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2122.09.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2122.39.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2123.09.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2123.39.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2200.09.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2200.39.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2201.09.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2201.39.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2202.09.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2202.39.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2203.09.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2203.39.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2204.09.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2204.39.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2205.09.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2205.39.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2206.09.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2206.39.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2207.09.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2207.39.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2208.09.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2208.39.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2209.09.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2209.39.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2210.09.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2210.39.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2211.09.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2211.39.26.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2212.09.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2212.39.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2213.09.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2213.39.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2214.09.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2214.39.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2215.09.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2215.39.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2216.09.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2216.39.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2217.09.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2217.39.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2218.09.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2218.39.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2219.09.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2219.39.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2220.09.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2220.39.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2221.09.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2221.39.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2222.09.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2222.39.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2223.09.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2223.39.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2300.09.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2300.39.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2301.09.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2301.39.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2302.09.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2302.39.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2303.09.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2303.39.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2304.09.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2304.39.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/2024-02-2305.08.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240219_Amio, MBP, Cefu, P-99/raw data/20240221_bradford deiodinases EDCs MO SK n2.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/20240327_Deiodinase EDCs HC.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2715.34.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2716.04.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2716.34.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2717.04.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2717.34.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2718.04.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2718.34.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2719.04.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2719.34.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2720.04.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2720.34.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2721.04.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2721.34.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2722.04.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2722.34.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2723.04.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2723.34.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2800.04.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2800.34.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2801.04.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2801.34.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2802.04.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2802.34.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2803.04.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2803.34.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2804.04.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2804.34.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2805.04.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2805.34.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2806.04.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2806.34.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2807.04.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2807.34.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2808.04.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2808.34.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2809.04.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2809.34.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2810.04.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2810.34.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2811.04.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2811.34.26.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2812.04.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2812.34.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2813.04.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2813.34.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2814.04.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2814.34.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2815.04.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2815.34.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2816.04.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2816.34.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2817.04.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2817.34.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2818.04.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2818.34.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2819.04.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2819.34.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/2024-03-2820.04.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240327_Deiodinase EDCs HC/raw data/20240327_Bradford deiodase.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/20240404_Deiodinase EDCs HC.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0416.21.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0416.51.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0417.21.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0417.51.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0418.21.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0418.50.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0419.20.58.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0419.50.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0420.20.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0420.50.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0421.20.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0421.50.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0422.20.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0422.50.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0423.20.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0423.50.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0500.20.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0500.50.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0501.20.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0501.50.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0502.20.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0502.50.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0503.20.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0503.50.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0504.20.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0504.50.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0505.20.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0505.50.43 IS SAMPLE SK B2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0506.20.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0506.50.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0507.20.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0507.50.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0508.20.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0508.50.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0509.20.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0509.50.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0510.20.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0510.50.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0511.20.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0511.50.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0512.20.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0512.50.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0513.20.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0513.50.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0514.20.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0514.50.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0515.20.31 deze als volgende iop 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0515.50.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0516.20.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0516.50.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0517.20.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0517.50.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0518.20.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0518.50.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0519.20.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0519.50.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0520.20.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0520.50.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0521.20.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0521.50.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0522.20.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0522.50.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0523.20.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0523.50.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0600.20.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0600.50.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0601.20.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0601.50.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0602.20.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0602.50.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0603.20.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0603.50.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0604.20.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0604.50.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0605.20.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0605.50.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0606.20.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0606.50.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0607.20.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0607.50.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0608.20.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0608.50.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0609.20.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/2024-04-0609.50.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240404_Deiodase EDC HC/raw data/20240404_Bradford deiodase.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/20240501_Deiodinase EDCs HC.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0200.57.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0201.27.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0201.55.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0202.23.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0202.51.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0203.19.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0203.47.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0204.15.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0204.43.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0205.11.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0205.39.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0206.07.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0206.35.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0207.03.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0207.31.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0207.59.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0208.27.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0208.55.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0209.23.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0209.51.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0210.19.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0210.47.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0211.15.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0211.43.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0212.11.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0212.39.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0213.08.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0213.36.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0214.04.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0214.32.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0215.00.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0215.28.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0215.56.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0216.24.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0216.52.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0217.20.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0217.48.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0218.16.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0218.44.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0219.12.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0219.40.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0220.08.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0220.36.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0221.04.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0221.32.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0222.00.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0222.28.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0222.56.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0223.24.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0223.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0300.20.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0300.48.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0301.16.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0301.44.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0302.12.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/2024-05-0302.40.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240501_Deiodases EDC HC/raw data/20240501_Bradford deiodase.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/20240529_Deiodinase EDCs HC.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2915.16.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2915.46.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2916.16.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2916.46.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2917.16.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2917.46.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2918.16.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2918.46.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2919.16.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2919.46.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2920.16.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2920.46.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2921.16.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2921.46.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2922.16.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2922.46.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2923.16.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-2923.46.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3000.16.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3000.46.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3001.16.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3001.46.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3002.16.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3002.46.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3003.16.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3003.46.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3004.16.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3004.46.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3005.16.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3005.46.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3006.16.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3006.46.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3007.16.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3007.46.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3008.16.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3008.46.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3009.16.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3009.46.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3010.16.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3010.46.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3011.16.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3011.46.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3012.16.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3012.46.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3013.16.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3013.46.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3014.16.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3014.46.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3015.16.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3015.46.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3016.16.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3016.46.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3017.16.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3017.46.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3018.16.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3018.46.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3019.16.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3019.46.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3020.16.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3020.46.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3021.16.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3021.46.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3022.16.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3022.46.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3023.16.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3023.46.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3100.16.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3100.46.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/2024-05-3101.14.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240529_Deiodases EDC HC/raw data/20240529_Bradford SK MO compounds.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/20240605_Deiodinase silyhrsitin.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0613.22.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0613.52.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0614.22.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0614.52.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0615.22.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0615.52.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0616.22.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0616.52.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0617.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0617.52.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0618.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0618.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0619.22.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0619.52.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0620.22.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0620.52.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0621.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0621.52.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0622.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0622.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0623.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0623.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0700.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0700.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0701.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0701.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0702.22.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0702.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0703.22.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0703.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0704.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0704.52.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0705.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0705.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0706.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0706.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0707.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/2024-06-0707.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240605_Deiodases SILYCHRISTIN/raw data/20240605 Bradford SK MO compounds.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/20240606_Deiodinase silyhrsitin.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0708.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0708.52.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0709.22.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0709.52.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0710.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0710.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0711.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0711.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0712.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0712.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0713.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0713.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0714.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0714.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0715.22.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0715.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0716.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0716.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0717.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0717.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0718.22.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0718.52.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0719.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0719.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0720.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0720.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0721.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0721.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0722.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0722.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0723.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0723.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0800.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0800.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0801.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0801.52.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0802.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0802.52.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0803.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0803.52.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0804.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0804.52.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0805.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0805.52.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0806.22.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0806.52.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0807.22.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0807.52.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0808.22.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0808.52.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0809.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0809.52.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0810.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0810.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0811.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0811.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0812.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0812.52.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0813.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0813.52.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0814.22.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0814.52.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0815.22.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0815.52.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0816.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0816.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0817.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0817.52.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0818.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0818.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0819.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/2024-06-0819.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/20240606_Deiodases SILYCHRISTIN/raw data/20240606 Bradford SK MO compounds.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/EDCs/Combined deiodinase data EDCs.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/ToxTemp_placeholder.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/Deiodinase activity assay 19-10-22.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019173505 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019180644 H4 T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019183533 H4 T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019190422 H4 T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019193312 H4 T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019200201 H4 T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019203051 H4 T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019205940 H4 T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019212829 H4 T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019215928 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019223108 MO T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019225947 MO T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019232837 MO T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221019235726 MO T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020002616 MO T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020005504  MO T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020012353  MO T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020015252  MO T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020022341 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020025521 SK T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020032410 SK T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020035259 SK T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020042148 SK T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020045037 SK T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020051926 SK T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020054815 SK T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020061704 SK T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020064804 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020071933 SH T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020074822 SH T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020081711 SH T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020084601 SH T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020091450 SH T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020094339 SH T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020101229 SH T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020104245 SH T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020111212 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020114352 T3 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020121241 T3 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020124130 T4 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020131019 T4 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020134109 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020140958 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/Dejodase 191022/20221020143847 stop.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20221019_H4 MO SK_D2 D3/raw data/raw data 2022-10-19 Bradford dejodase assay.xls
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Deiodinase activity assay SK MO H4 01-03-2023.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301144312 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301151452 BLANC.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301154342 H4 T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301161232 H4 T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301164122 H4 T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301171011 H4 T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301173901 H4 T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301180751 H4 T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301183640 H4 T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301190541 H4 T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301193631 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301200801 MO T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301203651 MO T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301210540 MO T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301213430 MO T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301220319 MO T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301223209 MO T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301230101 MO T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301232950 MO T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230301_Bradford Deiodinase_SK H4 MO.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302000050 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302003220 SK T3 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302010110 SK T3 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302013000 SK T3 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302015850 SK T3 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302022740 SK T4 1-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302025629 SK T4 1-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302032518 SK T4 2-1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302035417 SK T4 2-2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302042517 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302045636 T3 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302052525 T3 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302055425 T4 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302062314 T4 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302065204 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230301_H4 MO SK_D2 D3/Raw data/20230302072053 shutdown.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Deiodinase activity assay 03-05-2023.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0318.03.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0318.31.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0319.00.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0319.29.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0319.58.26.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0320.27.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0320.56.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0321.25.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0321.53.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0322.56.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0323.25.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0323.54.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0400.23.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/2023-05-0401.25.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230503_SK_D2 D3/Raw data/20230503_SK deio bradford.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/Deiodinase activity assay SH MO H4 20230509.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1019.11.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1019.40.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1020.09.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1020.38.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1021.07.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1021.36.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1022.04.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1022.33.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1023.02.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1100.05.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1100.34.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1101.03.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1101.32.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1102.00.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1102.29.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1102.58.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1103.27.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1104.30.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1104.58.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1105.27.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1105.56.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1106.25.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1106.54.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1107.23.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1107.52.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1108.54.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1109.23.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1109.52.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1110.21.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1112.40.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1113.09.31 jodide.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1113.38.21 T1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1114.07.14 T2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1114.36.04 rT3.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1115.38.34 t3 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1116.07.28 T4 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1116.36.22 T3 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/2023-05-1117.05.16 T4 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/20230510_H4 MO_D2 D3/raw data/20230511_Deiodinase bradford.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/Combined deiodinase data EDCs.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/D3 activity EDC in MO3.13 cells.pzfx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/D3 activity EDC in SKNAS cells.pzfx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/Endogenous D2 and D3 activity.pzfx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/MO3.13 EDC D3 activity.png
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/characterisation/SKNAS EDC D3 activity.png
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_02_deiodinase/deiodinase_assay_metadata.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/4.2 Protocol for metabolism assay in neural culture.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/4.3 Protocol UPLC runnen.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/20240129_Deiodase  IOP en XN MO en SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2623.28.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2623.58.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2700.28.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2700.58.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2701.28.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2701.58.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2702.28.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2702.58.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2703.28.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2703.58.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2704.28.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2704.58.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2705.28.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2705.58.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2706.28.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2706.58.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2707.28.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2707.58.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2708.28.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2708.58.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2709.28.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2709.58.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2710.28.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2710.57.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2711.27.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2711.57.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2712.27.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2712.57.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2713.27.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2713.57.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2714.27.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2714.57.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2715.27.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2715.57.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2716.27.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2716.57.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2717.27.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2717.57.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2718.27.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2718.57.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2719.27.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2719.57.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2720.27.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2720.57.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2721.27.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2721.57.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2722.27.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240119_IOP en XN MO en SK/raw data/2024-01-2722.57.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/20230202_IOP en XN MO en SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0916.51.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0917.21.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0917.51.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0918.21.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0918.51.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0919.21.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0919.51.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0920.21.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0920.51.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0921.21.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0921.51.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0922.21.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0922.51.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0923.21.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-0923.51.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1000.21.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1000.51.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1001.21.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1001.51.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1002.21.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1002.51.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1003.21.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1003.51.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1004.21.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1004.51.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1005.21.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1005.51.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1006.21.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1006.51.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1007.21.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1007.51.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1008.21.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1008.51.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1009.21.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1009.51.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1010.21.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1010.51.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1011.21.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1011.51.30.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1012.21.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1012.51.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1013.21.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1013.51.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1014.21.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1014.51.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1015.21.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1015.51.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240202_IOP en XN MO en SK/raw data/2024-02-1016.21.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/20240327_metabolism EDCs HC.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/Metabolism data HC n-1.pzfx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2820.34.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2821.04.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2821.34.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2822.04.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2822.34.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2823.04.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2823.34.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2900.04.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2900.34.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2901.04.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2901.34.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2902.04.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2902.34.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2903.04.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2903.34.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2904.04.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2904.34.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2905.04.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2905.34.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2906.04.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2906.34.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2907.04.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2907.34.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2908.04.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2908.34.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2909.04.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2909.34.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2910.03.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240327_Metabolism EDCs HC/raw data/2024-03-2910.33.58.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/20240404_metabolism Xn IOP curve.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0610.20.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0610.50.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0611.20.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0611.50.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0612.20.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0612.50.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0613.20.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0613.50.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0614.20.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0614.50.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0615.20.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0615.50.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0616.19.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0616.49.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0617.19.58.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0617.49.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0618.19.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0618.49.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0619.19.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0619.49.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0620.19.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0620.49.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0621.19.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0621.49.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0622.19.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0622.49.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0623.19.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0623.49.48.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0700.19.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0700.49.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0701.19.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0701.49.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0702.19.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0702.49.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0703.19.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0703.49.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0704.19.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0704.49.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0705.19.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0705.49.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0706.19.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0706.49.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240404_metabolisme EDCs Xn IOP curve/raw data/2024-04-0707.19.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/20240605_metabolism EDCs BSP CP TB.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0708.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0708.52.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0709.22.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0709.52.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0710.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0710.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0711.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0711.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0712.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0712.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0713.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0713.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0714.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0714.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0715.22.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0715.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0716.22.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0716.52.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0717.22.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0717.52.17.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0718.22.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0718.52.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0719.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0719.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0720.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0720.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0721.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0721.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0722.22.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0722.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0723.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0723.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240605_Metabolism EDCs CP TB BSP/raw data/2024-06-0800.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/202406066_metabolism EDCs BSP CP TB.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0820.22.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0820.52.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0821.22.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0821.52.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0822.22.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0822.52.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0823.22.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0823.52.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0900.22.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0900.52.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0901.22.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0901.52.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0902.22.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0902.52.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0903.22.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0903.52.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0904.22.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0904.52.05.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0905.22.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0905.52.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0906.22.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0906.52.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0907.22.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0907.52.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0908.22.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0908.52.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0909.22.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0909.51.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0910.21.58.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0910.51.58.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0911.21.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0911.51.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0912.21.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0912.51.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240606_Metabolism EDCs CP TB BSP/raw data/2024-06-0913.19.58.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/20240613_metabolism EDCs BSP CP curve TB.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1314.30.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1315.00.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1315.30.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1316.00.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1316.30.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1317.00.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1317.30.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1318.00.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1318.30.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1319.00.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1319.30.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1320.00.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1320.30.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1321.00.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1321.30.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1322.00.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1322.30.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1323.00.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1323.30.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1400.00.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1400.30.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1401.00.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1401.30.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1402.00.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1402.30.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1403.00.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1403.30.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1404.00.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1404.30.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1405.00.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1405.30.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1406.00.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1406.30.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1407.00.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1407.30.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1408.00.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1408.30.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1409.00.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1409.30.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1410.00.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1410.30.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1411.00.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1411.30.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1412.00.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1412.30.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1413.00.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1413.30.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240613_Metabolism EDCs CP curve TB BSP/raw data/2024-06-1413.58.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/20240703_metabolism EDCs CP curve.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0413.15.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0413.45.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0414.15.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0414.45.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0415.15.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0415.45.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0416.15.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0416.45.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0417.15.40.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0417.45.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0418.15.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0418.45.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0419.15.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0419.45.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0420.15.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0420.45.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0421.15.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0421.45.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0422.15.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0422.45.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0423.15.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0423.45.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0500.15.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0500.45.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0501.15.39.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0501.45.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0502.15.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0502.45.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0503.15.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0504.45.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0505.13.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240703_Metabolism EDCs CP curve/raw data/2024-07-0505.43.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/20240704_metabolism EDCs BSP CP curve TB.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0503.45.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0504.15.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0511.45.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0512.15.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0512.45.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0513.15.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0513.45.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0514.14.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0514.44.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0515.14.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0515.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0516.14.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0516.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0517.14.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0517.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0518.14.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0518.44.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0519.14.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0519.44.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0520.14.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0520.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0521.14.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0521.44.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0522.14.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0522.44.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0523.14.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0523.44.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0600.14.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0600.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0601.14.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0601.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0602.14.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0602.44.56.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0603.14.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240704_Metabolism EDCs CP curve TB BSP/raw data/2024-07-0603.42.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/20240710_metabolism Mo3.13 TB Sily.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1111.25.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1111.55.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1112.25.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1112.55.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1113.25.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1113.55.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1114.25.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1114.55.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1115.25.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1115.55.15.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1116.25.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1116.55.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1117.25.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1117.55.12.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1118.25.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1118.55.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/20240710_Metabolism MO TB Sily/raw data/2024-07-1119.23.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/Combined metabolism data EDCs.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/EDCs/Metabolism paper calculation.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/2022-11-30 Metabolism H4 MO3.13.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201105246 start.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201112146 blanco.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201115035 H4 T3 4h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201121925 H4 T3 4h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201124815 H4 T4 4h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201131704 H4 T4 4h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201134554 MO T3 4h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201141443 MO T3 4h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201144333 MO T4 4h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201151232 MO T4 4h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201154332 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201161512 H4 T3 8h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201164352 H4 T3 8h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201171242 H4 T4 8h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201174132 H4 T4 8h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201181021 MO T3 8h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201183911 MO T3 8h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201190811 MO T4 8h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201193700 MO T4 8h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201200810 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201203939 H4 T3 24h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201210828 H4 T3 24h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201213718 H4 T4 24h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201220608 H4 T4 24h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201223458 MO T4 24h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201230347 MO T4 24h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201233237 MO T3 24h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221201_Nathalie_metabolism H4MO BCA.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202000136 MO T3 24h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202003236 WASH.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202010406 T3 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202013255 T3 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202020145 T4 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202023034 T4 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202025924 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221130_metabolism t3 t4 H4 MO/raw data/20221202032814 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/20221212_Metabolism SK.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217110712 blanc.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217113532 T3 4h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217120353 T3 4h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217123215 T4 4h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217130035 T4 4h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217132856 T3 8h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217135716 T3 8h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217142545 T4 8h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217145405 T4 8h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217152235 wash.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217155055 T3 24h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217161915 T3 24h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217164736 T4 24h 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217171556 T4 24h 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217174417 T3 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217181237 T3 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217184057 t4 tracer 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217190926 T4 tracer 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217193746 shutdown 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20221212_SK metabolism/raw data/20221217200605 shutdown 2.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/2023-05-03 Metabolism + lysate cell lines.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0401.25.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0401.54.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0402.52.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0403.21.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0403.50.09.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0404.18.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0404.47.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0405.16.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0406.19.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0406.48.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0407.17.22.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0408.20.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0408.48.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0409.17.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0409.46.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0410.49.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0411.05.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0411.18.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0411.47.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0412.15.57.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0412.44.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0413.13.38.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0413.42.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0414.11.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0415.13.50.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0415.42.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0416.11.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0416.40.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0417.09.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0417.38.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0418.07.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0418.35.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0419.38.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0420.07.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0420.36.12 SK 8H 1.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0421.05.02.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0421.33.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0422.02.42.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0422.31.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0423.00.27.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0500.03.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0500.32.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0501.00.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0501.29.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0501.58.34.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0502.27.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0502.56.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0503.25.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0504.27.52.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0504.56.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0505.25.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0505.54.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0506.57.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0507.26.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0507.54.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0508.23.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0509.26.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0509.55.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0510.24.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0510.53.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0511.22.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0512.24.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0512.53.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0513.22.18.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0513.51.08.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0514.53.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0515.22.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0515.51.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230503_Metabolism + lysate/raw data/2023-05-0516.20.26.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/2023-05-10 Metabolism cell lines.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1118.07.49.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1118.36.43.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1119.05.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1119.34.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1120.03.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1120.32.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1121.01.04.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1121.29.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1121.58.47.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1123.01.32.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1123.30.25.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1123.59.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1200.28.13.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1200.57.03.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1201.25.54.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1201.54.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1202.23.37.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1203.26.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1212.25.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1212.54.33.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1213.23.24.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1213.52.16.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1214.21.07.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1214.49.59.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1215.18.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1215.47.46.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1216.50.11.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1217.19.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1217.47.51.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1218.16.41.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1218.45.35.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1219.14.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1219.43.23.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1220.12.19.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1221.14.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1221.43.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1222.12.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1222.41.29.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1223.10.21.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1223.39.14.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1300.08.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1300.37.00.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1301.39.31.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1302.08.20.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1302.37.10.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1303.06.01.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1303.34.53.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1304.03.44.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1304.32.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1305.01.28.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1306.04.06.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1306.32.55.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1307.01.45.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/characterisation/20230510_Metabolism all cells T3 T4/raw data/2023-05-1307.30.36.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_03_metabolism/metabolism_assay_metadata.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/5.1 Protocol T3 responsive genes dose response.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/5.2 RNA isolation_Protocol RNeasy mini kit.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/5.2.1 RNeasy 1 RNA isolatie.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/5.2.2 RNeasy 2 DNAse stappen.pdf
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/5.3 cDNA and qPCR protocol.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/2024-09-20 SK NH3 TBBPA n1 MT.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/2024-09-23 SK NH3 TBBPA n2 MT.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/2024-09-23 SK NH3 TBBPA n3 MT.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/2024-09-26 combined results NH-3 & TBBPA.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/20240210 MT Silychristin SK redo n1.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/20241510 MT Silychristin SK redo n2.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/20241510 MT Silychristin SK redo n3.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/SK compounds combined.pzfx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_processed data/Silychristin SK redo combined.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_raw data/2024-09-24 ND MT n1 NH3 TBBPA.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_raw data/2024-09-24 ND MT n3 NH3 TBBPA.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_raw data/2024-10-16 SK sily n1 Raw data.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_raw data/2024-10-23 SK sily n2 Raw data.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_raw data/2024-10-30 SK sily n3 Raw data.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/EDCs/assay4_EDCs_raw data/2025-03-26 MT n2 NH3 TBBPA T3.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/README.txt
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/2024-06-25 combined results.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/2024-6-12 ND SK & MO T3 n=1.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/2024-6-24 ND SK & MO T3 n=2.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/2024-7-22 ND SK & MO T3 n=3.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/Figure 12 T3 curve KLF9.png
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/Figure 13 T3 curve KLF9.png
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_processed data/n1 n2 n3 combined Sk Mo.pzfx
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_raw data/2024-06-18 ND MT Sk MoT3 n1.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_raw data/2024-06-26 ND MT Sk Mo T3 n2.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/characterisation/assay4_characterisation_raw data/2024-07-31 ND MT MO SK T3 n3.eds
+study_01_TH-DNT_Tier1_NeuralCellLines/assay_04_TRactivation/tractivation_assay_metadata.xlsx
+study_01_TH-DNT_Tier1_NeuralCellLines/cell_line_protocols/20251114_cell culture protocol H4.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/cell_line_protocols/20251114_cell culture protocol MO3.13.docx
+study_01_TH-DNT_Tier1_NeuralCellLines/cell_line_protocols/20251114_cell culture protocol SK-N-AS.docx

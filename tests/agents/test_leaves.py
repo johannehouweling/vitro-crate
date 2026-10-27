@@ -1411,3 +1411,76 @@ class TestLeafModelOverrides:
         assert seen["provider"] is None
         assert seen["model"] is None
         assert seen["base_url"] is None
+
+
+class TestDeriveDepositStructure:
+    """One drafter-tier call labels the folder tree as studies and assays (#852)."""
+
+    SUMMARY = (
+        "./ — 7 files: 4 metadata, 3 protocol | docs: README.txt, S-VHPS16.json\n"
+        "Exposure scenarios/Assays/LDH analysis/ — 4 files: 3 metadata, 1 protocol\n"
+    )
+    LABELLING = {
+        "studies": [
+            {
+                "folder": "Exposure scenarios",
+                "name": "Exposure scenarios",
+                "assays": [
+                    {"folder": "Exposure scenarios/Assays/LDH analysis", "name": "LDH analysis"}
+                ],
+            }
+        ]
+    }
+
+    def test_runs_on_the_drafter_tier_with_a_studies_schema(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel(self.LABELLING)
+
+        result = leaves.derive_deposit_structure(self.SUMMARY)
+
+        assert rec["calls"][0]["role"] == "drafter"
+        assert len(rec["model"].structured_schemas) == 1
+        schema = rec["model"].structured_schemas[0]
+        assays = schema["properties"]["studies"]["items"]["properties"]["assays"]
+        assert set(assays["items"]["properties"]) == {"folder", "name"}
+        assert result == self.LABELLING
+
+    def test_the_tree_summary_is_the_prompt(self, _patch_build_chat_model: dict[str, Any]) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel(self.LABELLING)
+
+        leaves.derive_deposit_structure(self.SUMMARY)
+
+        prompt = "\n".join(str(getattr(m, "content", m)) for m in rec["model"].invoke_calls[0])
+        assert self.SUMMARY in prompt
+        assert "assay" in prompt.lower() and "study" in prompt.lower()
+
+    def test_overrides_and_usage_reach_the_call(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel(
+            self.LABELLING,
+            usage_metadata={"input_tokens": 50, "output_tokens": 9, "total_tokens": 59},
+            model_name="m",
+        )
+        seen: list[tuple[Any, ...]] = []
+
+        leaves.derive_deposit_structure(
+            self.SUMMARY,
+            overrides=ModelOverrides(model="drafter-x"),
+            usage_sink=lambda *a: seen.append(a),
+        )
+
+        assert rec["calls"][0]["model"] == "drafter-x"
+        assert seen == [(50, 9, "m", None)]
+
+    def test_a_non_dict_answer_is_an_empty_labelling(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        rec = _patch_build_chat_model
+        rec["model"] = FakeChatModel(None)  # type: ignore[arg-type]
+
+        assert leaves.derive_deposit_structure(self.SUMMARY) == {}

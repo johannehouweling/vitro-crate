@@ -1,0 +1,63 @@
+Assay_MCT8-MDCK1/Assay-metadata-MCT8-MDCK1-v1.1.xlsx
+Assay_MCT8-MDCK1/README.txt
+Assay_MCT8-MDCK1/Raw data + individual processed data/220316_SK_MCT8_MDCK1_P1_Sunitinib+Silychristin/220316_SK_MCT8_MDCK1_P3_Sunitib+Silychristin.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220316_SK_MCT8_MDCK1_P1_Sunitinib+Silychristin/220316_SK_MCT8_MDCK1_P3_Sunitib+Silychristin.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220317_SK_MCT8_MDCK1_P1_ICG+Verapamil/220317_SK_MCT8_MDCK1_P1_Cardiogreen+Verapamil.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220317_SK_MCT8_MDCK1_P1_ICG+Verapamil/220317_SK_MCT8_MDCK1_P1_Cardiogreen+Verapamil.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220317_SK_MCT8_MDCK1_P2_BSP+Desipramide/220317_SK_MCT8_MDCK1_P3_BSP+Desipramide.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220317_SK_MCT8_MDCK1_P2_BSP+Desipramide/220317_SK_MCT8_MDCK1_P3_BSP+Desipramide.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220330_SK_MCT8_MDCK1_P1_Sunitib_ICG/220330_SK_MCT8_MDCK1_P1_Sunitib+ICG.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220330_SK_MCT8_MDCK1_P1_Sunitib_ICG/220330_SK_MCT8_MDCK1_P1_Sunitib+ICG.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220330_SK_MCT8_MDCK1_P2_Silychristin+Verapamil/220330_SK_MCT8_MDCK1_P2_Silychristin+Verapamil.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220330_SK_MCT8_MDCK1_P2_Silychristin+Verapamil/220330_SK_MCT8_MDCK1_P2_Silychristin+Verapamil.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220330_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin/220330_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220330_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin/220330_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220331_SK_MCT8_MDCK1_P1_Bisphenol Z+Bisphenol AF/220331_SK_MCT8_MDCK1_P1_Bisphenol-Z+BPAF.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220331_SK_MCT8_MDCK1_P1_Bisphenol Z+Bisphenol AF/220331_SK_MCT8_MDCK1_P1_Bisphenol-Z+BPAF.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220331_SK_MCT8_MDCK1_P2_MeHg+Xanthohumol/220331_SK_MCT8_MDCK1_P2_MeHG+Xanthohumol.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220331_SK_MCT8_MDCK1_P2_MeHg+Xanthohumol/220331_SK_MCT8_MDCK1_P2_MeHg+Xanthohumol.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220331_SK_MCT8_MDCK1_P3_BSP+Desipramide/220331_SK_MCT8_MDCK1_P3_BSP+Desipramide.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220331_SK_MCT8_MDCK1_P3_BSP+Desipramide/220331_SK_MCT8_MDCK1_P3_BSP+Desipramide.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220407_SK_MCT8_MDC1_P2_Bisphenol Z+Bisphenol AF/220407_SK_MCT8_MDCK1_P2_Bisphenol-Z+BPAF.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220407_SK_MCT8_MDC1_P2_Bisphenol Z+Bisphenol AF/220407_SK_MCT8_MDCK1_P2_Bisphenol-Z+BPAF.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220407_SK_MCT8_MDCK1_P1_PCP+TBBPA/220407_SK_MCT8_MDCK1_P1_PCP+TBBPA.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220407_SK_MCT8_MDCK1_P1_PCP+TBBPA/220407_SK_MCT8_MDCK1_P1_PCP+TBBPA.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220511_SK_MCT8_MDCK1_P1_Silychristin+Verapamil/220511_SK_MCT8_MDCK1_P1_Silychristin+Verapamil.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220511_SK_MCT8_MDCK1_P1_Silychristin+Verapamil/220511_SK_MCT8_MDCK1_P1_Silychristin+Verapamil.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220517_SK_MCT8_MDCK1_P1_Sunitinib+ICG/220517_SK_MCT8_MDCK1_P1_Sunitinib+ICG.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220517_SK_MCT8_MDCK1_P1_Sunitinib+ICG/220517_SK_MCT8_MDCK1_P1_Sunitinib+ICG.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220517_SK_MCT8_MDCK1_P2_Silychristin+Verapamil/220517_SK_MCT8_MDCK1_P2_Silychristin+Verapamil.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220517_SK_MCT8_MDCK1_P2_Silychristin+Verapamil/220517_SK_MCT8_MDCK1_P2_Silychristin+Verapamil.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220517_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin/220517_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220517_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin/220517_SK_MCT8_MDCK1_P3_Dasatinib+Phloretin.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220519_SK_MCT8_MDCK1_P1_BSP+Desipramide/220519_SK_MCT8_MDCK1_P1_BSP+Desipramide.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220519_SK_MCT8_MDCK1_P1_BSP+Desipramide/220519_SK_MCT8_MDCK1_P1_BSP+Desipramide.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220519_SK_MCT8_MDCK1_P2_PCP+TBBPA/220519_SK_MCT8_MDCK1_P2_PCP+TBBPA.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220519_SK_MCT8_MDCK1_P2_PCP+TBBPA/220519_SK_MCT8_MDCK1_P2_PCP+TBBPA.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220519_SK_MCT8_MDCK1_P3_MeHg+Xanthohumol/220519_SK_MCT8_MDCK1_P3_MeHg+Xanthohumol.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220519_SK_MCT8_MDCK1_P3_MeHg+Xanthohumol/220519_SK_MCT8_MDCK1_P3_MeHg+Xanthohumol.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220601_SK_MCT8_MDCK1_P1_PCP+TBBPA/220601_SK_MCT8_MDCK1_P1_PCP+TBBPA.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220601_SK_MCT8_MDCK1_P1_PCP+TBBPA/220601_SK_MCT8_MDCK1_P1_PCP+TBBPA.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220601_SK_MCT8_MDCK1_P2_Bishenol Z+Bisphenol AF/220601_SK_MCT8_MDCK1_P2_Bisphenol-Z+BPAF.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220601_SK_MCT8_MDCK1_P2_Bishenol Z+Bisphenol AF/220601_SK_MCT8_MDCK1_P2_Bisphenol-Z+Bisphenol AF.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220602_SK_MCT8_MDCK1_P1_MeHg+Xanthohumol/220602_SK_MCT8_MDCK1_P1_MeHg+Xanthohumol.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220602_SK_MCT8_MDCK1_P1_MeHg+Xanthohumol/220602_SK_MCT8_MDCK1_P1_MeHg+Xanthohumol.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220602_SK_MCT8_MDCK1_P2_Dasatinib+BSP/220602_SK_MCT8_MDCK1_P2_Dasatinib+BSP.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220602_SK_MCT8_MDCK1_P2_Dasatinib+BSP/220602_SK_MCT8_MDCK1_P2_Dasatinib+BSP.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/220608_SK_MCT8_MDCK1_P6_ICG+Phloretin/220608_SK_MCT8_MDCK1_P6_ICG+Phloretin.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/220608_SK_MCT8_MDCK1_P6_ICG+Phloretin/220608_SK_MCT8_MDCK1_P6_ICG+Phloretin.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/221026_SK_MCT8_MDCK1_P1_BPA_THinhibitors/221026_SK_MCT8_MDCK1_P1_BPA+THinhibitors.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/221026_SK_MCT8_MDCK1_P1_BPA_THinhibitors/221026_SK_MCT8_MDCK1_P1_BPA+THinhibitors.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/221026_SK_MCT8_MDCK1_P2_BPA+THinhibitors/221026_SK_MCT8_MDCK1_P2_BPA+THinhibitors.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/221026_SK_MCT8_MDCK1_P2_BPA+THinhibitors/221026_SK_MCT8_MDCK1_P2_BPA+THinhibitors.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/221027_SK_MCT8_MDCK1_P1_BPA+THinhibitors/221027_SK_MCT8_MDCK1_P1_BPA+THinhibitors.xls
+Assay_MCT8-MDCK1/Raw data + individual processed data/221027_SK_MCT8_MDCK1_P1_BPA+THinhibitors/221027_SK_MCT8_MDCK1_P2_BPA+THinhibitors.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/221027_SK_MCT8_MDCK1_P1_BPA+THinhibitors/221027_SK_MCT8_MDCK1_P2_BPA+THinhibitors/221027_SK_MCT8_MDCK1_P1_BPA+THinhibitors.prism
+Assay_MCT8-MDCK1/Raw data + individual processed data/221027_SK_MCT8_MDCK1_P1_BPA+THinhibitors/221027_SK_MCT8_MDCK1_P2_BPA+THinhibitors/221027_SK_MCT8_MDCK1_P2_BPA+THinhibitors.xls
+Assay_MCT8-MDCK1/Study wide processed data/All compounds including best-fit (Assay).pzf
+Assay_MCT8-MDCK1/Study wide processed data/All compounds including best-fit (cytotox).pzf
+Assay_MCT8-MDCK1/Study wide processed data/Data for statistical analysis/Krebs et al (2018) - Normalization of Data for Viability and Relative Cell Function Curves (ALTEX).pdf
+Assay_MCT8-MDCK1/Study wide processed data/Data for statistical analysis/MCT8-MDCK Update.pzf
+Assay_MCT8-MDCK1/Study wide processed data/Data for statistical analysis/[TARA] Nonlinear decreasing equations.pzf
+Assay_MCT8-MDCK1/Study wide processed data/Data for statistical analysis/[TARA] Nonlinear increasing equations.pzf
+S-VHPS21.json

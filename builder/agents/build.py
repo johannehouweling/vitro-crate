@@ -35,8 +35,16 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from builder.agents.llm import ModelOverrides
+from builder.agents.llm import ModelOverrides, UsageSink, make_usage_logger
 from builder.agents.progress_spinner import ProgressSpinner
+from builder.config import get_provider
+from builder.tools.deposit_structure import (
+    check_structure,
+    describe_structure,
+    fallback_structure,
+    normalise_structure,
+    tree_summary,
+)
 from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE, answers_are_synthetic, is_interactive
 from builder.tools.session import save_session
 
@@ -241,7 +249,8 @@ def run_interactive_build(
     if spinner is not None:
         engine.on_tool_event = lambda tool, phase, args_str: (
             spinner.set_current(f"{tool}({args_str})" if args_str else tool)
-            if phase == "start" else None
+            if phase == "start"
+            else None
         )
 
     spinner_ctx = spinner if spinner is not None else nullcontext()
@@ -275,6 +284,75 @@ def run_interactive_build(
         engine.on_tool_event = prior_tool_event
         if footer is not None:
             footer.stop()
+
+
+def derive_deposit_structure(
+    tree: str,
+    *,
+    overrides: ModelOverrides | None = None,
+    usage_sink: UsageSink | None = None,
+) -> dict[str, Any]:
+    """Lazy shim over :func:`builder.agents.pipeline.leaves.derive_deposit_structure`.
+
+    The leaf imports ``langchain_core`` at module load and this module must stay
+    importable without it; the shim is also the monkeypatch target for tests.
+    """
+    from builder.agents.pipeline.leaves import derive_deposit_structure as _leaf
+
+    return _leaf(tree, overrides=overrides, usage_sink=usage_sink)
+
+
+def read_deposit_structure(
+    engine: AgentEngine,
+    *,
+    overrides: ModelOverrides | None = None,
+    output: OutputChannel | None = None,
+) -> dict[str, Any] | None:
+    """Read the deposit's studies and assays from its folder tree, once (#852).
+
+    Shared by both arms: :func:`run_build` calls it before dispatching. With no
+    scanned files there is no deposit and nothing is said. A structure already
+    on the state (a resumed session) is kept and only described again. Otherwise
+    the tree is summarised, one drafter call labels it, and the labelling is
+    stored when :func:`~builder.tools.deposit_structure.check_structure` accepts
+    it; a failed check, a model error or no configured provider stores the
+    one-study, one-assay fallback instead. Either way one line says what the
+    deposit was read as. The call's token usage lands on the generator record
+    like every leaf's.
+    """
+    state = engine.state
+    if not state.scanned_files:
+        return None
+    if state.deposit_structure is None:
+        state.deposit_structure = _derive_structure(engine, overrides)
+    line = describe_structure(state.deposit_structure)
+    if output is not None:
+        output(line)
+    else:
+        logger.info("%s", line)
+    return state.deposit_structure
+
+
+def _derive_structure(engine: AgentEngine, overrides: ModelOverrides | None) -> dict[str, Any]:
+    state = engine.state
+    if get_provider() is None:
+        return fallback_structure()
+    approved = sorted(state.approved_scan_roots)
+    root = approved[0] if approved else state.metadata.input_path or ""
+    summary = tree_summary(state.scanned_files, input_root=root, documents=state.documents)
+    totals = {"input_tokens": 0, "output_tokens": 0}
+    try:
+        labelling = derive_deposit_structure(
+            summary, overrides=overrides, usage_sink=make_usage_logger(engine, totals)
+        )
+    except Exception as exc:  # noqa: BLE001 — the build goes on with the fallback
+        logger.warning("Reading the deposit's structure failed: %s", exc)
+        return fallback_structure()
+    problems = check_structure(labelling, state.scanned_files, input_root=root)
+    if problems:
+        logger.warning("The deposit's structure was not accepted: %s", "; ".join(problems))
+        return fallback_structure()
+    return normalise_structure(labelling)
 
 
 def run_build(
@@ -330,6 +408,10 @@ def run_build(
         The pipeline result dict for :attr:`BuildMode.PIPELINE`; the loop's
         ``{"stop_reason": ...}`` for :attr:`BuildMode.REACT`.
     """
+    overrides = ModelOverrides(provider=provider, model=model, base_url=base_url)
+    # Both arms start from the same reading of the deposit's folder tree (#852).
+    read_deposit_structure(engine, overrides=overrides, output=output)
+
     if mode is BuildMode.REACT:
         from builder.agents.react.agent_loop import run_interactive_agent
 
@@ -356,14 +438,7 @@ def run_build(
             react_kwargs["verbose"] = True
         return run_interactive_agent(engine, **react_kwargs)
 
-    from builder.agents.llm import ModelOverrides
-
-    return run_interactive_build(
-        engine,
-        output=output,
-        overrides=ModelOverrides(provider=provider, model=model, base_url=base_url),
-        resumed=resumed,
-    )
+    return run_interactive_build(engine, output=output, overrides=overrides, resumed=resumed)
 
 
 def _spinner_emit(base_emit: OutputChannel, spinner: ProgressSpinner | None) -> OutputChannel:

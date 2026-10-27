@@ -107,7 +107,7 @@ Fixed initialization runs before the agent loop, in order:
 2. Document discovery — stamps **every** scanned file with one classification (`metadata` / `protocol` / `raw_data_file` / `processed_data_file`), decided from content, and ranks the readable scientific documentation into `state.documents`. Classification reads content, so it stays a step beside the scanner and is never folded back into `scan_files`.
 3. The declared-metadata read — the licence, DOI, title and accession the deposit itself states are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
 
-Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title and accession — it never has to bootstrap those itself. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
+Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title and accession — it never has to bootstrap those itself. Before either arm starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§14.4, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
 
 ### Guard Rails: Approved Scan Roots
 The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. The guard **fails closed** (#197): with no approved roots, *nothing* is scannable. When the agent calls `scan_files(path)`:
@@ -3088,6 +3088,20 @@ re-implementation. Its parts:
 - **Drafter leaves** — bounded LLM extraction (`leaves.py`, below), wired into the
   spine's `_draft_entities` step and gated to a strict no-op when no LLM provider is
   configured.
+- **Deposit structure** (`builder/tools/deposit_structure.py`, #852) — the deposit's
+  studies and assays, read from its folder tree before either arm starts
+  (`build.read_deposit_structure`). The tree is summarised deterministically (one line
+  per folder to depth 4, files counted by classification, document and data names, the
+  README excerpt the ranking read), one drafter call labels it as studies of assays
+  (`leaves.derive_deposit_structure`), and the labelling is kept only when fixed checks
+  accept it: every named folder holds a scanned file, no assay lies inside another, every
+  assay lies inside its study, at least one assay. A folder of documents alone is still an
+  assay (S-VHPS27 deposits its assays with the data to follow). A failed check, a model
+  error or no provider stores the fallback — one study, one assay, at the root — and
+  either way one line says what the deposit was read as. The structure rides in
+  `CrateState.deposit_structure` and the session, so a resumed build keeps it. Nothing
+  builds from it yet: the scaffold and the file attachment still make one Study and one
+  Assay.
 - **Composite meta-tools** — e.g. `draft_process_chain`, which wires the
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
