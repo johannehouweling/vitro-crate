@@ -405,24 +405,34 @@ _SCHEMA_ORG_TYPE_TOKENS: frozenset[str] = frozenset(
 
 # The RO-Crate community's preview generator (https://github.com/Arkisto-Platform/
 # ro-crate-html-js): `rochtml` renders ro-crate-preview.html with every entity
-# tabulated. Pinned so every machine renders the same page; `npm install -g
-# ro-crate-html` puts `rochtml` on the PATH and spares the first-run download.
+# tabulated. It is used only when installed (`npm install -g ro-crate-html@0.1.6`
+# puts `rochtml` on the PATH): `npx -p` asks the registry on every run and
+# stalls ~70 s offline before failing, so it is never tried. 0.1.6 is the
+# version the escaping below is reviewed against — the page embeds the JSON-LD
+# it is given in a script block and re-renders it once at runtime.
 _PREVIEW_PACKAGE = "ro-crate-html@0.1.6"
 _PREVIEW_TIMEOUT_S = 120
 # Resolved once per process: None = not yet, False = none usable. A machine
-# without Node, or a generator that failed once, is not asked again on each of
-# the many exports a ReAct run makes.
+# without the generator, or a generator that failed once, is not asked again on
+# each of the many exports a ReAct run makes.
 _preview_generator_memo: list[str] | bool | None = None
-_SCRIPT_SCHEME = re.compile(r"^\s*(javascript|vbscript|data)\s*:", re.IGNORECASE)
+# Keys whose values the generator puts in href/src attributes; everywhere else
+# a scalar is text (it links only http(s) values).
+_URL_KEYS = frozenset({"@id", "contentUrl", "url", "path", "image", "thumbnail"})
+_SCRIPT_SCHEME = re.compile(r"^(javascript|vbscript|data):", re.IGNORECASE)
+# What a browser's URL parser drops before reading the scheme (C0 controls and
+# space at the ends, tab/CR/LF anywhere), so `java\tscript:` is `javascript:`.
+_URL_NOISE = re.compile(r"[\x00-\x20]")
 
 
 def _find_preview_generator() -> list[str] | None:
-    """The command that runs ``rochtml`` on this machine, or ``None``."""
-    if shutil.which("rochtml"):
-        return ["rochtml"]
-    if shutil.which("npx"):
-        return ["npx", "--yes", "-p", _PREVIEW_PACKAGE, "rochtml"]
-    return None
+    """The command that runs ``rochtml`` on this machine, or ``None``.
+
+    The resolved path, not the bare name: on Windows ``shutil.which`` finds the
+    ``rochtml.cmd`` shim that a bare name cannot launch without a shell.
+    """
+    found = shutil.which("rochtml")
+    return [found] if found else None
 
 
 def _preview_generator() -> list[str] | None:
@@ -432,22 +442,31 @@ def _preview_generator() -> list[str] | None:
     return _preview_generator_memo if isinstance(_preview_generator_memo, list) else None
 
 
-def _html_safe(value: Any) -> Any:
+def _html_safe(value: Any, key: str | None = None) -> Any:
     """A copy of a JSON-LD document whose strings cannot act as markup (#169).
 
-    The community generator interpolates crate strings into HTML as they are, so
-    a crate named ``<script>…`` would render as a live tag. Every string is
-    HTML-escaped and a ``javascript:``/``vbscript:``/``data:`` id is defused, so
-    it cannot become a link. Presentation only: the crate on disk keeps the raw
-    values.
+    The community generator interpolates crate strings into HTML as they are
+    and embeds the document raw in a ``<script type="application/ld+json">``
+    block, so a crate named ``<script>…`` would render as a live tag and a key
+    holding ``</script>`` would close the block. Every string, keys included, is
+    HTML-escaped. A value the page puts in a link (:data:`_URL_KEYS`) whose
+    scheme is ``javascript:``/``vbscript:``/``data:`` — read the way a browser
+    reads it, with controls and spaces dropped — is defused so it cannot become
+    a link; prose that happens to start with "Data:" is left alone.
+    Presentation only: the crate on disk keeps the raw values, and the page's
+    embedded JSON-LD is this copy, not the crate's metadata.
     """
     if isinstance(value, dict):
-        return {key: _html_safe(item) for key, item in value.items()}
+        return {html.escape(k, quote=True): _html_safe(item, k) for k, item in value.items()}
     if isinstance(value, list):
-        return [_html_safe(item) for item in value]
+        return [_html_safe(item, key) for item in value]
     if isinstance(value, str):
         text = html.escape(value, quote=True)
-        return _SCRIPT_SCHEME.sub(lambda m: f"unsafe-{m.group(1).lower()}-", text)
+        if key in _URL_KEYS:
+            scheme = _SCRIPT_SCHEME.match(_URL_NOISE.sub("", text))
+            if scheme:
+                text = f"unsafe-{scheme.group(1).lower()}-{text}"
+        return text
     return value
 
 
@@ -478,8 +497,10 @@ def _write_community_preview(crate_dir: Path) -> bool:
                 timeout=_PREVIEW_TIMEOUT_S,
             )
         except (OSError, subprocess.SubprocessError) as exc:
+            stderr = getattr(exc, "stderr", None) or b""
+            detail = stderr.decode("utf-8", "replace").strip()[-300:] if stderr else str(exc)
             logger.warning(
-                "The RO-Crate preview generator failed; keeping ro-crate-py's page: %s", exc
+                "The RO-Crate preview generator failed; keeping ro-crate-py's page: %s", detail
             )
             _preview_generator_memo = False
             return False
@@ -814,7 +835,7 @@ def export_crate(
         _write_single_values(crate)
         crate.write(str(output_dir))
         if _write_community_preview(output_dir):
-            logger.info("Preview rendered by %s", _PREVIEW_PACKAGE)
+            logger.info("Preview rendered by rochtml (%s)", _PREVIEW_PACKAGE)
 
         # Remember where it landed: without this the state cannot say where the
         # crate went, so the goodbye summary (and a later re-export) had to guess
