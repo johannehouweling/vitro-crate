@@ -3380,3 +3380,84 @@ class TestTheDepositIsReadBeforeAsking:
 
         assert human.presented == []
         assert _get(engine, "st1").fields.get("description") == self.VALUE
+
+
+class TestAMultiMethodAnswerIsResolvedNameByName:
+    """#839: "LDH; Alamar Blue; internal dose; BMD" was looked up as ONE BAO term,
+    found nothing, and the reply was lost. Each name is tried in turn; the first
+    that resolves is stored (the field holds one term) and the rest are reported."""
+
+    class _Human(ScriptedHuman):
+        def __init__(self) -> None:
+            super().__init__()
+            self.notes: list[str] = []
+
+        def notify(self, message: str) -> None:
+            self.notes.append(message)
+
+    @staticmethod
+    def _stub(monkeypatch, resolves: dict[str, str]) -> list[str]:
+        import builder.tools.lookups as lookups_mod
+
+        asked: list[str] = []
+
+        def fake(name, *a, **k):
+            asked.append(name)
+            if name in resolves:
+                iri = resolves[name]
+                return {
+                    "found": True,
+                    "data": {
+                        "@id": iri,
+                        "name": f"{name} assay",
+                        "termCode": iri.rsplit("#", 1)[-1],
+                    },
+                }
+            return {"found": False}
+
+        monkeypatch.setattr(lookups_mod, "lookup_bao_term", fake)
+        return asked
+
+    @staticmethod
+    def _gap(state: CrateState) -> Gap:
+        return _pick_gap(
+            state,
+            lambda g: g.source == "shacl" and str(g.property or "").endswith("measurementMethod"),
+        )
+
+    def test_the_first_name_that_resolves_is_stored_and_the_rest_reported(self, monkeypatch):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        iri = "http://www.bioassayontology.org/bao#BAO_0002993"
+        asked = self._stub(monkeypatch, {"Alamar Blue": iri})
+        engine = AgentEngine(state=_honest_backbone())
+        human = self._Human()
+
+        ok = _apply_value(
+            engine, self._gap(engine.state), "LDH; Alamar Blue; internal dose; BMD", human=human
+        )
+
+        assert ok is True
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and assay.fields.get("measurementMethod") == iri
+        assert engine.state.get_entity(iri) is not None
+        assert asked == ["LDH", "Alamar Blue"], "stop looking once one name resolves"
+        assert len(human.notes) == 1
+        for name in ("LDH", "internal dose", "BMD"):
+            assert name in human.notes[0]
+        assert "Alamar Blue" in human.notes[0]
+
+    def test_nothing_resolving_names_every_method_in_the_notice(self, monkeypatch):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        asked = self._stub(monkeypatch, {})
+        engine = AgentEngine(state=_honest_backbone())
+        human = self._Human()
+
+        ok = _apply_value(engine, self._gap(engine.state), "LDH and Alamar Blue", human=human)
+
+        assert ok is False
+        assay = engine.state.get_entity("as1")
+        assert assay is not None and "measurementMethod" not in assay.fields
+        assert asked == ["LDH", "Alamar Blue"]
+        assert len(human.notes) == 1 and "LDH" in human.notes[0] and "Alamar Blue" in human.notes[0]
