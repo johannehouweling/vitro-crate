@@ -503,7 +503,7 @@ class TestRealInputPipeline:
         descriptor.write_text(json.dumps(doc, indent=2))
         rows = "well,value\n" + "\n".join(f"A{i},{i}" for i in range(200))
         for k in range(40):
-            (deposit / f"README_{k:02d}.txt").write_text(f"Folder {k} holds the plate {k} exports.\n")
+            (deposit / f"README_{k:02d}.txt").write_text(f"Folder {k} holds plate {k}.\n")
             (deposit / f"plate_{k:02d}.csv").write_text(rows)
 
         context = _gather_context(_scanning_engine(deposit), budget=_PLAN_CONTEXT_CHARS)
