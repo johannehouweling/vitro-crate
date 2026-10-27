@@ -1,116 +1,104 @@
 # vitro-crate
 
-Turn a folder of in vitro toxicology data into an **ISA-Tox RO-Crate**: your data
-files and their metadata, validated and packaged in one folder.
+vitro-crate builds ISA-Tox RO-Crates from in vitro toxicology data. It reads a data
+folder, drafts the ISA metadata, resolves identifiers against public registries,
+validates the result against the RO-Crate, ISA and ISA-Tox profiles, and writes the
+crate together with a maturity report.
 
 [![CI](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml/badge.svg)](https://github.com/johannehouweling/vitro-crate/actions/workflows/ci.yml)
 
-## Quick start
+## Installation
 
-You need Python 3.12+ and [uv](https://docs.astral.sh/uv/).
-
-1. **Install**
-
-   ```bash
-   git clone https://github.com/johannehouweling/vitro-crate && cd vitro-crate
-   uv sync --extra langchain
-   ```
-
-2. **Connect a model**: OpenAI, an OpenAI-compatible server such as Ollama, or Anthropic.
-
-   ```bash
-   uv run python -m main --configure
-   ```
-
-   Your choice is saved in `~/.config/vitro-crate/config.toml`.
-
-3. **Build a crate**
-
-   ```bash
-   uv run python -m main --interactive --react -i path/to/your-data --prompt "build the crate"
-   ```
-
-## How a build works
-
-With `--react`, an agent reads your folder and decides each next step itself. It:
-
-- reads the folder: READMEs, protocols, metadata sheets and data files;
-- drafts the investigation, studies, assays, samples, chemicals and process steps;
-- looks identifiers up (PubChem, CompTox, Cellosaurus, ORCID, Crossref, AOP-Wiki)
-  instead of inventing them;
-- validates against the RO-Crate, ISA and ISA-Tox profiles and fixes what it can;
-- asks you when it needs a decision;
-- writes the crate.
-
-It works on its own and checks back when it needs you. You can also type an
-instruction at any time:
-
-> *"Draft a cell culture process for HepG2 cells"*  
-> *"Look up Silychristin A on PubChem"*  
-> *"What is still missing?"*  
-> *"Build the crate and validate it"*
-
-When it asks something, pick an option with ↑/↓ and Enter, or choose *Something
-else* to type your own answer. Ctrl+D ends the session.
-
-Leave out `--prompt` and the agent greets you and waits for your first
-instruction. Leave out `-i` to start a conversation without a data folder.
-
-## What you get
-
-A folder `output/<your folder name>_crate/`. A re-run writes `_v2`, `_v3` and so on,
-so nothing is overwritten; `-o` picks another place. Inside:
-
-- `ro-crate-metadata.json`, next to your data files;
-- `ro-crate-metadata-maturity.html`: conformance, FAIR maturity and MIT coverage,
-  plus an explorer of everything in the crate. It is one self-contained page that
-  opens offline in any browser.
-
-## Handy commands
-
-| To | Run |
-|---|---|
-| Watch a running build (in a second terminal) | `uv run python -m main --dashboard` |
-| Continue a session | `uv run python -m main --interactive --react --resume <session id>` |
-| Explore a crate you already have | `uv run python -m main --graph -i path/to/crate` |
-| Use another model for one run | add `--model gpt-4o-mini` (or `--provider`, `--api-base`) |
-| Check your configuration | `uv run python -m main --show-config` |
-
-The session id is shown at the start and the end of every run.
-
-## The other build mode
-
-Without `--react`, `--interactive` runs the **deterministic pipeline**: code runs the
-steps in a fixed order, and the model only fills bounded pieces. It is cheaper and
-reproducible. It fills metadata from the folder's own documents and asks only about
-required fields. Both modes share the same tools and are maintained side by side.
+Requires Python 3.12 or later and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv run python -m main --interactive -i path/to/your-data
+git clone https://github.com/johannehouweling/vitro-crate
+cd vitro-crate
+uv sync --extra langchain
 ```
+
+Configure a model provider (OpenAI, an OpenAI-compatible endpoint such as Ollama, or
+Anthropic):
+
+```bash
+uv run python -m main --configure
+```
+
+The configuration is stored in `~/.config/vitro-crate/config.toml`.
+
+## Usage
+
+```bash
+uv run python -m main --interactive -i path/to/data --prompt "build the crate"
+```
+
+The default build mode is a ReAct agent: a language model selects each next tool call
+from the current state of the crate. During a build it:
+
+1. reads the folder's documentation, protocols, metadata sheets and data files;
+2. drafts the investigation, studies, assays, samples, chemicals and process steps;
+3. resolves identifiers through PubChem, CompTox, Cellosaurus, ORCID, ROR, Crossref,
+   AOP-Wiki and the BioAssay Ontology;
+4. validates the crate and repairs the issues it can;
+5. asks for input when a decision requires it;
+6. exports the crate.
+
+Instructions can be entered at any time during the session. Without `--prompt`, the
+agent waits for a first instruction; without `-i`, the session starts without an
+input folder. A question is answered by selecting an option or by typing an answer.
+Ctrl+D ends the session.
+
+## Output
+
+The crate is written to `output/<input folder name>_crate/`. Later builds of the same
+folder are versioned (`_v2`, `_v3`, …); `-o` selects another location. The crate
+contains:
+
+- `ro-crate-metadata.json` and the data files;
+- `ro-crate-metadata-maturity.html`: a self-contained report on profile conformance,
+  FAIR maturity and MIT coverage, with an entity explorer. It needs no network access.
+
+## Build modes
+
+| Mode | Command | Description |
+|---|---|---|
+| ReAct agent (default) | `--interactive` | The model chooses each step. |
+| Deterministic pipeline | `--interactive --pipeline` | Code runs a fixed sequence of steps and the model fills bounded parts. Lower cost and reproducible; it asks only for required fields the folder does not state. |
+
+Both modes use the same tools and are maintained in parallel.
+
+## Commands
+
+| Task | Command |
+|---|---|
+| Monitor a running build | `uv run python -m main --dashboard` |
+| Resume a session | `uv run python -m main --interactive --resume <session id>` |
+| Explore an existing crate | `uv run python -m main --graph -i path/to/crate` |
+| Override the model for one run | `--model`, `--provider`, `--api-base` |
+| Show the configuration | `uv run python -m main --show-config` |
+
+The session identifier is printed at the start and end of each run.
 
 ## Configuration
 
-Settings live in `~/.config/vitro-crate/config.toml`. Environment variables override
-them:
+Environment variables override the configuration file, for example:
 
 ```bash
 export VITRO_OPENAI_API_KEY="sk-..."
 export VITRO_OPENAI_MODEL="gpt-4o"
 ```
 
-For a local model with [Ollama](https://ollama.com): set
-`VITRO_OPENAI_BASE_URL=http://localhost:11434/v1`, any non-empty
-`VITRO_OPENAI_API_KEY`, and `VITRO_OPENAI_MODEL` to a tool-calling model such as
-`llama3.2`.
+To use a local model with [Ollama](https://ollama.com), set
+`VITRO_OPENAI_BASE_URL=http://localhost:11434/v1`, a non-empty `VITRO_OPENAI_API_KEY`,
+and `VITRO_OPENAI_MODEL` to a model with tool calling, such as `llama3.2`.
 
-## More
+## Documentation
 
-- [docs/reference.md](docs/reference.md): every command-line option, environment
-  variable and config key; corporate certificates; smoke tests; the PDF tool
+- [docs/reference.md](docs/reference.md): command-line options, environment variables,
+  configuration keys, corporate certificates, smoke tests and the PDF extraction tool
 - [AGENTS.md](AGENTS.md): system design
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup and conventions
-- [docs/profiling.md](docs/profiling.md): logs and profiling
+- [docs/profiling.md](docs/profiling.md): logging and profiling
 
 ## License
 

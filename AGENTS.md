@@ -49,13 +49,14 @@ one crate come to disagree.
 The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists researchers in creating profile-conformant RO-Crates for *in vitro* toxicology data.
 
 > **Two first-class build variants.** The builder ships **two supported,
-> actively-explored architectures over the same toolbox** (see §14): a
-> **deterministic pipeline + HITL guidance tail** (the `--interactive` default —
-> code owns the step ordering, the LLM is confined to bounded leaves) and the
-> **ReAct agent loop** (`--react` — the LLM orchestrates tool calls). Both
-> are maintained; this is an ongoing A/B exploration, **not** a migration that ends
-> in deleting ReAct. The rest of §1–§4 describes the ReAct loop; §14 describes the
-> deterministic pipeline and the relationship between the two.
+> actively-explored architectures over the same toolbox** (see §14): the
+> **ReAct agent loop** (the `--interactive` default — the LLM orchestrates tool
+> calls and reads the deposit on demand) and a **deterministic pipeline + HITL
+> guidance tail** (`--pipeline` — code owns the step ordering, the LLM is confined
+> to bounded leaves). Both are maintained; this is an ongoing A/B exploration,
+> **not** a migration that ends in deleting either. The rest of §1–§4 describes
+> the ReAct loop; §14 describes the deterministic pipeline and the relationship
+> between the two.
 
 The ReAct variant gives an LLM agent a set of tools and lets it decide the order of operations based on the current state, rather than following a rigid pipeline with predefined steps.
 
@@ -761,10 +762,9 @@ These packages are imported directly — we do not fork or vendor them. Version 
 
 ### 4.4 Agent Graph (LangGraph / StateGraph)
 
-> This section describes the **ReAct variant** (`--interactive --react`),
-> one of the two first-class build paths (§14). It is a **supported, maintained**
-> architecture, not a deprecated one; the deterministic pipeline (the
-> `--interactive` default) is described in §14.
+> This section describes the **ReAct variant** (the `--interactive` default;
+> `--react` names it explicitly), one of the two first-class build paths (§14).
+> The deterministic pipeline (`--pipeline`) is described in §14.
 
 The agent loop uses an **explicitly constructed StateGraph** built by `_build_agent_graph()` in `builder/agents/react/agent_loop.py`. This replaces the earlier `create_agent()` factory pattern (Issue #37), giving us full control over node names, routing logic, and middleware integration.
 
@@ -2751,16 +2751,17 @@ the channel that survives greyscale, print and colour vision deficiency, so **no
 share a glyph** — `TestCategoryRegistry` pins that, the palette separation, the contrast floor, and
 the generated-CSS coverage.
 
-### D15: Deterministic Pipeline as the Default Build Path
-The `--interactive` default is the deterministic pipeline (§14), not the ReAct loop
-(D1): code owns the step ordering and the LLM is confined to bounded leaves. The
-rationale is **efficiency, predictability, and clean termination**, not raw
-capability — a capable model reaches SHACL conformance on either path. The default is
-gated on the in-repo A/B (`eval/`), whose standing finding is qualitative: the pipeline
-is cheaper per build and terminates on its own, where ReAct runs to a recursion cap.
-ReAct stays a supported variant (`--react`) for flexible conversational exploration.
-The success metric is profile conformance (base + isa + tox) plus an entity-count
-quota — **not** scientific accuracy.
+### D15: Two Build Arms, the ReAct Loop as the Default
+The `--interactive` default is the ReAct loop (D1, §4); the deterministic pipeline
+(§14) is selected with `--pipeline`. The pipeline's case is **efficiency,
+predictability, and clean termination**, not raw capability — a capable model
+reaches SHACL conformance on either path, and the in-repo A/B (`eval/`) stands on
+that qualitative finding: the pipeline is cheaper per build and terminates on its
+own, where ReAct runs to a recursion cap. The ReAct loop is the default because it
+reads the deposit through tools, on demand, where the pipeline's one planning call
+must fit a deposit into one bounded context and its guidance tail asks for what
+that context did not carry. The success metric is profile conformance (base + isa
++ tox) plus an entity-count quota — **not** scientific accuracy.
 
 > **No measured figure from that A/B is published here, and no figure from it may be
 > quoted until it has been re-measured on the fixed harness (#636)** — the
@@ -2886,11 +2887,11 @@ vitro-crate/
 │       ├── llm.py               Shared model construction + usage mining, both modes (#309)
 │       ├── ui.py                Shared interactive UI: status bar, reply, banners, boxed prompt (both arms)
 │       ├── progress_spinner.py  Shared live progress spinner (both arms)
-│       ├── pipeline/            Deterministic pipeline mode (--interactive DEFAULT)
+│       ├── pipeline/            Deterministic pipeline mode (--pipeline)
 │       │   ├── pipeline.py        Pipeline spine (run_pipeline)
 │       │   ├── guidance.py        HITL guidance tail (run_guidance)
 │       │   └── leaves.py          Bounded LLM extraction leaves (drafter tier)
-│       └── react/               ReAct StateGraph mode (--react)
+│       └── react/               ReAct StateGraph mode (the --interactive default)
 │           ├── agent_loop.py      ReAct StateGraph loop
 │           ├── system_prompt.py   ReAct system prompt
 │           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM + the registry-parity contract (#327)
@@ -2913,12 +2914,12 @@ per-session, so parallel runs are straightforward).
 
 ## 14. The Deterministic Pipeline & Guidance Loop
 
-The default `main.py --interactive` build is a **deterministic pipeline + HITL
+The `main.py --interactive --pipeline` build is a **deterministic pipeline + HITL
 guidance tail** over the shared toolbox (§5): code owns the step ordering and the
-LLM is confined to bounded leaves. The ReAct agent loop (§4 "Agent Graph",
-`--react`) is the supported alternative — §1 states the two-variant
-relationship and **D15** records the A/B evidence for why the pipeline is the
-default. This section documents the pipeline and its guidance tail.
+LLM is confined to bounded leaves. The ReAct agent loop (§4 "Agent Graph", the
+`--interactive` default) is the other first-class arm — §1 states the two-variant
+relationship and **D15** records what each arm wins and why ReAct is the default.
+This section documents the pipeline and its guidance tail.
 
 ### 14.1 Decision
 
@@ -2929,8 +2930,8 @@ fix REQUIRED bottom-up → enrich → export` is control flow (§14.5), with the
 confined to bounded leaves (§14.2) and a small agent for the conversational /
 unstructured-input tail. The defensible win is **cost, latency, reproducibility,
 testability, and clean termination** — not blanket correctness (a capable model
-reaches conformance on ReAct too). Making the pipeline the default was gated on the
-in-repo A/B; see **D15** for the evidence and the levers.
+reaches conformance on ReAct too). Which arm is the default is a product choice
+(**D15**); the in-repo A/B measures the levers.
 
 ### 14.2 Pipeline shape
 
@@ -3100,15 +3101,15 @@ re-implementation. Its parts:
   ambiguity refuses without fallback, because choosing among real plate maps is a
   human call.
 - **The spine** — `run_pipeline` (`builder/agents/pipeline/pipeline.py`, §14.5), the
-  code-driven orchestrator and the default `main.py --interactive` build (via
+  code-driven orchestrator behind `main.py --interactive --pipeline` (via
   `run_interactive_build`, §14.6.1); also selectable in the eval harness
   (`python -m eval --arch pipeline`).
 - **The gap engine + guidance tail** — `assess_gaps` (§14.6) feeds the deterministic
   HITL `run_guidance` loop (§14.6.1), invoked *around* the spine by
   `run_interactive_build` for real interactive users only.
 
-The ReAct loop remains a fully-supported alternative behind `--react`; its
-`should_continue` graph and its `system_prompt.py` orchestration prose are kept intact.
+The ReAct loop is the `--interactive` default; its `should_continue` graph and its
+`system_prompt.py` orchestration prose are kept intact.
 
 #### The drafter-leaf (`leaves.py`)
 
@@ -3290,8 +3291,8 @@ ledger", #399). The sequence:
 `run_pipeline` is the **automated** build and stays **guidance-free** — the HITL
 guidance tail is invoked *around* it by the interactive entrypoint
 (`run_interactive_build`, §14.6.1), never inside the spine, so the A/B eval can
-drive the spine non-interactively. This spine is the **default**
-`main.py --interactive` build (**D15**); ReAct is opt-in via `--react`.
+drive the spine non-interactively. This spine is the
+`main.py --interactive --pipeline` build (**D15**); ReAct is the default.
 
 **Determinism contract:** with **no LLM provider configured** every LLM-touching
 step is a strict no-op — the LLM calls inside Materialize (step 2), the
@@ -3584,7 +3585,7 @@ never blocks on a user and the A/B eval can drive it non-interactively
 resumed=False, initial_prompt=None, verbose=False, interactive=True)` dispatches to
 it — `PIPELINE` → `run_interactive_build` (below), `REACT` →
 `run_interactive_agent` (§4). `main.py` derives the mode from
-`--react` (`BuildMode.from_cli`) and the eval harness maps its `--arch`
+`--pipeline` (`BuildMode.from_cli`; ReAct is the default) and the eval harness maps its `--arch`
 string onto the same enum (`BuildMode(arch)`), so A/B is chosen in **one** place
 (#309).
 
