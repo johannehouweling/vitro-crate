@@ -606,7 +606,7 @@ class TestCli:
             lambda engine, **kw: seen.append(engine.human_interface) or {"pipeline": {}},
         )
 
-        assert main(["--smoke-test", "20", "--input", str(d)]) == 0
+        assert main(["--smoke-test", "20", "--pipeline", "--input", str(d)]) == 0
         human = seen[0]
         assert isinstance(human, SmokeTestHumanInterface)
         assert human._deadline is not None, "the budget never reached the interface"
@@ -670,7 +670,7 @@ class TestCli:
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _capture)
 
-        assert main(["--smoke-test", "--input", str(d)]) == 0
+        assert main(["--smoke-test", "--pipeline", "--input", str(d)]) == 0
         assert len(seen) == 1
         assert isinstance(seen[0], SmokeTestHumanInterface)
         assert is_interactive(seen[0]) is True
@@ -696,5 +696,5 @@ class TestCli:
             lambda engine, **kw: seen.append(engine.human_interface) or {"pipeline": {}},
         )
 
-        assert main(["--interactive", "--input", str(d)]) == 0
+        assert main(["--interactive", "--pipeline", "--input", str(d)]) == 0
         assert isinstance(seen[0], ConsoleHumanInterface)

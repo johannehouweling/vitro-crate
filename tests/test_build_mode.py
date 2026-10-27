@@ -31,11 +31,11 @@ def _stub_engine() -> AgentEngine:
 
 
 class TestBuildModeFromCli:
-    def test_react_maps_to_react(self) -> None:
-        assert BuildMode.from_cli(react=True) is BuildMode.REACT
+    def test_default_maps_to_react(self) -> None:
+        assert BuildMode.from_cli(pipeline=False) is BuildMode.REACT
 
-    def test_default_maps_to_pipeline(self) -> None:
-        assert BuildMode.from_cli(react=False) is BuildMode.PIPELINE
+    def test_pipeline_maps_to_pipeline(self) -> None:
+        assert BuildMode.from_cli(pipeline=True) is BuildMode.PIPELINE
 
     def test_values_match_eval_arch_strings(self) -> None:
         """The eval's ``--arch`` choices and the BuildMode enum values MUST stay in

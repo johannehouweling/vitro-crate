@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from main import main, parse_args
 
 
@@ -117,10 +119,10 @@ class TestMain:
 class TestInteractiveDispatch:
     """The interactive build path: pipeline+guidance is the DEFAULT; ReAct is opt-in.
 
-    The A/B gate (AGENTS.md D15) decided the default — the deterministic
-    pipeline + HITL guidance is the default interactive architecture and the
-    ReAct loop is opt-in behind ``--react``. These tests mock the
-    run functions (no live LLM, no network) and assert only the dispatch routing.
+    The ReAct loop is the default interactive architecture (AGENTS.md D15); the
+    deterministic pipeline + HITL guidance is selected with ``--pipeline``, and
+    ``--react`` names the default explicitly. These tests mock the run functions
+    (no live LLM, no network) and assert only the dispatch routing.
     """
 
     def _stub_config(self, monkeypatch):
@@ -134,6 +136,15 @@ class TestInteractiveDispatch:
     def test_react_flag_is_parsed(self):
         args = parse_args(["--interactive", "--react"])
         assert args.react is True
+
+    def test_pipeline_flag_is_parsed(self):
+        """ReAct is the default; ``--pipeline`` opts into the deterministic build (#842)."""
+        assert parse_args(["--interactive"]).pipeline is False
+        assert parse_args(["--interactive", "--pipeline"]).pipeline is True
+
+    def test_react_and_pipeline_exclude_each_other(self):
+        with pytest.raises(SystemExit):
+            parse_args(["--interactive", "--react", "--pipeline"])
 
     def test_prompt_flag_is_parsed(self):
         """`--prompt/-P` carries the ReAct kickoff message (#412)."""
@@ -171,11 +182,33 @@ class TestInteractiveDispatch:
         assert main(["--interactive", "--react", "--verbose"]) == 0
         assert captured["verbose"] is True
 
-    def test_default_interactive_routes_to_pipeline_build(self, monkeypatch, tmp_path):
-        """--interactive (no opt-in) runs the deterministic pipeline + guidance.
+    def test_default_interactive_routes_to_react(self, monkeypatch):
+        """--interactive with no arm named runs the ReAct loop (#842)."""
+        self._stub_config(monkeypatch)
+        calls: list[str] = []
+
+        import builder.agents.build as build_mod
+
+        monkeypatch.setattr(
+            build_mod,
+            "run_interactive_build",
+            lambda engine, **kw: calls.append("build") or {"pipeline": {}, "guidance": None},
+        )
+
+        import builder.agents.react.agent_loop as agent_loop
+
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda *a, **kw: calls.append("react")
+        )
+
+        assert main(["--interactive"]) == 0
+        assert calls == ["react"]
+
+    def test_pipeline_flag_routes_to_pipeline_build(self, monkeypatch, tmp_path):
+        """--interactive --pipeline runs the deterministic pipeline + guidance.
 
         Supplies an --input folder with a file so the folder-driven build has
-        something to do (an empty state now short-circuits with a notice).
+        something to do (an empty state short-circuits with a notice).
         """
         self._stub_config(monkeypatch)
         d = tmp_path / "data"
@@ -199,7 +232,7 @@ class TestInteractiveDispatch:
             lambda *a, **kw: calls.append("react"),
         )
 
-        result = main(["--interactive", "--input", str(d)])
+        result = main(["--interactive", "--pipeline", "--input", str(d)])
         assert result == 0
         assert calls == ["build"]
 
@@ -228,8 +261,8 @@ class TestInteractiveDispatch:
         assert result == 0
         assert calls == ["react"]
 
-    def test_default_interactive_engine_is_interactive(self, monkeypatch, tmp_path):
-        """The engine handed to the default pipeline build reports interactive HITL.
+    def test_pipeline_engine_is_interactive(self, monkeypatch, tmp_path):
+        """The engine handed to the pipeline build reports interactive HITL.
 
         Supplies an --input folder so the folder-driven build runs (an empty
         state short-circuits with a notice before reaching the build).
@@ -250,7 +283,7 @@ class TestInteractiveDispatch:
 
         monkeypatch.setattr(build_mod, "run_interactive_build", _capture)
 
-        result = main(["--interactive", "--input", str(d)])
+        result = main(["--interactive", "--pipeline", "--input", str(d)])
         assert result == 0
         # The default interactive build must run behind a REAL interactive
         # interface, else run_interactive_build would skip guidance.
@@ -355,7 +388,7 @@ class TestOutputPathDefaulting:
         (d / "test.txt").write_text("hello\n")
         captured = self._capture_output_path(monkeypatch)
 
-        result = main(["--interactive", "--input", str(d)])
+        result = main(["--interactive", "--pipeline", "--input", str(d)])
         assert result == 0
         # Lands under ./output, '_extracted' stripped from the name.
         expected = Path("output") / "experiment_crate"
@@ -370,7 +403,7 @@ class TestOutputPathDefaulting:
         out = tmp_path / "explicit_out"
         captured = self._capture_output_path(monkeypatch)
 
-        result = main(["--interactive", "--input", str(d), "--output", str(out)])
+        result = main(["--interactive", "--pipeline", "--input", str(d), "--output", str(out)])
         assert result == 0
         assert captured == [str(out)]
 
@@ -387,7 +420,7 @@ class TestOutputPathDefaulting:
         self._stub_config(monkeypatch)
         captured = self._capture_output_path(monkeypatch)
 
-        result = main(["--interactive"])
+        result = main(["--interactive", "--pipeline"])
         assert result == 0
         # The folder-driven build short-circuits (no files), so it never runs.
         assert captured == []
@@ -406,18 +439,19 @@ class TestOutputPathDefaulting:
         # via the AgentEngine the run constructs. We assert no crash + clean exit;
         # the sibling default must NOT fire (no input), so --output is what wins.
         captured = self._capture_output_path(monkeypatch)
-        result = main(["--interactive", "--output", str(out)])
+        result = main(["--interactive", "--pipeline", "--output", str(out)])
         assert result == 0
         # No scanned files => build short-circuits; the build is not invoked.
         assert captured == []
 
 
 class TestInteractiveNoInput:
-    """First-run UX for the default interactive build with no --input.
+    """First-run UX for the pipeline build with no --input.
 
-    The default interactive build is folder-driven; with zero scanned files there
-    is genuinely nothing to build. These tests assert a friendly notice and a
-    graceful exit (no crash), with the real pipeline stubbed out.
+    The pipeline build is folder-driven; with zero scanned files there is
+    genuinely nothing to build. These tests assert a friendly notice and a
+    graceful exit (no crash), with the real pipeline stubbed out. The ReAct
+    default is conversational and starts without a folder.
     """
 
     def _stub_config(self, monkeypatch):
@@ -428,7 +462,7 @@ class TestInteractiveNoInput:
         monkeypatch.setattr(cfg, "merge_with_env", lambda c: None)
 
     def test_no_input_prints_notice_and_returns_zero(self, monkeypatch, capsys):
-        """--interactive with no --input prints the notice and returns 0."""
+        """--interactive --pipeline with no --input prints the notice and returns 0."""
         self._stub_config(monkeypatch)
         calls: list[str] = []
 
@@ -441,16 +475,17 @@ class TestInteractiveNoInput:
             or {"pipeline": {}, "guidance": None},
         )
 
-        result = main(["--interactive"])
+        result = main(["--interactive", "--pipeline"])
         captured = capsys.readouterr()
         assert result == 0
         assert "No input documents found" in captured.out
         assert "--input" in captured.out
+        assert "--pipeline" in captured.out
         # Nothing to build: the pipeline build must not run.
         assert calls == []
 
     def test_with_input_does_not_print_notice(self, monkeypatch, capsys, tmp_path):
-        """--interactive with --input (files present) skips the notice and builds."""
+        """--interactive --pipeline with --input (files present) skips the notice and builds."""
         self._stub_config(monkeypatch)
         d = tmp_path / "data"
         d.mkdir()
@@ -466,7 +501,7 @@ class TestInteractiveNoInput:
             or {"pipeline": {}, "guidance": None},
         )
 
-        result = main(["--interactive", "--input", str(d)])
+        result = main(["--interactive", "--pipeline", "--input", str(d)])
         captured = capsys.readouterr()
         assert result == 0
         assert "No input documents found" not in captured.out
