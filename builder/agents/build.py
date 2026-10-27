@@ -88,16 +88,16 @@ class BuildMode(enum.Enum):
     choice straight onto the enum with ``BuildMode(arch)``.
     """
 
-    PIPELINE = "pipeline"  # deterministic, code-orchestrated (--interactive default)
-    REACT = "react"  # LLM-orchestrated ReAct loop (--react)
+    PIPELINE = "pipeline"  # deterministic, code-orchestrated (--pipeline)
+    REACT = "react"  # LLM-orchestrated ReAct loop (the --interactive default)
 
     @classmethod
-    def from_cli(cls, *, react: bool) -> BuildMode:
+    def from_cli(cls, *, pipeline: bool) -> BuildMode:
         """Map the CLI mode flags to a :class:`BuildMode`.
 
-        ``--react`` selects :attr:`REACT`; the default is :attr:`PIPELINE`.
+        ``--pipeline`` selects :attr:`PIPELINE`; the default is :attr:`REACT`.
         """
-        return cls.REACT if react else cls.PIPELINE
+        return cls.PIPELINE if pipeline else cls.REACT
 
 
 class CrateExportError(RuntimeError):

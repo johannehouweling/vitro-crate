@@ -211,15 +211,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--interactive",
         "-I",
         action="store_true",
-        help="Run in interactive build mode (deterministic pipeline + HITL "
-        "guidance tail; requires LangChain extra + API key)",
+        help="Run in interactive build mode: the ReAct agent loop, or with "
+        "--pipeline the deterministic pipeline + HITL guidance tail (requires "
+        "LangChain extra + API key)",
     )
-    parser.add_argument(
+    arm = parser.add_mutually_exclusive_group()
+    arm.add_argument(
         "--react",
         action="store_true",
-        help="With --interactive, use the ReAct agent loop (the LLM orchestrates "
-        "the tool calls) instead of the default deterministic pipeline + guidance "
-        "build (a supported alternative; see AGENTS.md §14)",
+        help="With --interactive, the ReAct agent loop (the LLM orchestrates the "
+        "tool calls). The default, named here so a choice reads as one",
+    )
+    arm.add_argument(
+        "--pipeline",
+        action="store_true",
+        help="With --interactive, use the deterministic pipeline + HITL guidance "
+        "build (code owns the step ordering, the LLM is confined to bounded "
+        "leaves) instead of the default ReAct loop (a supported alternative; see "
+        "AGENTS.md §14)",
     )
     parser.add_argument(
         "--smoke-test",
@@ -240,10 +249,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--prompt",
         "-P",
-        help="With --interactive --react, an opening instruction (e.g. "
-        "'build the crate') that starts the agent working immediately instead of "
-        "waiting for you to type one. The session stays interactive afterwards. "
-        "Ignored by the default pipeline build, which runs unprompted.",
+        help="With --interactive, an opening instruction (e.g. 'build the "
+        "crate') that starts the agent working immediately instead of waiting "
+        "for you to type one. The session stays interactive afterwards. Ignored "
+        "by the --pipeline build, which runs unprompted.",
     )
     parser.add_argument(
         "--provider",
@@ -669,25 +678,23 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Interactive build mode. Two first-class arms over one toolbox (AGENTS.md
-    # §1, §14): the DEFAULT is the deterministic pipeline + HITL guidance tail
-    # (the A/B winner on cost and termination); the ReAct agent loop is the
-    # opt-in alternative behind --react.
+    # §1, §14): the DEFAULT is the ReAct agent loop; the deterministic pipeline
+    # + HITL guidance tail is the alternative behind --pipeline.
     if args.interactive:
         from builder.agents.build import BuildMode, run_build
 
-        mode = BuildMode.from_cli(react=args.react)
+        mode = BuildMode.from_cli(pipeline=args.pipeline)
 
-        # The default (pipeline) interactive build is folder-driven: with no
-        # scanned files there is genuinely nothing to build, so tell the user how
-        # to proceed instead of exiting near-silently. The ReAct loop is
-        # conversational and runs without pre-scanned files, so this guard is
-        # pipeline-only.
+        # The pipeline build is folder-driven: with no scanned files there is
+        # genuinely nothing to build, so tell the user how to proceed instead of
+        # exiting near-silently. The ReAct loop is conversational and runs
+        # without pre-scanned files, so this guard is pipeline-only.
         if mode is BuildMode.PIPELINE and len(engine.state.scanned_files) == 0:
             print(
-                "No input documents found. The interactive build is "
-                "folder-driven: pass --input <folder> to build an ISA-Tox crate "
-                "from your research documents, or use --react for the "
-                "conversational agent."
+                "No input documents found. The pipeline build is folder-driven: "
+                "pass --input <folder> to build an ISA-Tox crate from your "
+                "research documents, or drop --pipeline for the conversational "
+                "agent."
             )
             return 0
 
