@@ -25,6 +25,7 @@ from builder.tools.builder import build_crate
 # Headroom, not a licence to grow: no test in this module is changed.
 pytestmark = pytest.mark.timeout(120)
 
+
 def _state(tmp_path: Path) -> CrateState:
     state = CrateState()
     state.session_id = "sess-prev"
@@ -97,12 +98,36 @@ class TestHtmlSafeCopy:
         assert doc["@graph"][0]["name"] == '<b>x</b> & "q"', "the original was mutated"
 
     def test_a_script_scheme_cannot_become_a_link(self) -> None:
+        """Read the way a browser reads a URL: controls and spaces inside or
+        around the scheme do not hide it."""
         from builder.tools.builder import _html_safe
 
-        schemes = ("javascript:alert(1)", " JavaScript:alert(1)", "vbscript:x", "data:text/html,x")
+        schemes = (
+            "javascript:alert(1)",
+            " JavaScript:alert(1)",
+            "vbscript:x",
+            "data:text/html,x",
+            "java\tscript://%0aalert(8)",
+            "\x01javascript://x",
+            "j\navascript:x",
+            "vb\rscript:x",
+        )
         for value in schemes:
-            safe = _html_safe({"@id": value})["@id"]
-            assert ":" not in safe.split("-", 1)[0], safe
+            for key in ("@id", "contentUrl", "url"):
+                safe = _html_safe({key: value})[key]
+                assert safe.startswith("unsafe-"), (key, value, safe)
+
+    def test_prose_and_keys(self) -> None:
+        """Only link-bearing values are defused: a description that starts with
+        'Data:' is prose. Keys are escaped too, since the page embeds the
+        document raw in a script block."""
+        from builder.tools.builder import _html_safe
+
+        doc = {"description": "Data: raw counts", "name": "JavaScript: The Good Parts"}
+        assert _html_safe(doc) == doc
+        assert _html_safe({"</script><script>alert(1)</script>": 1}) == {
+            "&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;": 1
+        }
 
 
 class TestCommunityPreview:
@@ -122,6 +147,7 @@ class TestCommunityPreview:
         script.write_text(
             "import json, pathlib, sys\n"
             f"pathlib.Path({str(tmp_path / 'calls.log')!r}).open('a').write('run\\n')\n"
+            f"sys.stderr.write('npm ERR! registry unreachable\\n') if {exit_code} else None\n"
             "src = pathlib.Path(sys.argv[1])\n"
             "doc = json.loads(src.read_text())\n"
             "name = next(e['name'] for e in doc['@graph'] if e['@id'] == './')\n"
@@ -190,19 +216,36 @@ class TestCommunityPreview:
         assert "<script>alert" not in page and "&lt;script&gt;alert(1)&lt;/script&gt;" in page
 
     def test_a_failing_generator_is_tried_once_per_process(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         import builder.tools.builder as mod
 
         cmd = self._fake_generator(tmp_path, exit_code=1)
         monkeypatch.setattr(mod, "_find_preview_generator", lambda: cmd)
 
-        first = build_crate(_state(tmp_path / "one"))
-        second = build_crate(_state(tmp_path / "two"))
+        with caplog.at_level("WARNING", logger="builder.tools.builder"):
+            first = build_crate(_state(tmp_path / "one"))
+            second = build_crate(_state(tmp_path / "two"))
         assert first["success"] and second["success"]
 
         for res in (first, second):
             page = (Path(res["crate_path"]) / "ro-crate-preview.html").read_text(encoding="utf-8")
             assert "<html" in page.lower() and "GENERATED" not in page, "a failed render was kept"
         assert (tmp_path / "calls.log").read_text().count("run") == 1, "the generator was retried"
+        # The one line the user sees says why: the generator's own words.
+        assert "registry unreachable" in caplog.text
 
+    def test_only_an_installed_generator_is_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`npx -p` asks the registry on every run and stalls ~70 s offline, so
+        only `rochtml` on the PATH counts — by its resolved path, which is what
+        launches on Windows too."""
+        import shutil
+
+        import builder.tools.builder as mod
+
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        assert mod._find_preview_generator() is None
+        monkeypatch.setattr(
+            shutil, "which", lambda name: r"C:\\npm\\rochtml.cmd" if name == "rochtml" else None
+        )
+        assert mod._find_preview_generator() == [r"C:\\npm\\rochtml.cmd"]
