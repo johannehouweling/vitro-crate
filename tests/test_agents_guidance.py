@@ -3157,28 +3157,32 @@ class TestTheGuidanceTailHonoursTheModelPin:
 
 
 class TestTheDepositIsReadBeforeAsking:
-    """The answer is looked for in the deposit's own documents first. What it states
-    is offered as a choice; what it does not state is not asked; nothing is asked
-    twice (#811)."""
+    """The answer is looked for in the deposit's own documents first (#811). The one
+    value it states is recorded without asking; several make a required gap a
+    choice; a recommended or optional gap is never asked; no field is asked about
+    twice in a run (#833)."""
 
     VALUE = "OATP1C1-mediated thyroxine uptake in CHO-K1 cells"
+    README = "This study measures OATP1C1-mediated thyroxine uptake in CHO-K1 cells.\n"
 
-    def _engine(self, monkeypatch, tmp_path, *, quote):
+    def _engine(self, monkeypatch, tmp_path, *, quote, gap=None, files=None):
         from builder.agents.pipeline import guidance
 
-        readme = tmp_path / "README.txt"
-        readme.write_text("This study measures OATP1C1-mediated thyroxine uptake in CHO-K1 cells.\n")
         state = _backbone()
         state.approved_scan_roots.add(str(tmp_path))
-        state.scanned_files = [
-            FileClassification(
-                path=str(readme), filename="README.txt", size=80, mime_type="text/plain",
-                classification="metadata",
+        state.scanned_files = []
+        for name, text in (files or {"README.txt": self.README}).items():
+            (tmp_path / name).write_text(text)
+            state.scanned_files.append(
+                FileClassification(
+                    path=str(tmp_path / name), filename=name, size=len(text),
+                    mime_type="text/plain", classification="metadata",
+                )
             )
-        ]
         monkeypatch.setattr(guidance, "get_provider", lambda: "openai")
         _single_ask_gap_report(
-            monkeypatch, _study_desc_gap(), counts={"must_open": 1, "should_open": 0, "may_open": 0}
+            monkeypatch, gap or _study_desc_gap(),
+            counts={"must_open": 1, "should_open": 0, "may_open": 0},
         )
         monkeypatch.setattr(guidance, "phrase_gap_question", lambda _ctx, **_kw: "What is the study about?")
         monkeypatch.setattr(
@@ -3186,21 +3190,70 @@ class TestTheDepositIsReadBeforeAsking:
         )
         return AgentEngine(state=state)
 
-    def test_what_the_deposit_states_is_offered_as_a_choice(self, monkeypatch, tmp_path):
+    def _two_values(self, monkeypatch, tmp_path, tier):
+        """Two documents that each state a different value for the study description."""
+        from builder.agents.pipeline import guidance
+
+        engine = self._engine(
+            monkeypatch, tmp_path, quote="",
+            gap=_study_desc_gap(tier),
+            files={
+                "README.txt": "Uptake of thyroxine in CHO-K1 cells.",
+                "SOP.txt": "Uptake of rT3 in HEK293 cells.",
+            },
+        )
+        monkeypatch.setattr(
+            guidance,
+            "extract_field_with_quote",
+            lambda _f, text, _c, **_kw: (text.strip(), text.strip()),
+        )
+        return engine
+
+    @pytest.mark.parametrize("tier", ["MUST", "SHOULD"])
+    def test_the_one_value_the_deposit_states_is_recorded_without_asking(
+        self, monkeypatch, tmp_path, tier
+    ):
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._engine(
+            monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake",
+            gap=_study_desc_gap(tier),
+        )
+        human = ScriptedHuman()
+        summary = run_guidance(engine, human, max_rounds=3)
+
+        assert human.presented == [] and human.inputs == []
+        assert _get(engine, "st1").fields.get("description") == self.VALUE
+        assert summary["asked"] == []
+
+    def test_several_values_make_a_required_gap_a_choice(self, monkeypatch, tmp_path):
         """The rows are answers only (#813): skipping and stopping are the box's keys."""
         from builder.agents.pipeline.guidance import run_guidance
         from builder.tools.hitl import GUIDANCE_PURPOSE
 
-        engine = self._engine(monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake")
-        label = f"{self.VALUE}  (from README.txt)"
-        human = ScriptedHuman(present_answers=[{"action": "approved", "comments": label, "edits": None}])
+        engine = self._two_values(monkeypatch, tmp_path, "MUST")
+        picked = "Uptake of rT3 in HEK293 cells.  (from SOP.txt)"
+        human = ScriptedHuman(
+            present_answers=[{"action": "approved", "comments": picked, "edits": None}]
+        )
         run_guidance(engine, human, max_rounds=3)
 
         ((_question, options, purpose),) = human.presented
-        assert options == [label]
+        assert options == ["Uptake of thyroxine in CHO-K1 cells.  (from README.txt)", picked]
         assert purpose == GUIDANCE_PURPOSE
-        assert human.inputs == []
-        assert _get(engine, "st1").fields.get("description") == self.VALUE
+        assert _get(engine, "st1").fields.get("description") == "Uptake of rT3 in HEK293 cells."
+
+    @pytest.mark.parametrize("tier", ["SHOULD", "MAY"])
+    def test_a_recommended_or_optional_gap_is_never_asked(self, monkeypatch, tmp_path, tier):
+        """Several candidates leave it in the report rather than interrupting (#833)."""
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._two_values(monkeypatch, tmp_path, tier)
+        human = ScriptedHuman()
+        run_guidance(engine, human, max_rounds=3)
+
+        assert human.presented == [] and human.inputs == []
+        assert _get(engine, "st1").fields.get("description") == "d"
 
     def test_a_field_that_must_name_an_entity_is_not_asked(self, monkeypatch, tmp_path):
         """#813: a picked value for ``additionalProperty`` could never be stored, so the
@@ -3220,22 +3273,42 @@ class TestTheDepositIsReadBeforeAsking:
         assert human.presented == [] and human.inputs == []
         assert "additionalProperty" not in _get(engine, "st1").fields
 
-    def test_an_answer_the_deposit_does_not_state_is_not_asked(self, monkeypatch, tmp_path):
+    def test_a_recommended_gap_the_deposit_is_silent_on_is_not_asked(self, monkeypatch, tmp_path):
         """A value whose quoted passage is not in the file is invented: no option, so no question."""
         from builder.agents.pipeline.guidance import run_guidance
 
-        engine = self._engine(monkeypatch, tmp_path, quote="a sentence the README does not contain")
+        engine = self._engine(
+            monkeypatch, tmp_path, quote="a sentence the README does not contain",
+            gap=_study_desc_gap("SHOULD"),
+        )
         human = ScriptedHuman()
         run_guidance(engine, human, max_rounds=3)
 
         assert human.presented == [] and human.inputs == []
         assert _get(engine, "st1").fields.get("description") == "d"
 
+    def test_a_required_gap_the_deposit_is_silent_on_is_asked_in_words(self, monkeypatch, tmp_path):
+        """Only the user can answer it now (#833)."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._engine(monkeypatch, tmp_path, quote="a sentence the README does not contain")
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply",
+            lambda _q, reply, _c, **_kw: {"action": "commit", "value": reply},
+        )
+        human = ScriptedHuman(input_answers=[_value("Thyroxine uptake")])
+        summary = run_guidance(engine, human, max_rounds=3)
+
+        assert human.presented == [] and len(human.inputs) == 1
+        assert _get(engine, "st1").fields.get("description") == "Thyroxine uptake"
+        assert len(summary["asked"]) == 1
+
     def test_a_typed_answer_is_read_once_and_never_asked_again(self, monkeypatch, tmp_path):
         from builder.agents.pipeline import guidance
         from builder.agents.pipeline.guidance import run_guidance
 
-        engine = self._engine(monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake")
+        engine = self._two_values(monkeypatch, tmp_path, "MUST")
         monkeypatch.setattr(
             guidance, "interpret_gap_reply",
             lambda *_a, **_kw: {"action": "clarify", "question": "Which uptake do you mean?"},
@@ -3246,3 +3319,64 @@ class TestTheDepositIsReadBeforeAsking:
 
         assert len(human.presented) == 1 and human.inputs == []
         assert _get(engine, "st1").fields.get("description") == "d"
+
+    def test_a_sentence_is_not_a_keyword(self, monkeypatch, tmp_path):
+        """#833: the deposit's description sentence was recorded as the keywords."""
+        from builder.agents.pipeline.guidance import run_guidance
+
+        sentence = self.README.strip()
+        gap = replace(_study_desc_gap("SHOULD"), property="https://schema.org/keywords")
+        engine = self._engine(monkeypatch, tmp_path, quote=sentence, gap=gap)
+        monkeypatch.setattr(
+            "builder.agents.pipeline.guidance.extract_field_with_quote",
+            lambda _f, _t, _c, **_kw: (sentence, sentence),
+        )
+        offered = f"{sentence}  (from README.txt)"
+        human = ScriptedHuman(
+            present_answers=[{"action": "approved", "comments": offered, "edits": None}]
+        )
+        run_guidance(engine, human, max_rounds=3)
+
+        assert "keywords" not in _get(engine, "st1").fields
+
+    def test_a_field_is_asked_about_once_per_run(self, monkeypatch, tmp_path):
+        """#833: two gaps about one field of one entity were asked back to back."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        engine = self._engine(monkeypatch, tmp_path, quote="a sentence the README does not contain")
+        first = _study_desc_gap()
+        second = replace(first, source="mit", message="MIT: describe the study.")
+        monkeypatch.setattr(
+            guidance, "assess_gaps",
+            lambda _state: GapReport(
+                gaps=[first, second], counts={"must_open": 2, "should_open": 0, "may_open": 0}
+            ),
+        )
+        monkeypatch.setattr(
+            guidance, "interpret_gap_reply",
+            lambda _q, reply, _c, **_kw: {"action": "commit", "value": reply},
+        )
+        human = ScriptedHuman(input_answers=[_value("TNO"), _value("Universiteit Utrecht")])
+        run_guidance(engine, human, max_rounds=5)
+
+        assert len(human.inputs) == 1
+
+    def test_with_a_deposit_a_recommended_draft_is_not_put_to_the_user(self, monkeypatch, tmp_path):
+        """#833: the draft dialog is for required gaps; the deposit fills the rest."""
+        from builder.agents.pipeline import guidance
+        from builder.agents.pipeline.guidance import run_guidance
+
+        gap = replace(_study_desc_gap("SHOULD"), fix_hint="draft")
+        engine = self._engine(
+            monkeypatch, tmp_path, quote="measures OATP1C1-mediated thyroxine uptake", gap=gap
+        )
+        monkeypatch.setattr(
+            guidance, "draft_entity_fields",
+            lambda *_a, **_kw: {"description": "A drafted value."},
+        )
+        human = ScriptedHuman()
+        run_guidance(engine, human, max_rounds=3)
+
+        assert human.presented == []
+        assert _get(engine, "st1").fields.get("description") == self.VALUE

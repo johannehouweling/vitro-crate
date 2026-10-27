@@ -131,10 +131,11 @@ uv run python -m main --interactive -i /path/to/experiment/
 # The pipeline arm is folder-driven: with no --input there is nothing to scan, so
 # it prints a notice and exits. To start with no input folder, use --react below.
 #
-# Before it asks you anything, the pipeline looks for the answer in the folder's own
-# documents. You pick from what it found, each option naming the file it came from,
-# or type your own. Esc skips a question; Ctrl+D stops the questions and builds the
-# crate. What the folder does not state is not asked.
+# The pipeline fills metadata from the folder's own documents. A value the folder
+# states once is recorded without a question. It asks only about required fields:
+# you pick from what the folder states, each option naming its file, or type your
+# own. Esc skips a question; Ctrl+D stops the questions and builds the crate.
+# Recommended and optional fields the folder does not settle are left for the report.
 
 # Specify provider / model / endpoint:
 uv run python -m main --interactive --provider openai --model gpt-4o-mini
