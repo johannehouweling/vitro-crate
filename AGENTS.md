@@ -2961,20 +2961,24 @@ INPUT (dir / zip / conversation)
   the ceiling is honest and the one call stays token-safe. The empty-context path is a
   strict no-op (no provider call), preserving the no-provider determinism guarantee.
 - **Priority decides chars, not just order (#378, #840).** Files are read
-  **metadata-first**, and each tier's files are capped by a *weighted* share
-  (`_TIER_SHARES`) rather than an equal one; equal shares are not enough — with them
-  the highest-priority file in a real deposit emitted 298 chars while a bulk-data
-  export emitted 2,049. The ceiling is spent tier by tier, top down: a tier gets what
-  is left after every populated tier below it keeps a floor (`_TIER_FLOOR`, never a
-  share per file — on an 82-file deposit a per-file reservation left the workbooks,
-  the descriptor and every README at zero), and the files of a tier split that
-  max-min fairly on what each has to say; what a tier does not spend is left to the
-  next. High-priority bodies are read with the shared compactors
-  (`file_readers.compact_grid_text` / `compact_attribute_json`), which is what makes
-  the whole metadata workbook fit. Two ceilings: the drafter leaves use
-  `_MAX_CONTEXT_CHARS`, re-sent once per entity; the one plan call uses
-  `_PLAN_CONTEXT_CHARS`, sized to carry a real deposit's metadata tiers whole. The
-  algorithm is documented in the `_gather_context` docstring.
+  **metadata-first** and the budget is spent tier by tier, top down: a tier gets
+  what is left after every populated tier below it keeps its floor
+  (`_TIER_FLOORS`: a floor per file for a tier's first two files, never more — on an
+  82-file deposit a reservation per file left the workbooks, the descriptor and every
+  README at zero), and the files of a tier split that max-min fairly on what each
+  has to say, with no per-file cap above the bulk tier, so what a tier does not spend
+  is left to the next and a tier with the room reads a long workbook or SOP whole.
+  Bulk data is previewed (`_BULK_PREVIEW_CHARS`) unless it is all the deposit holds;
+  a versioned copy of an earlier file is named as such and charged nothing; a grant
+  too short to say anything names the file only. Equal shares were not enough — with
+  them the highest-priority file in a real deposit emitted 298 chars while a
+  bulk-data export emitted 2,049. High-priority bodies are read with the shared
+  compactors (`file_readers.compact_grid_text` / `compact_attribute_json`), which is
+  what makes the whole metadata workbook fit. Two budgets, bounding the slices (the
+  per-file headers and the discovered-documentation block ride outside them): the
+  drafter leaves use `_MAX_CONTEXT_CHARS`, re-sent once per entity; the one plan call
+  uses `_PLAN_CONTEXT_CHARS`, sized to carry a real deposit's metadata tiers whole.
+  The algorithm is documented in the `_gather_context` docstring.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.

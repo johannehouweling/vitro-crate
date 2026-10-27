@@ -53,8 +53,8 @@ from builder.tools.document_discovery import (
     CLASS_PROCESSED_DATA,
     CLASS_RAW_DATA,
     _safe_preview,
-    classify_file,
     classification_of,
+    classify_file,
     preview_mode_for,
 )
 from builder.tools.file_readers import read_docx, read_file
@@ -355,15 +355,6 @@ class TestSvhps22ContextFidelity:
             f"emitted {emitted} chars against a {_MAX_CONTEXT_CHARS} ceiling"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "_gather_context reserves each lower tier's share PER FILE and "
-            "uncapped, so 19 priority-2 documents reserve 38,000 chars against a "
-            "16,000 ceiling and every priority-0 workbook floors at zero. Remove "
-            "this marker with the fix."
-        ),
-    )
     def test_every_assay_metadata_workbook_reaches_the_leaf(
         self, svhps22_engine: AgentEngine
     ) -> None:
@@ -389,13 +380,6 @@ class TestSvhps22ContextFidelity:
             f"workbooks emitted filename only: {starved}"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Same uncapped per-file reservation: tier 1 is reserved out of "
-            "existence by the tier-2 and tier-3 crowd. Remove with the fix."
-        ),
-    )
     def test_the_biostudies_descriptor_is_never_starved(
         self, svhps22_engine: AgentEngine
     ) -> None:
@@ -412,13 +396,6 @@ class TestSvhps22ContextFidelity:
             f"the descriptor emitted {emitted} chars — filename only"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Metadata-first inverts on this deposit: tier 0 emits 144 chars "
-            "against tier 2's 16,095. Remove with the fix."
-        ),
-    )
     def test_priority_zero_outranks_priority_two(
         self, svhps22_engine: AgentEngine
     ) -> None:
