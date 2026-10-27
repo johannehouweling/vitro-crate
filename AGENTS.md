@@ -3486,7 +3486,10 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
     (property, entity_type, tier, MIT/FAIR rationale, suggestion) into ONE clear
     question with a concrete example (none when the options are shown as rows) —
     never raw SHACL shapes / FAIR indicator
-    codes / property IRIs. On an empty/failed result it falls back to the
+    codes / property IRIs. The leaf's text is accepted only when it IS one
+    question — one line, no braces, bounded, ending in a question mark
+    (`_one_question`, #838): a model once returned its own reasoning inside the
+    field. Anything else, like an empty or failed result, falls back to the
     deterministic human-readable prompt.
   - **Interpret** (`interpret_gap_reply(question, reply, gap_context) -> dict`)
     parses the free-text reply into a **structured decision** — one of
@@ -3496,7 +3499,8 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   - **Commit** — only a `commit`'s clean `value` reaches `_apply_value`
     (`set_fields` / `set_crate_metadata`, never hand-rolled JSON-LD). `skip`
     commits nothing; `clarify` asks at most **one** bounded follow-up
-    (`_MAX_CLARIFY_FOLLOW_UPS`) then skips, so the clarify path can't loop;
+    (`_MAX_CLARIFY_FOLLOW_UPS`) then skips, so the clarify path can't loop, and
+    its follow-up passes the same one-question check or the reply is a skip;
     `from_file` records the filename hint and commits nothing (file extraction is
     a separate bounded reader, not this loop — never store the prose). **D5:**
     identifier-bearing fields are never committed from the user's prose — those
