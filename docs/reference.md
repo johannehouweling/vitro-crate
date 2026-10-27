@@ -113,36 +113,37 @@ Both are maintained — pick the one that fits how you want to work:
 
 | Variant | Flag | What it does | When to pick it |
 | --- | --- | --- | --- |
-| **Deterministic pipeline + HITL guidance** (default) | `--interactive` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build. It is the default: on the shared-corpus A/B both arms reach full ISA-Tox conformance, but the pipeline gets there substantially cheaper and faster, self-terminating every case where the ReAct loop repeatedly runs to its recursion cap. (The published figures are being re-measured — the harness that produced them handed the two arms different environments; see AGENTS.md D15.) |
-| **Conversational ReAct agent** | `--interactive --react` | An LLM agent decides the order of tool calls turn by turn. | You want **flexible, conversational exploration** and to let the model drive. |
+| **Conversational ReAct agent** (default) | `--interactive` | An LLM agent decides the order of tool calls turn by turn, reading the folder's files on demand. | You want **flexible, conversational exploration** and to let the model drive. |
+| **Deterministic pipeline + HITL guidance** | `--interactive --pipeline` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build: on the shared-corpus A/B both arms reach full ISA-Tox conformance, but the pipeline gets there substantially cheaper and faster, self-terminating every case where the ReAct loop repeatedly runs to its recursion cap. (The published figures are being re-measured — the harness that produced them handed the two arms different environments; see AGENTS.md D15.) |
 
 Both variants are first-class and actively maintained — this is an ongoing
 exploration, not a one-way migration. See the architecture docs (`AGENTS.md` §14)
 for the full comparison.
 
 ```bash
-# Default deterministic pipeline — with an existing research data folder:
-uv run python -m main --interactive -i /path/to/experiment/
+# Default — the conversational ReAct agent, on a research data folder and set
+# working straight away:
+uv run python -m main --interactive -i /path/to/experiment/ --prompt "build the crate"
+
+# Without --prompt it waits for you to type; without --input it starts with an
+# empty crate and reads what you point it at.
+uv run python -m main --interactive
+
+# Specify provider / model / endpoint:
+uv run python -m main --interactive --provider openai --model gpt-4o-mini
+uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
+
+# The deterministic pipeline + HITL guidance (supported alternative):
+uv run python -m main --interactive --pipeline -i /path/to/experiment/
 
 # The pipeline arm is folder-driven: with no --input there is nothing to scan, so
-# it prints a notice and exits. To start with no input folder, use --react below.
+# it prints a notice and exits.
 #
 # The pipeline fills metadata from the folder's own documents. A value the folder
 # states once is recorded without a question. It asks only about required fields:
 # you pick from what the folder states, each option naming its file, or type your
 # own. Esc skips a question; Ctrl+D stops the questions and builds the crate.
 # Recommended and optional fields the folder does not settle are left for the report.
-
-# Specify provider / model / endpoint:
-uv run python -m main --interactive --provider openai --model gpt-4o-mini
-uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
-
-# Conversational ReAct agent (supported alternative):
-uv run python -m main --interactive --react
-
-# …and start it working straight away instead of waiting for you to type:
-uv run python -m main --interactive --react -i /path/to/experiment/ \
-    --prompt "build the crate"
 ```
 
 **Smoke-testing the interactive path (`--smoke-test`).** For **testing**, not for
@@ -160,7 +161,7 @@ uv run python -m main --smoke-test -i /path/to/experiment/
 ```
 
 - It **implies `--interactive`** (on its own it would have nothing to answer) and
-  **drives both arms**: with `--react` it also answers the agent's conversational
+  **drives both arms**: on the ReAct arm (the default) it also answers the agent's conversational
   "what next?" prompts for a bounded number of turns (or, with `--smoke-test
   MINUTES`, until the budget is spent), then ends the session the way Ctrl+D would.
 - The run prints a prominent notice that the answers are synthetic — once at the
@@ -175,7 +176,7 @@ uv run python -m main --smoke-test -i /path/to/experiment/
 an instruction — on its own it does no work, so a run left at the prompt builds
 nothing. Give it an opening instruction with `--prompt/-P` (or just type one) and
 it works autonomously from there, checking back only when it genuinely needs you.
-The session stays interactive afterwards. The default pipeline build needs none of
+The session stays interactive afterwards. The --pipeline build needs none of
 this: it runs unprompted.
 
 **Looking at a crate you already have.** `--graph` writes the entity explorer for
@@ -330,11 +331,16 @@ Options:
                          --resume needs no flag
   -r, --resume SESSION   Resume a previous session by ID (--session is an
                          accepted alias)
-  -I, --interactive      Run in interactive build mode: deterministic pipeline +
-                         HITL guidance tail (requires LangChain + API key)
-      --react            With --interactive, use the ReAct agent loop (the LLM
-                         orchestrates the tool calls) instead of the default
-                         pipeline+guidance build
+  -I, --interactive      Run in interactive build mode: the ReAct agent loop, or
+                         with --pipeline the deterministic pipeline + HITL
+                         guidance tail (requires LangChain + API key)
+      --react            With --interactive, the ReAct agent loop (the LLM
+                         orchestrates the tool calls). The default, named so a
+                         choice reads as one
+      --pipeline         With --interactive, use the deterministic pipeline +
+                         HITL guidance build (code owns the step ordering, the
+                         LLM is confined to bounded leaves) instead of the
+                         default ReAct loop
       --smoke-test [MINUTES]
                          TESTING: drive the interactive build with nobody at the
                          keyboard — confirm every pre-selected choice, answer
@@ -345,11 +351,11 @@ Options:
                          has; without one it drives a few turns and stops. The
                          crate it writes holds synthesised answers, not curated
                          metadata
-  -P, --prompt TEXT      With --interactive --react, an opening instruction that
-                         starts the agent working immediately instead of waiting
-                         for you to type one. The session stays interactive
-                         afterwards. Ignored by the default pipeline build, which
-                         runs unprompted
+  -P, --prompt TEXT      With --interactive, an opening instruction that starts
+                         the agent working immediately instead of waiting for
+                         you to type one. The session stays interactive
+                         afterwards. Ignored by the --pipeline build, which runs
+                         unprompted
   -p, --provider STR     LLM provider: 'openai' or 'anthropic' (auto-detected from env)
   -m, --model STR        Model name override (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4)
   -b, --api-base URL     Custom API base URL for OpenAI-compatible providers
