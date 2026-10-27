@@ -29,7 +29,7 @@ The configuration is stored in `~/.config/vitro-crate/config.toml`.
 ## Usage
 
 ```bash
-uv run python -m main --interactive -i path/to/data --prompt "build the crate"
+uv run python -m main --interactive -i path/to/data
 ```
 
 The default build mode is a ReAct agent: a language model selects each next tool call
@@ -43,10 +43,10 @@ from the current state of the crate. During a build it:
 5. asks for input when a decision requires it;
 6. exports the crate.
 
-Instructions can be entered at any time during the session. Without `--prompt`, the
-agent waits for a first instruction; without `-i`, the session starts without an
-input folder. A question is answered by selecting an option or by typing an answer.
-Ctrl+D ends the session.
+With `-i`, the agent starts building at once; without it, the session starts with an
+empty crate and waits for an instruction. Instructions can be entered at any time
+during the session. A question is answered by selecting an option or by typing an
+answer. Ctrl+D ends the session.
 
 ## Output
 

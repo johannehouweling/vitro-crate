@@ -249,10 +249,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--prompt",
         "-P",
-        help="With --interactive, an opening instruction (e.g. 'build the "
-        "crate') that starts the agent working immediately instead of waiting "
-        "for you to type one. The session stays interactive afterwards. Ignored "
-        "by the --pipeline build, which runs unprompted.",
+        help="With --interactive, the agent's first instruction, in place of "
+        "the default it gets with an input folder ('Build the crate and "
+        "validate it.'). Without a folder it waits for one. The session stays "
+        "interactive afterwards. Ignored by the --pipeline build, which runs "
+        "unprompted.",
     )
     parser.add_argument(
         "--provider",
@@ -681,9 +682,16 @@ def main(argv: list[str] | None = None) -> int:
     # §1, §14): the DEFAULT is the ReAct agent loop; the deterministic pipeline
     # + HITL guidance tail is the alternative behind --pipeline.
     if args.interactive:
-        from builder.agents.build import BuildMode, run_build
+        from builder.agents.build import DEFAULT_INSTRUCTION, BuildMode, run_build
 
         mode = BuildMode.from_cli(pipeline=args.pipeline)
+
+        # A folder on the command line says what to do: the ReAct loop is told
+        # to build unless --prompt says otherwise. Without a folder the session
+        # is conversational and waits for a first message (#412, #846).
+        initial_prompt = args.prompt
+        if initial_prompt is None and mode is BuildMode.REACT and args.input:
+            initial_prompt = DEFAULT_INSTRUCTION
 
         # The pipeline build is folder-driven: with no scanned files there is
         # genuinely nothing to build, so tell the user how to proceed instead of
@@ -716,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
             # ReAct-only kickoff: without it the loop greets and blocks on stdin
             # having done no work, because the greeting invoke sits outside the
             # autonomous-continuation loop (#412).
-            initial_prompt=args.prompt,
+            initial_prompt=initial_prompt,
             verbose=args.verbose > 0,
         )
         return 0

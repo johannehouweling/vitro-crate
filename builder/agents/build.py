@@ -76,6 +76,11 @@ Exporter = Callable[..., dict[str, Any]]
 OutputChannel = Callable[[str], Any]
 
 
+# What a ReAct run started on an input folder is told first, unless --prompt says
+# otherwise: a folder on the command line already says what to do (#846).
+DEFAULT_INSTRUCTION = "Build the crate and validate it."
+
+
 class BuildMode(enum.Enum):
     """Which build variant runs — the single switch the CLI and eval both flip.
 

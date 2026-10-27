@@ -3605,10 +3605,12 @@ is a separate question from where the content came from.
 code-driven and starts unprompted, but the ReAct loop's greeting invoke sits
 *outside* the autonomous-continuation loop (§4), which is keyed on a user message —
 so the loop greets and then blocks on stdin having done no work. `initial_prompt`
-(CLI `--prompt/-P`, `REACT`-only) seeds that first turn in place of the first stdin
-read; blank is treated as absent, and control passes to the ordinary autonomous
-loop immediately afterwards. It is opt-in by design: auto-continuing every greeting
-would erase the conversational character that makes ReAct a distinct arm.
+(`REACT`-only) seeds that first turn in place of the first stdin read; blank is
+treated as absent, and control passes to the ordinary autonomous loop immediately
+afterwards. The CLI supplies it whenever an input folder is given
+(`build.DEFAULT_INSTRUCTION`, unless `--prompt/-P` says otherwise; #846): a folder on
+the command line already says what to do. Without a folder the session waits for a
+first message, which is the conversational character that makes ReAct a distinct arm.
 
 `run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
 exporter=None, output=None, overrides=None, resumed=False) -> dict` joins the two
