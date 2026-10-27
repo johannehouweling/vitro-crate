@@ -100,6 +100,41 @@ class TestBuildAndValidateRouting:
         )
         assert answering_field(detached["message"], detached["property"]) is None
 
+    def test_the_parameter_rules_are_answered_by_the_step_field(self):
+        """#835: both profiles report a step with no parameter on a predicate the
+        build never reads from — tox on ``schema:additionalProperty``, ISA on
+        ``bioschemas:parameterValue``. Asked under either key the reply was stored
+        as a literal of that name and dropped at assembly. The answer goes to the
+        step's own field, which the build mints the PropertyValue from."""
+        from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+        from builder.tools.validation import answering_field
+
+        tox = (
+            "Exposure process MUST have at least one schema:additionalProperty "
+            "(e.g. Exposure Duration)"
+        )
+        isa = "Process entity SHOULD have a parameter value"
+        expected = {
+            "TestSystemPreparation": "culture_medium",
+            "Exposure": "duration",
+            "EndpointReadout": "endpoint",
+            "DataAnalysis": "data_processing",
+        }
+        for step, field in expected.items():
+            assert field in LABPROCESS_PARAMETER_FIELDS
+            assert answering_field(tox, "http://schema.org/additionalProperty", step) == field
+            assert (
+                answering_field(isa, "https://bioschemas.org/properties/parameterValue", step)
+                == field
+            )
+        # A Sample's characteristics ride the same predicate; without a step there
+        # is nothing to reroute to.
+        sample = "Sample entity SHOULD have at least one additional property"
+        assert (
+            answering_field(sample, "http://schema.org/additionalProperty")
+            == "http://schema.org/additionalProperty"
+        )
+
     def test_conformance_base_passes_isa_fails_for_minimal(self):
         report = build_and_validate(CrateState())
         assert report["conformance"]["base"] is True

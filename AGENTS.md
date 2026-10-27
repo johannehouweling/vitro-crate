@@ -3340,7 +3340,11 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   and nothing is invented in its place — not a placeholder, not an empty list
   (D5) — so the tox "MUST have at least one additionalProperty" fires on it
   (#379). Identifiers remain excluded, and the parameter sub-object is closed so
-  an unrecognised key cannot reach LabProcess state.
+  an unrecognised key cannot reach LabProcess state. The guidance loop then asks
+  for the step's own parameter field (`validation.STEP_PARAMETER_FIELD`), where
+  the build reads it, never for the predicate the shape names: both profiles
+  report the finding on `additionalProperty` / `parameterValue`, and an answer
+  stored under either is dropped at assembly (#835).
 - **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
   — deterministically turns each plan section into linked ISA-Tox entities through
   `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /
