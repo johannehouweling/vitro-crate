@@ -147,6 +147,20 @@ _NAMED_CHEMICALS: tuple[tuple[int, str], ...] = (
 )
 
 
+def _emitted_for_in(context: str, stem: str) -> int:
+    """Characters the ``Scanned files:`` digest emits for the file named *stem*."""
+    for block in context.split("\n- "):
+        if block.lstrip("- ").lower().startswith(stem.lower()):
+            return len(block)
+    return 0
+
+
+def _slice_chars(context: str) -> int:
+    """Characters of file content in the digest: the slices, not the headers."""
+    section = context.split("Scanned files:\n", 1)[-1].split("\n\nDiscovered documentation:", 1)[0]
+    return sum(len(block.split(":", 1)[1]) for block in section.split("\n- ") if ":" in block)
+
+
 def _scanning_engine(input_dir: Path) -> AgentEngine:
     """A headless engine that has SCANNED ``input_dir`` off disk via the real guard."""
     engine = AgentEngine(state=CrateState(), human_interface=SimulatedHumanInterface())
@@ -328,9 +342,7 @@ class TestRealInputFixture:
         assert _RAW_DATA.name in scanned  # recursion into the spaced/"+" subdir worked
         assert _PROCESSED_DATA.name in scanned
 
-        classes = {
-            classification_of(f, input_root=str(FIXTURE_DIR)) for f in scanned.values()
-        }
+        classes = {classification_of(f, input_root=str(FIXTURE_DIR)) for f in scanned.values()}
         assert {CLASS_RAW_DATA, CLASS_PROCESSED_DATA} <= classes
         assert not any(n.endswith((".py", ".pyc")) for n in scanned)
 
@@ -499,7 +511,9 @@ class TestRealInputPipeline:
         shutil.copytree(FIXTURE_DIR, deposit)
         descriptor = deposit / "S-VHPS26.json"
         doc = json.loads(descriptor.read_text())
-        doc["section"]["attributes"].append({"name": "AOP", "value": "https://aopwiki.org/aops/464"})
+        doc["section"]["attributes"].append(
+            {"name": "AOP", "value": "https://aopwiki.org/aops/464"}
+        )
         descriptor.write_text(json.dumps(doc, indent=2))
         rows = "well,value\n" + "\n".join(f"A{i},{i}" for i in range(200))
         for k in range(40):
@@ -520,7 +534,64 @@ class TestRealInputPipeline:
         assert _emitted_for("README_39.txt") > 0, "the last README was starved"
         assert _emitted_for("plate_39.csv") > 0, "the bulk tier vanished instead of shrinking"
         assert _emitted_for("Assay-metadata-CHO-K1_OATP1C1") > _emitted_for("plate_00.csv")
-        assert len(context) <= _PLAN_CONTEXT_CHARS + 4000
+        assert _slice_chars(context) <= _PLAN_CONTEXT_CHARS
+
+    def test_a_bulk_only_deposit_spends_the_budget_on_its_one_file(self, tmp_path: Path) -> None:
+        """With nothing above it, a bulk file is all the model has (#840)."""
+        from builder.agents.pipeline.pipeline import _gather_context
+
+        deposit = tmp_path / "bulk_only"
+        deposit.mkdir()
+        (deposit / "plate.csv").write_text(
+            "well,value\n" + "\n".join(f"A{i},{i * 1000003}" for i in range(400))
+        )
+
+        context = _gather_context(_scanning_engine(deposit))
+
+        assert _slice_chars(context) > 2000, context[:300]
+
+    def test_a_readme_beside_the_sop_leaves_the_sop_its_share(self, tmp_path: Path) -> None:
+        """The floor is per file for a tier's first two files (#419, #840).
+
+        One floor for the whole tier let the descriptor spend the headroom first
+        and left the SOP and the README beside it 1,000 chars each — below the
+        offset of the SOP's own regression token.
+        """
+        import shutil
+
+        from builder.agents.pipeline.pipeline import _gather_context
+
+        deposit = tmp_path / "with_readme"
+        shutil.copytree(FIXTURE_DIR, deposit)
+        (deposit / "README.txt").write_text(
+            ("This folder holds the OATP1C1 plates. " * 110).strip()
+        )
+
+        context = _gather_context(_scanning_engine(deposit))
+
+        assert _TOKEN_SOP_BODY in context.lower(), "the SOP lost its share to the README"
+        assert _emitted_for_in(context, "README.txt") > 1000, "the README was starved"
+
+    def test_a_copied_workbook_is_named_once(self, tmp_path: Path) -> None:
+        """A versioned copy says what its original says (#840).
+
+        Split fairly, two identical workbooks were each cut at the same chemical
+        and the last five reached neither. Naming the copy keeps the original
+        whole.
+        """
+        import shutil
+
+        from builder.agents.pipeline.pipeline import _gather_context
+
+        deposit = tmp_path / "two_copies"
+        shutil.copytree(FIXTURE_DIR, deposit)
+        workbook = deposit / "Assay_OATP1C1" / _METADATA_XLSX_NAME
+        shutil.copy(workbook, workbook.with_name("Assay-metadata-second-plate-v1.2.xlsx"))
+
+        context = _gather_context(_scanning_engine(deposit))
+
+        assert "Chemical_19_Name" in context, "the original was cut with its copy"
+        assert "same content as" in context
 
     def test_pipeline_builds_conformant_crate_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
@@ -574,9 +645,9 @@ class TestRealInputPipeline:
             for i in outstanding
         ), outstanding
         # The result gaps are reported, not papered over with a manufactured file.
-        assert not any(
-            str(i.get("entity_id", "")).startswith("data/") for i in outstanding
-        ), outstanding
+        assert not any(str(i.get("entity_id", "")).startswith("data/") for i in outstanding), (
+            outstanding
+        )
 
     def test_backbone_compound_and_protocol_materialized_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
@@ -608,9 +679,7 @@ class TestRealInputPipeline:
         # because "CHO-K1 OATP1C1-overexpressing cells" is not a name Cellosaurus
         # can resolve to the parent line.
         cells = state.list_entities("CellLineSample")
-        assert [c.fields.get("name") for c in cells] == [
-            "CHO-K1 OATP1C1-overexpressing cells"
-        ]
+        assert [c.fields.get("name") for c in cells] == ["CHO-K1 OATP1C1-overexpressing cells"]
         assert "accession" not in cells[0].fields
 
         procs = state.list_entities("LabProcess")
@@ -625,9 +694,7 @@ class TestRealInputPipeline:
             "the LabProtocol must be linked to a LabProcess"
         )
 
-    def test_every_step_follows_one_protocol_record(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_every_step_follows_one_protocol_record(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """#783 / #799, pipeline arm: each step executes exactly one protocol record
         the build wrote, typed by its step, and no deposited file is executed. The
         Exposure's record lists the compounds the run resolved as its reagents, and
