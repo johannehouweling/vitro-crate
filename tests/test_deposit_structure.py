@@ -238,7 +238,8 @@ class TestChecks:
     def test_rejects_a_malformed_labelling(self) -> None:
         files, root = _deposit("svhps16")
         assert check_structure({"studies": "Exposure scenarios"}, files, input_root=root)
-        assert check_structure(["Exposure scenarios"], files, input_root=root)  # type: ignore[arg-type]
+        not_a_mapping: Any = ["Exposure scenarios"]
+        assert check_structure(not_a_mapping, files, input_root=root)
         assert check_structure(
             {"studies": [{"folder": 3, "assays": [{"folder": None}]}]}, files, input_root=root
         )
@@ -359,6 +360,7 @@ class TestReadDepositStructure:
             engine, overrides=overrides, output=lines.append
         )
 
+        assert structure is not None
         assert structure["source"] == "model"
         assert structure["studies"] == LABELLED["svhps16"]["studies"]
         assert engine.state.deposit_structure == structure

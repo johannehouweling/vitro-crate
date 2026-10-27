@@ -1481,6 +1481,7 @@ class TestDeriveDepositStructure:
         self, _patch_build_chat_model: dict[str, Any]
     ) -> None:
         rec = _patch_build_chat_model
-        rec["model"] = FakeChatModel(None)  # type: ignore[arg-type]
+        not_a_dict: Any = None
+        rec["model"] = FakeChatModel(not_a_dict)
 
         assert leaves.derive_deposit_structure(self.SUMMARY) == {}

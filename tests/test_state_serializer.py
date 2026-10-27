@@ -62,6 +62,7 @@ class TestStateSerializerOutput:
             "validation_preferences",
             "user_answers",
             "dsm_answers",
+            "deposit_structure",
             "generator",
             "iteration_count",
             "max_iterations",
