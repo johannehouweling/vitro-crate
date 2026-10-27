@@ -3475,7 +3475,10 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   looked up, never typed (D5), and a field that must name an entity takes words only
   where a route resolves them (a person, the root citation, a Key Event, a
   measurement method). `_answer_can_be_stored` holds those field-level refusals of
-  `_apply_value`, and every ask path checks it before asking.
+  `_apply_value`, and every ask path checks it before asking. A measurement-method
+  answer naming several methods is resolved name by name, split as a Key Event
+  answer is: the first BAO term found is stored (the field holds one term) and the
+  other names are reported back rather than lost with the reply (#839).
 
   **The per-gap LLM exchange (#244).** When a provider is configured (gated on
   `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a
