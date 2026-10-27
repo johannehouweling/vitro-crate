@@ -406,17 +406,36 @@ _FIX_TEMPLATES: dict[str, str] = {
 }
 
 
-def answering_field(message: str, prop: str | None) -> str | None:
-    """The field that answers a finding: the property SHACL reports, except for the
-    two rules that reach through a step's protocol record, which the build fills
-    from the step's `chemicals` and `labprotocol` (D17).
+# The field each step mints its first parameter PropertyValue from. Both
+# profiles report a step with no parameter on a predicate the build never reads
+# (tox: `schema:additionalProperty`, ISA: `bioschemas:parameterValue`), so an
+# answer stored under either name was dropped at assembly and the gap came back
+# every round (#835). Keyed by `process_type`; the values are LabProcess draft
+# fields `_crate_mapping` turns into PropertyValue nodes under both keys.
+STEP_PARAMETER_FIELD: dict[str, str] = {
+    "TestSystemPreparation": "culture_medium",
+    "Exposure": "duration",
+    "EndpointReadout": "endpoint",
+    "DataAnalysis": "data_processing",
+}
+_PARAMETER_PREDICATES = frozenset({"additionalProperty", "parameterValue"})
 
-    Each is matched on its rule's own words: a bare "reagent" also matched a
-    detached protocol whose id contains the word."""
+
+def answering_field(message: str, prop: str | None, process_type: str | None = None) -> str | None:
+    """The field that answers a finding: the property SHACL reports, except for
+    the rules the build fills from another field of the step. Two reach through a
+    step's protocol record (`chemicals`, `labprotocol`; D17), and the two
+    "at least one parameter" rules are answered by the step's own parameter field
+    (:data:`STEP_PARAMETER_FIELD`), which needs the step's ``process_type``.
+
+    The record rules are matched on their own words: a bare "reagent" also
+    matched a detached protocol whose id contains the word."""
     if "whose reagents include" in message:
         return "chemicals"
     if "deposited analysis script" in message:
         return "labprotocol"
+    if process_type and _local_name(prop) in _PARAMETER_PREDICATES:
+        return STEP_PARAMETER_FIELD.get(process_type, prop)
     return prop
 
 

@@ -413,19 +413,27 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
     }
     fold_isa_reachability(metadata_doc, conformance, result["issues"])
 
+    from builder.tools.repair import _resolve_state_entity
+
     gaps: list[Gap] = []
     for issue in result.get("issues", []):
         severity = issue.get("severity", "required")
         tier = _SEVERITY_TO_TIER.get(severity, "MUST")
-        prop = answering_field(issue.get("message", ""), issue.get("property"))
-        auto = _shacl_auto_fixable(state, issue)
-        # Resolve the entity type for context (best-effort).
-        entity_type: str | None = None
-        from builder.tools.repair import _resolve_state_entity
-
+        # Resolve the entity first: the field that answers a step's "at least one
+        # parameter" finding depends on which step it is (#835).
         resolved = _resolve_state_entity(state, issue.get("entity_id"))
-        if resolved is not None:
-            entity_type = resolved.type
+        entity_type: str | None = resolved.type if resolved is not None else None
+        prop = answering_field(
+            issue.get("message", ""),
+            issue.get("property"),
+            resolved.fields.get("process_type") if resolved is not None else None,
+        )
+        suggestion = issue.get("fix") or None
+        if prop != issue.get("property"):
+            # The hint was synthesized without the entity; name the field the
+            # answer actually goes to.
+            suggestion = f"Set `{_local_name(prop)}` on `{issue.get('entity_id')}`."
+        auto = _shacl_auto_fixable(state, issue)
         # (#375) A non-auto-fixable SHACL issue was previously advertised
         # "ask-user" unconditionally, so the loop spent a human turn on gaps
         # `_apply_value` can only refuse — a node shape naming no field, an
@@ -448,7 +456,7 @@ def _shacl_gaps(state: CrateState) -> tuple[list[Gap], dict[str, bool], dict[str
                 entity_type=entity_type,
                 property=prop,
                 message=issue.get("message", ""),
-                suggestion=issue.get("fix") or None,
+                suggestion=suggestion,
                 fix_hint=fix_hint,
                 auto_fixable=auto,
             )

@@ -698,6 +698,51 @@ class TestActionableGapsAreActuallyAppliable:
         assert _apply_value(engine, gap, "chem_1") is True
         assert _compound_gaps() == []
 
+    def test_the_parameter_gap_commits_to_the_step_field(self):
+        """#835: a step with no parameter is asked for the field the build mints
+        its PropertyValue from. SHACL reports the rule on ``additionalProperty``
+        (tox MUST) and ``parameterValue`` (ISA SHOULD); asked under either key,
+        the reply was stored where the build never reads it, the ledger said
+        "filled", and the same gap came back every round."""
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.engine import AgentEngine
+
+        state = self._state()
+        state.add_entity(
+            _entity(
+                "prep1", "LabProcess", process_type="TestSystemPreparation", name="Culture",
+                assay_id="as1",
+            )
+        )
+        state.add_entity(
+            _entity(
+                "exp1", "LabProcess", process_type="Exposure", name="Dose", assay_id="as1",
+                duration="24 hours",
+            )
+        )
+        engine = AgentEngine(state=state)
+
+        def _parameter_gaps() -> list[Gap]:
+            return [
+                g
+                for g in assess_gaps(engine.state).gaps
+                if g.source == "shacl"
+                and "prep1" in (g.entity_id or "")
+                and ("additionalProperty" in g.message or "parameter value" in g.message)
+            ]
+
+        gaps = _parameter_gaps()
+        assert {(g.tier, g.property, g.fix_hint) for g in gaps} == {
+            ("MUST", "culture_medium", "ask-user"),
+            ("SHOULD", "culture_medium", "ask-user"),
+        }, gaps
+        assert _apply_value(engine, gaps[0], "DMEM/F12 with 10% FBS") is True
+        prep = engine.state.get_entity("prep1")
+        assert prep is not None
+        assert prep.fields.get("culture_medium") == "DMEM/F12 with 10% FBS"
+        assert not {"additionalProperty", "parameterValue"} & set(prep.fields), prep.fields
+        assert _parameter_gaps() == []
+
     def test_actionable_gaps_do_not_collapse_to_zero(self):
         """Honesty control: a guard that marked everything report-only would pass
         the three tests above. The Assay's own `description` gap stays actionable."""
