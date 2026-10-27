@@ -1600,6 +1600,21 @@ def _add_leaves(
     materialize_payload: bool = True,
     include_all_scanned: bool = True,
 ) -> None:
+    # Terms first: a Person's jobTitle references one (#837), and the rest of the
+    # graph only ever points at a term, never the other way round.
+    for dt in state.list_entities("DefinedTerm"):
+        _idx_add(
+            idx,
+            dt,
+            crate.add(
+                ContextEntity(
+                    crate,
+                    _mint_id(dt),
+                    properties={"@type": "DefinedTerm", **_scalar_props(dt)},
+                )
+            ),
+        )
+
     for org in state.list_entities("Organization"):
         org_node = crate.add(
             ContextEntity(
@@ -1618,7 +1633,9 @@ def _add_leaves(
             Person(
                 crate,
                 _mint_id(person),
-                properties=_scalar_props(person, skip=("affiliation", *_CONTACT_FIELDS)),
+                properties=_scalar_props(
+                    person, skip=("affiliation", "jobTitle", *_CONTACT_FIELDS)
+                ),
             )
         )
         _attach_contact_point(crate, node, person)
@@ -1631,6 +1648,7 @@ def _add_leaves(
         _wire_reference(
             node, "affiliation", person.fields.get("affiliation"), idx, keep_literal=True
         )
+        _wire_job_title(crate, node, person.fields.get("jobTitle"), idx)
         crate.root_dataset.append_to("author", node)
 
     for chem in state.list_entities("MolecularEntity"):
@@ -1646,19 +1664,6 @@ def _add_leaves(
         # gold-crate order (CAS first, then PubChem CID) (#180).
         for pv in _build_identifier_pvs(crate, _MOLECULAR_IDENTIFIERS, chem):
             node.append_to("identifier", pv)
-
-    for dt in state.list_entities("DefinedTerm"):
-        _idx_add(
-            idx,
-            dt,
-            crate.add(
-                ContextEntity(
-                    crate,
-                    _mint_id(dt),
-                    properties={"@type": "DefinedTerm", **_scalar_props(dt)},
-                )
-            ),
-        )
 
     for pv in state.list_entities("PropertyValue"):
         _idx_add(
@@ -3849,6 +3854,29 @@ def _wire_reference(
         node[prop] = {"@id": value}
     elif keep_literal and isinstance(value, str):
         node[prop] = value
+
+
+def _wire_job_title(crate: ROCrate, node: Any, value: Any, idx: dict[str, Any]) -> None:
+    """Set a Person's ``jobTitle`` to a ``DefinedTerm`` reference, never a string.
+
+    ORCID states a role as free text ("Postdoc") and the ISA person shape requires
+    ``schema:jobTitle`` to be a DefinedTerm (a Violation otherwise, #837). A value
+    that already names a term — one the drafter minted, or one read back from a
+    crate — is wired as it is. A plain string becomes one term per distinct title,
+    at ``#jobTitle_<slug>``, carrying the title as its ``name`` and nothing else:
+    no code exists for a free-text role and inventing one would break D5. Every
+    Person passes through here, so an ORCID role, a typed-in answer and a ReAct
+    ``set_fields`` all come out the same way.
+    """
+    _wire_reference(node, "jobTitle", value, idx)
+    if node.get("jobTitle") is not None or not isinstance(value, str) or not value.strip():
+        return
+    title = value.strip()
+    node["jobTitle"] = crate.add(
+        ContextEntity(
+            crate, f"#jobTitle_{_slug(title)}", properties={"@type": "DefinedTerm", "name": title}
+        )
+    )
 
 
 def _wire_mention(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None:

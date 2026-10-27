@@ -1134,6 +1134,12 @@ the ROR IRI; D5 — a ROR is set only when the lookup returns one, never fabrica
 and the Person's `affiliation` is wired to that Organization's `@id`. Authors
 sharing an affiliation reuse ONE Organization (deduped by name), so the build's
 `_wire_reference` resolves each `Person.affiliation` to the shared node.
+A Person's **`jobTitle` is likewise a `DefinedTerm` reference, never a string**
+(the ISA person shape flags a literal title as a Violation, #837): the state keeps
+the role as ORCID states it, and the build (`_wire_job_title`) writes one term per
+distinct title, named after it and carrying no code — none exists for a free-text
+role, and D5 forbids inventing one. A `jobTitle` that already names a term is
+wired as it is.
 The `hints` parameter is **typed per entity type** (Issue #90). Each `draft_*`
 tool advertises a JSON-Schema built by `_crate_mapping.draft_hints_schema(type)`
 from the single source of truth `_crate_mapping.ENTITY_DRAFT_SCHEMA` — allowed
