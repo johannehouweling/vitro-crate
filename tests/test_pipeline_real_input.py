@@ -479,6 +479,49 @@ class TestRealInputPipeline:
         assert _emitted_for("S-VHPS26.json") > 0, "the BioStudies descriptor was starved"
         assert _TOKEN_SOP_BODY in context.lower(), "the tier-2 documents were starved"
 
+    def test_a_large_deposit_does_not_starve_the_metadata_tiers(self, tmp_path: Path) -> None:
+        """STARVATION CONTROL for a deposit of many files (#840).
+
+        #419 held back a share for every file of every lower tier before sizing
+        a tier. On the live S-VHPS16 deposit (82 files) that reservation came to
+        98,500 characters against a 16,000 ceiling, so the workbooks, the
+        descriptor and every README emitted nothing and the planner saw
+        bulk-data previews alone: the AOP the descriptor states never reached
+        the plan, and the guidance loop asked the user for it. A deposit with a
+        README per folder and a data file per plate is an ordinary shape.
+        """
+        import json
+        import shutil
+
+        from builder.agents.pipeline.pipeline import _PLAN_CONTEXT_CHARS, _gather_context
+
+        deposit = tmp_path / "large"
+        shutil.copytree(FIXTURE_DIR, deposit)
+        descriptor = deposit / "S-VHPS26.json"
+        doc = json.loads(descriptor.read_text())
+        doc["section"]["attributes"].append({"name": "AOP", "value": "https://aopwiki.org/aops/464"})
+        descriptor.write_text(json.dumps(doc, indent=2))
+        rows = "well,value\n" + "\n".join(f"A{i},{i}" for i in range(200)) + "\n"
+        for k in range(40):
+            (deposit / f"README_{k:02d}.txt").write_text(f"Folder {k} holds the plate {k} exports.\n")
+            (deposit / f"plate_{k:02d}.csv").write_text(rows)
+
+        context = _gather_context(_scanning_engine(deposit), budget=_PLAN_CONTEXT_CHARS)
+
+        def _emitted_for(stem: str) -> int:
+            for block in context.split("\n- "):
+                if block.lstrip("- ").lower().startswith(stem.lower()):
+                    return len(block)
+            return 0
+
+        assert _emitted_for("Assay-metadata-CHO-K1_OATP1C1") > 0, "the workbook was starved"
+        assert "aopwiki.org/aops/464" in context, "the descriptor's AOP never reached the plan"
+        assert _TOKEN_SOP_BODY in context.lower(), "the SOP was starved"
+        assert _emitted_for("README_39.txt") > 0, "the last README was starved"
+        assert _emitted_for("plate_39.csv") > 0, "the bulk tier vanished instead of shrinking"
+        assert _emitted_for("Assay-metadata-CHO-K1_OATP1C1") > _emitted_for("plate_00.csv")
+        assert len(context) <= _PLAN_CONTEXT_CHARS + 4000
+
     def test_pipeline_builds_conformant_crate_from_real_input(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

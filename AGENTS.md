@@ -2960,14 +2960,21 @@ INPUT (dir / zip / conversation)
   `state.approved_scan_roots`**. Every emitted slice is charged against the total, so
   the ceiling is honest and the one call stays token-safe. The empty-context path is a
   strict no-op (no provider call), preserving the no-provider determinism guarantee.
-- **Priority decides chars, not just order (#378).** Files are read **metadata-first**,
-  and each tier draws a *weighted* share (`_TIER_SHARES`) rather than an equal one;
-  an absent or under-spending tier flows its headroom down. Equal shares are not
-  enough — with them the highest-priority file in a real deposit emitted 298 chars
-  while a bulk-data export emitted 2,049. High-priority bodies are read with the
-  shared compactors (`file_readers.compact_grid_text` / `compact_attribute_json`),
-  which is what makes the whole metadata workbook fit. The algorithm is documented in
-  the `_gather_context` docstring.
+- **Priority decides chars, not just order (#378, #840).** Files are read
+  **metadata-first**, and each tier's files are capped by a *weighted* share
+  (`_TIER_SHARES`) rather than an equal one; equal shares are not enough — with them
+  the highest-priority file in a real deposit emitted 298 chars while a bulk-data
+  export emitted 2,049. The ceiling is spent tier by tier, top down: a tier gets what
+  is left after every populated tier below it keeps a floor (`_TIER_FLOOR`, never a
+  share per file — on an 82-file deposit a per-file reservation left the workbooks,
+  the descriptor and every README at zero), and the files of a tier split that
+  max-min fairly on what each has to say; what a tier does not spend is left to the
+  next. High-priority bodies are read with the shared compactors
+  (`file_readers.compact_grid_text` / `compact_attribute_json`), which is what makes
+  the whole metadata workbook fit. Two ceilings: the drafter leaves use
+  `_MAX_CONTEXT_CHARS`, re-sent once per entity; the one plan call uses
+  `_PLAN_CONTEXT_CHARS`, sized to carry a real deposit's metadata tiers whole. The
+  algorithm is documented in the `_gather_context` docstring.
 - **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
   `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
   lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.

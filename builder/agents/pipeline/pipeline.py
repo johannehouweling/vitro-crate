@@ -68,6 +68,7 @@ from builder.config import get_provider
 from builder.tools.composites import prefetch_compound_lookups
 from builder.tools.document_discovery import (
     DocumentationCandidate,
+    _fair_shares,
     format_document_context,
 )
 
@@ -257,6 +258,18 @@ _DEFAULT_ASSAY_NAME = "Assay"
 # chemicals for ~500 extra tokens on one bounded cheap-model call.
 _MAX_CONTEXT_CHARS = 16000
 
+# The ceiling for the ONE plan call. The drafter ceiling above is re-sent once
+# per entity, so it stays small; the plan is extracted once, and it is the plan
+# that must carry the AOP, the chemicals, the people and the step parameters a
+# deposit states. On a real deposit the metadata tiers alone run to ~36,000
+# characters (S-VHPS16: five workbooks and the descriptor), which no split of
+# 16,000 can hold (#840).
+_PLAN_CONTEXT_CHARS = 64000
+
+# What a shortened slice ends with, so the model sees the cut rather than a
+# sentence that stops.
+_ELLIPSIS = " […]"
+
 # Per-file share by `_metadata_read_priority` tier (#378). Metadata-first was
 # previously an ORDERING only: every file got an equal `_MAX_CONTEXT_CHARS // n`
 # slice, so on the real S-VHPS26 deposit the priority-0 workbook that holds the
@@ -279,10 +292,24 @@ _MAX_CONTEXT_CHARS = 16000
 # The shares total 13,500 and the real deposit's emitted context grows 13,242 ->
 # 16,224 chars, about +750 tokens, for 5 chemicals -> 19.
 #
-# A share is granted PER FILE, not per tier, so raising this one starves the
-# tiers below on a multi-metadata deposit unless their shares are reserved
-# first — see the `reserved` computation in `_gather_context`.
-_TIER_SHARES: dict[int, int] = {0: 9000, 1: 2000, 2: 2000, 3: 500}
+# Tier 1 is the BioStudies descriptor: the deposit's one structured identity
+# record, ~7,100 chars compacted on a real deposit, with the AOP, the DOI and
+# the key-event links among its LAST attributes. A 2,000 share cut it before
+# them (#840).
+#
+# A share is a per-file CAP. What a tier can spend is settled top down by
+# `_gather_context`: the populated tiers below keep a floor each
+# (`_floor_below`), never a share per file, and the files of a tier split what
+# is left max-min fairly on what each has to say.
+_TIER_SHARES: dict[int, int] = {0: 9000, 1: 8000, 2: 2000, 3: 500}
+
+# What a populated tier keeps at least when a tier above it is sized: enough to
+# be present (the descriptor's head, a README whole), capped by its own share.
+# A floor is not a cap: the descriptor spends up to its 8,000 when the ceiling
+# allows, but holds only 2,000 back from the workbook above it, which at the
+# drafter ceiling is the difference between 19 chemicals reaching the leaf and
+# 14 (#378).
+_TIER_FLOOR = 2000
 
 # Tiers whose body is worth a full `read_file` with compaction rather than the
 # scanner's 20-rows-per-sheet preview (#378). The preview cap loses chemicals 3-5
@@ -423,7 +450,7 @@ def _read_body_excerpt(
     cap = min(remaining, _MAX_CONTEXT_CHARS)
     excerpt = body.strip()
     if len(excerpt) > cap:
-        excerpt = excerpt[:cap].rstrip() + " […]"
+        excerpt = excerpt[:cap].rstrip() + _ELLIPSIS
     return excerpt
 
 
@@ -451,12 +478,38 @@ def _file_slice(f: Any, approved_roots: set[str], allowance: int, tier: int) -> 
     if f.first_rows:
         preview = " | ".join(str(r) for r in f.first_rows).strip()
         if len(preview) > allowance:
-            preview = preview[:allowance].rstrip() + " […]"
+            preview = preview[:allowance].rstrip() + _ELLIPSIS
         return preview
     return ""
 
 
-def _gather_context(engine: AgentEngine) -> str:
+def _floor_below(by_tier: dict[int, list[Any]], tier: int) -> int:
+    """What *tier* leaves to the populated tiers below it before it is sized.
+
+    One :data:`_TIER_FLOOR` per populated tier, capped by its share: a floor,
+    not a reservation per file. Enough that no tier is wholly absent (#419);
+    small enough that a deposit with a README per folder and a data file per
+    plate cannot empty the tiers above it (#840). Holding a share back for
+    each of forty READMEs is what did.
+    """
+    return sum(
+        min(share, _TIER_FLOOR)
+        for lower, share in _TIER_SHARES.items()
+        if lower > tier and by_tier.get(lower)
+    )
+
+
+def _cut(text: str, limit: int) -> str:
+    """*text* within *limit* characters, marked when shortened."""
+    if len(text) <= limit:
+        return text
+    if limit <= len(_ELLIPSIS):
+        return ""
+    body = text.removesuffix(_ELLIPSIS).rstrip()
+    return body[: limit - len(_ELLIPSIS)].rstrip() + _ELLIPSIS
+
+
+def _gather_context(engine: AgentEngine, *, budget: int = _MAX_CONTEXT_CHARS) -> str:
     """Assemble a free-text context string for the drafter/extraction leaf (#231).
 
     Pulls from what an initialized engine actually carries: the crate title and
@@ -470,29 +523,29 @@ def _gather_context(engine: AgentEngine) -> str:
     previews and ``extract_plan`` returned an empty plan, so the backbone fell back
     to the literal default names (#231).
 
-    **Metadata-first, priority-weighted budget (#179, corrected by #378).** Files
-    are sorted by :func:`_metadata_read_priority` — ``*metadata*``, BioStudies
-    ``*.json``, README/SOP docs, then bulk data — with scan order preserved within
-    a tier. Each file then gets **one** content slice under **one** cap, sized by
-    its tier's :data:`_TIER_SHARES` entry.
+    **Metadata-first, priority-weighted budget (#179, #378, #419, #840).** Files
+    are sorted by :func:`_metadata_read_priority` — ``*metadata*``, the BioStudies
+    descriptor, README/SOP docs, then bulk data — with scan order preserved within
+    a tier. The ceiling (*budget*) is spent tier by tier, top down:
 
-    Ordering alone was not enough, and that was the #378 bug: every file drew an
-    equal slice, so the priority-0 workbook holding the cell line, RRID, author
-    and five chemicals emitted 298 chars while a priority-3 GraphPad file emitted
-    2,049. Priority now decides **chars**, not merely position.
-
-    A tier that has no files, or whose files do not spend their share, flows the
-    headroom down to the next tier — so a deposit of nothing but bulk CSVs still
-    gives its first file a generous slice rather than the bare 500-char tier
-    share. Priority-0/1 bodies are read with compaction
-    (:data:`_COMPACTED_READ_TIERS`), which is what lets the whole workbook fit.
+    * a tier is sized to what the ceiling has left after every populated tier
+      below it keeps a **floor** (:func:`_floor_below`): :data:`_TIER_FLOOR`,
+      capped by that tier's share. A floor, not a reservation per file — enough
+      that no tier is wholly absent, small enough that a deposit with a README
+      per folder and a data file per plate cannot empty the tiers above it;
+    * within the tier, the files split that budget **max-min fairly**
+      (:func:`document_discovery._fair_shares`) on what each actually has to say,
+      so one long workbook cannot empty its siblings; what a tier does not spend
+      is left to the next.
 
     The slice source is a single path: :func:`_read_body_excerpt` when the file is
     readable inside an approved root, otherwise the file's ``first_rows`` preview
-    in FULL. The preview is a fallback, never a 3-row ceiling — the scanner has
-    already paid to read it, and truncating it to three rows discarded 96% of
-    what was in memory. **Every** emitted slice is charged against
-    :data:`_MAX_CONTEXT_CHARS`, previews included, so the ceiling is honest.
+    in FULL up to its grant. Priority-0/1 bodies are read with compaction
+    (:data:`_COMPACTED_READ_TIERS`), which is what lets a whole workbook fit.
+    **Every** emitted slice is charged against *budget*, previews included, so the
+    ceiling is honest. The drafter leaves use :data:`_MAX_CONTEXT_CHARS`, re-sent
+    once per entity; the one plan call passes :data:`_PLAN_CONTEXT_CHARS`, large
+    enough to carry a real deposit's metadata tiers whole.
 
     Body reads are **fail-closed to ``state.approved_scan_roots``** and never raise
     out of the spine (see :func:`_read_body_excerpt`). Output is bounded both per
@@ -522,37 +575,23 @@ def _gather_context(engine: AgentEngine) -> str:
         for f in state.scanned_files:
             by_tier.setdefault(_metadata_read_priority(f.filename), []).append(f)
 
-        budget = _MAX_CONTEXT_CHARS  # total emitted content across all files
-        carry = 0  # headroom flowing down from absent / under-spending tiers
+        remaining = budget
         file_lines: list[str] = []
-
         for tier in sorted(_TIER_SHARES):
             files = by_tier.get(tier)
             if not files:
-                # Nobody claimed this tier's share; hand it to the tiers below.
-                carry += _TIER_SHARES[tier]
                 continue
-            # Reserve the shares of the POPULATED tiers below this one before
-            # sizing each file (#419). A tier's share is granted per FILE, so
-            # without this a deposit holding two `*metadata*` workbooks let them
-            # claim the whole ceiling between them and the BioStudies descriptor,
-            # SOP and README all emitted nothing — the same silent starvation
-            # this issue exists to remove, only pointed at a different document.
-            # Counted PER FILE, because the share is granted per file: a tier
-            # holding two documents needs two shares, and reserving only one
-            # still left the second (the README, behind the SOP) at zero.
-            reserved = sum(
-                share * len(by_tier.get(lower) or ())
-                for lower, share in _TIER_SHARES.items()
-                if lower > tier
-            )
-            for f in files:
-                allowance = min(_TIER_SHARES[tier] + carry, max(0, budget - reserved))
-                slice_text = _file_slice(f, approved_roots, allowance, tier)
-                # Unused headroom flows down rather than being forfeited.
-                carry = max(0, allowance - len(slice_text))
-                budget -= len(slice_text)
-
+            # Sized to what the ceiling has left once the tiers below keep their
+            # floor; split max-min fairly on what each file has to say, so one
+            # long workbook cannot empty its siblings and forty READMEs cannot
+            # empty the workbook (#378, #419, #840).
+            tier_budget = max(0, remaining - _floor_below(by_tier, tier))
+            allowance = min(_TIER_SHARES[tier], tier_budget)
+            bodies = [_file_slice(f, approved_roots, allowance, tier) for f in files]
+            grants = _fair_shares([len(body) for body in bodies], tier_budget)
+            for f, body, grant in zip(files, bodies, grants):
+                slice_text = _cut(body, grant)
+                remaining -= len(slice_text)
                 line = f"- {f.filename}"
                 if slice_text:
                     sep = "\n" if "\n" in slice_text else " "
@@ -855,7 +894,6 @@ def _merge_backbone_layer(engine: AgentEngine, entity_type: str, hints: dict[str
     if to_apply:
         entity.set_fields_from_dict(to_apply, source="llm")
     return bool(to_apply)
-
 
 
 def _select_process_for_protocol(steps: list[dict[str, Any]], process_hint: str) -> str | None:
@@ -1870,7 +1908,7 @@ def _materialize_plan(
     # still run, so the crate is never structurally hollow (#262).
     plan: dict[str, Any] | None = None
     if get_provider() is not None:
-        context = _gather_context(engine)
+        context = _gather_context(engine, budget=_PLAN_CONTEXT_CHARS)
         if context:
             try:
                 extract_kwargs: dict[str, Any] = {"usage_sink": usage_sink}
