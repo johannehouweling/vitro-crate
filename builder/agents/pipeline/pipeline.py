@@ -50,9 +50,11 @@ call, trading strict graph-hash determinism for richer drafted content.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from collections import Counter
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 # The token-accounting seam was born here (#221) but now lives in the shared LLM
@@ -250,12 +252,11 @@ _DEFAULT_ASSAY_NAME = "Assay"
 # the BioStudies descriptor), but chemicals 2-5 of the real S-VHPS26 deposit sit
 # past 2,600 compacted chars and cannot be reached at 8000 under any weighting.
 #
-# Raised 14000 -> 16000 with #419. The two new compaction rules cut the S-VHPS26
-# workbook from 22,007 chars to 8,675, but a tier's share is granted PER FILE, so
-# seating the whole chemical table in tier 0 left the second tier-2 document (the
-# README) only 1,000 chars — below the offset its own regression token sits at.
-# The +2,000 restores that second document. Net against the old ceiling: 4x the
-# chemicals for ~500 extra tokens on one bounded cheap-model call.
+# 16,000 seats the whole compacted S-VHPS26 workbook (8,474 chars, all 19
+# chemicals) in tier 0 and still leaves the two documents of tier 2 — the SOP
+# and the README beside it — 2,000 each, which is past the offset the SOP's own
+# regression token sits at (#419). 4x the chemicals of the 8,000 ceiling for
+# ~500 extra tokens on one bounded cheap-model call.
 _MAX_CONTEXT_CHARS = 16000
 
 # The file-slice budget of the ONE plan call. The drafter budget above is
@@ -289,8 +290,10 @@ _ELLIPSIS = " […]"
 _TIER_FLOORS: dict[int, int] = {1: 2000, 2: 2000, 3: 500}
 _FLOORED_FILES_PER_TIER = 2
 
-# A slice shorter than this says nothing the filename does not; the file is
-# named and its characters are left to the next tier.
+# A slice shorter than this says nothing the filename does not. A tier serves
+# as many of its files as can each get a useful slice, in scan order, and names
+# the rest: a floor sized for two bulk previews buys two previews, not twenty-
+# eight fragments of nothing.
 _MIN_SLICE = 80
 
 # Bulk data (`_metadata_read_priority` tier 3) is previewed, never read at
@@ -487,6 +490,14 @@ def _floor_below(by_tier: dict[int, list[Any]], tier: int) -> int:
     )
 
 
+def _file_digest(path: str) -> str | None:
+    """A digest of the file's bytes, or ``None`` when it cannot be read."""
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()  # noqa: S324 — identity, not security
+    except OSError:
+        return None
+
+
 def _cut(text: str, limit: int) -> str:
     """*text* within *limit* characters, marked when shortened."""
     if len(text) <= limit:
@@ -527,9 +538,10 @@ def _gather_context(engine: AgentEngine, *, budget: int = _MAX_CONTEXT_CHARS) ->
       above the bulk tier: what a tier does not spend is left to the next, and a
       tier with the room reads a long workbook or SOP whole. Bulk data is
       previewed (:data:`_BULK_PREVIEW_CHARS`) unless it is all the deposit
-      holds. A file whose text equals an earlier
-      file's (a versioned copy) is named as such and charged nothing; a grant
-      too short to say anything (:data:`_MIN_SLICE`) names the file only.
+      holds. A tier serves as many files as can each get a useful slice
+      (:data:`_MIN_SLICE`, a whole preview for bulk), in scan order, and names
+      the rest. A byte-identical copy of an earlier file (a versioned copy) is
+      named as such and charged only that line.
 
     The slice source is a single path: :func:`_read_body_excerpt` when the file is
     readable inside an approved root, otherwise the file's ``first_rows`` preview
@@ -581,17 +593,21 @@ def _gather_context(engine: AgentEngine, *, budget: int = _MAX_CONTEXT_CHARS) ->
             allowance = tier_budget
             if tier == _BULK_TIER and tier != min(by_tier):
                 allowance = min(_BULK_PREVIEW_CHARS, tier_budget)
-            bodies: list[str] = []
-            first_named: dict[str, str] = {}
-            for f in files:
+            useful = _BULK_PREVIEW_CHARS if tier == _BULK_TIER else _MIN_SLICE
+            served = min(len(files), tier_budget // useful)
+            bodies: list[str] = [""] * len(files)
+            originals: dict[str, Any] = {}
+            for index, f in enumerate(files[:served]):
                 body = _file_slice(f, approved_roots, allowance, tier)
-                original = first_named.setdefault(body, f.filename) if body else None
-                if original is not None and original != f.filename:
+                digest = _file_digest(f.path) if body else None
+                original = originals.setdefault(digest, f) if digest else None
+                if original is not None and original.path != f.path:
                     # A versioned copy says what its original says; naming the
                     # original keeps the characters for the files that differ.
-                    body = f"same content as {original}"
-                bodies.append(body)
-            grants = _fair_shares([len(body) for body in bodies], tier_budget)
+                    body = f"same content as {original.filename}"
+                bodies[index] = body
+            grants = _fair_shares([len(body) for body in bodies[:served]], tier_budget)
+            grants += [0] * (len(files) - served)
             for f, body, grant in zip(files, bodies, grants):
                 if len(body) <= grant:
                     slice_text = body

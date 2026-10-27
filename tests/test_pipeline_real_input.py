@@ -148,17 +148,29 @@ _NAMED_CHEMICALS: tuple[tuple[int, str], ...] = (
 
 
 def _emitted_for_in(context: str, stem: str) -> int:
-    """Characters the ``Scanned files:`` digest emits for the file named *stem*."""
-    for block in context.split("\n- "):
+    """Characters of content the ``Scanned files:`` digest emits for *stem*: 0 when
+    the file is named only."""
+    section = context.split("\n\nDiscovered documentation:", 1)[0]
+    for block in section.split("\n- "):
         if block.lstrip("- ").lower().startswith(stem.lower()):
-            return len(block)
+            return len(block.split(":", 1)[1]) if ":" in block else 0
     return 0
+
+
+def _named_files(context: str) -> list[str]:
+    """The file names the ``Scanned files:`` digest lists, in order."""
+    section = context.split("Scanned files:\n", 1)[-1].split("\n\nDiscovered documentation:", 1)[0]
+    return [
+        block.split(":", 1)[0].split("\n", 1)[0].strip()
+        for block in section.split("\n- ")
+        if block.strip()
+    ]
 
 
 def _slice_chars(context: str) -> int:
     """Characters of file content in the digest: the slices, not the headers."""
     section = context.split("Scanned files:\n", 1)[-1].split("\n\nDiscovered documentation:", 1)[0]
-    return sum(len(block.split(":", 1)[1]) for block in section.split("\n- ") if ":" in block)
+    return sum(len(block.split(":", 1)[1]) - 1 for block in section.split("\n- ") if ":" in block)
 
 
 def _scanning_engine(input_dir: Path) -> AgentEngine:
@@ -459,9 +471,8 @@ class TestRealInputPipeline:
     def test_a_second_metadata_file_does_not_starve_the_tiers_below(self, tmp_path: Path) -> None:
         """STARVATION CONTROL for the tier-0 raise (#419).
 
-        A tier's share is granted PER FILE, so raising tier 0 to 9,000 let two
-        `*metadata*` workbooks claim the whole 16,000 ceiling between them and the
-        BioStudies descriptor and the SOP emitted nothing at all —
+        Two `*metadata*` workbooks must not claim the whole 16,000 budget between
+        them and leave the BioStudies descriptor and the SOP nothing at all —
         the same silent starvation #419 exists to remove, aimed at a different
         document. A versioned or two-plate deposit is an ordinary shape and no
         other test builds one.
@@ -505,7 +516,11 @@ class TestRealInputPipeline:
         import json
         import shutil
 
-        from builder.agents.pipeline.pipeline import _PLAN_CONTEXT_CHARS, _gather_context
+        from builder.agents.pipeline.pipeline import (
+            _MAX_CONTEXT_CHARS,
+            _PLAN_CONTEXT_CHARS,
+            _gather_context,
+        )
 
         deposit = tmp_path / "large"
         shutil.copytree(FIXTURE_DIR, deposit)
@@ -515,26 +530,38 @@ class TestRealInputPipeline:
             {"name": "AOP", "value": "https://aopwiki.org/aops/464"}
         )
         descriptor.write_text(json.dumps(doc, indent=2))
-        rows = "well,value\n" + "\n".join(f"A{i},{i}" for i in range(200))
         for k in range(40):
             (deposit / f"README_{k:02d}.txt").write_text(f"Folder {k} holds plate {k}.\n")
-            (deposit / f"plate_{k:02d}.csv").write_text(rows)
+            (deposit / f"plate_{k:02d}.csv").write_text(
+                "well,value\n" + "\n".join(f"A{i},{i * (k + 1)}" for i in range(200))
+            )
+        engine = _scanning_engine(deposit)
 
-        context = _gather_context(_scanning_engine(deposit), budget=_PLAN_CONTEXT_CHARS)
+        context = _gather_context(engine, budget=_PLAN_CONTEXT_CHARS)
 
-        def _emitted_for(stem: str) -> int:
-            for block in context.split("\n- "):
-                if block.lstrip("- ").lower().startswith(stem.lower()):
-                    return len(block)
-            return 0
-
-        assert _emitted_for("Assay-metadata-CHO-K1_OATP1C1") > 0, "the workbook was starved"
+        assert _emitted_for_in(context, "Assay-metadata-CHO-K1_OATP1C1") > 0, "workbook starved"
         assert "aopwiki.org/aops/464" in context, "the descriptor's AOP never reached the plan"
         assert _TOKEN_SOP_BODY in context.lower(), "the SOP was starved"
-        assert _emitted_for("README_39.txt") > 0, "the last README was starved"
-        assert _emitted_for("plate_39.csv") > 0, "the bulk tier vanished instead of shrinking"
-        assert _emitted_for("Assay-metadata-CHO-K1_OATP1C1") > _emitted_for("plate_00.csv")
+        assert _emitted_for_in(context, "README_39.txt") > 0, "the last README was starved"
+        previews = sum(1 for k in range(40) if _emitted_for_in(context, f"plate_{k:02d}.csv") > 0)
+        assert previews >= 2, "the bulk tier vanished instead of shrinking"
+        assert _emitted_for_in(context, "Assay-metadata-CHO-K1_OATP1C1") > _emitted_for_in(
+            context, "plate_00.csv"
+        )
         assert _slice_chars(context) <= _PLAN_CONTEXT_CHARS
+
+        # The drafter budget: the two previews the bulk floor is sized for are
+        # real previews of the first two bulk files, not forty-two fragments of
+        # nothing.
+        drafter = _gather_context(engine)
+        bulk = [
+            name
+            for name in _named_files(drafter)
+            if name.lower().endswith((".csv", ".xlsx", ".pzfx")) and "metadata" not in name.lower()
+        ]
+        previews = [name for name in bulk if _emitted_for_in(drafter, name) >= 200]
+        assert len(previews) >= 2, f"the bulk floor was split into nothing: {bulk[:4]}"
+        assert _slice_chars(drafter) <= _MAX_CONTEXT_CHARS
 
     def test_a_bulk_only_deposit_spends_the_budget_on_its_one_file(self, tmp_path: Path) -> None:
         """With nothing above it, a bulk file is all the model has (#840)."""
