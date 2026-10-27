@@ -2969,8 +2969,9 @@ INPUT (dir / zip / conversation)
   has to say, with no per-file cap above the bulk tier, so what a tier does not spend
   is left to the next and a tier with the room reads a long workbook or SOP whole.
   Bulk data is previewed (`_BULK_PREVIEW_CHARS`) unless it is all the deposit holds;
-  a versioned copy of an earlier file is named as such and charged nothing; a grant
-  too short to say anything names the file only. Equal shares were not enough — with
+  a tier serves as many files as can each get a useful slice (`_MIN_SLICE`, a whole
+  preview for bulk), in scan order, and names the rest; a byte-identical copy of an
+  earlier file is named as such and charged only that line. Equal shares were not enough — with
   them the highest-priority file in a real deposit emitted 298 chars while a
   bulk-data export emitted 2,049. High-priority bodies are read with the shared
   compactors (`file_readers.compact_grid_text` / `compact_attribute_json`), which is
