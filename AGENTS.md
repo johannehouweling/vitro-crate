@@ -1837,7 +1837,9 @@ directory — `build_and_validate` assembles and validates entirely in memory.
 ```
 <output_dir>/                        RO-Crate root directory
 ├── ro-crate-metadata.json           the RO-Crate metadata descriptor
-├── ro-crate-preview.html            browsable preview, no tooling needed (#86)
+├── ro-crate-preview.html            browsable preview: the community generator (ro-crate-html)
+│                                    when Node is on the PATH, else ro-crate-py's template; crate
+│                                    strings are escaped before either renders (#86, #169, #849)
 ├── ro-crate-metadata-maturity.html  maturity report + entity explorer (#85)
 └── <payload>                        the described files, copied in
 ```

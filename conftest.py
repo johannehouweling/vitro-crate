@@ -101,3 +101,13 @@ def tmp_files(tmp_path):
             filepath.write_bytes(content)
 
     return _TmpFiles(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_community_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exports in the suite keep ro-crate-py's preview. The community generator
+    is a Node process per export (#849); the tests that want it ask for it."""
+    import builder.tools.builder as builder_mod
+
+    monkeypatch.setattr(builder_mod, "_preview_generator_memo", False)
+
