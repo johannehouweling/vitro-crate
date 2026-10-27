@@ -388,12 +388,16 @@ def _local_name(iri: str | None) -> str:
 # on every commit) so an already-tried gap (e.g. the always-highest-priority root
 # citation MUST gap) is never re-drawn even after a different gap commits and a
 # fresh re-assess re-emits it.
-GapIdentity = tuple[str | None, str | None, str | None, str]
+GapIdentity = tuple[str | None, str]
 
 
 def _gap_identity(gap: Gap) -> GapIdentity:
-    """A stable identity tuple ``(source, entity_id, property, message)`` for ``gap``."""
-    return (gap.source, gap.entity_id, gap.property, gap.message)
+    """``(entity, field)`` for ``gap``: what the user would see as the same question.
+
+    Source and message are left out (#833): two checks about one field of one entity,
+    or a gap re-raised with new wording after an answer, are one question, asked once.
+    """
+    return (gap.entity_id or gap.entity_type, _local_name(gap.property) or (gap.property or ""))
 
 
 def _resolve_entity_id(engine: AgentEngine, gap: Gap) -> str | None:
@@ -496,11 +500,7 @@ def _apply_measurement_method(
         result = {"found": False}
     data = result.get("data") if isinstance(result, dict) else None
     if not result.get("found") or not isinstance(data, dict) or not data.get("@id"):
-        _notify(
-            human,
-            f"I could not resolve '{value}' to a BioAssay Ontology method. "
-            "Please provide a more specific method name or skip this field.",
-        )
+        _notify(human, f"'{value}' is not a BioAssay Ontology method, so it was not recorded.")
         return False
     hints = {
         "entity_id": data["@id"],
@@ -1398,30 +1398,39 @@ def _deposit_options(
             logger.warning("The model could not read %s: %s", Path(path).name, exc)
             continue
         if value.strip() and quote.strip() and _squash(quote) in _squash(text):
+            if field == "keywords" and _is_sentence_list(value):
+                continue
             found.setdefault(value.strip(), Path(path).name)
     return list(found.items())
+
+
+# ponytail: a word count stands in for "a sentence, not a term"; give a field its
+# own shape when a second short field needs one.
+_MAX_KEYWORD_WORDS = 5
+
+
+def _is_sentence_list(value: str) -> bool:
+    """Whether a keyword list holds a sentence rather than terms (#833)."""
+    return any(len(term.split()) > _MAX_KEYWORD_WORDS for term in re.split(r"[,;]", value))
 
 
 def _ask_from_the_deposit(
     engine: AgentEngine,
     human: HumanInterface,
     gap: Gap,
+    options: list[tuple[str, str]],
     *,
     usage_sink: UsageSink | None,
     overrides: ModelOverrides | None = None,
 ) -> str | None:
-    """Ask ``gap`` as one multiple-choice question built from the deposit (#811).
+    """Ask ``gap`` as one multiple-choice question among the deposit's *options* (#811).
 
     The options are what the deposit states (:func:`_deposit_options`), each named
     with its file, and nothing else: the console adds its own "type an answer" row,
-    and skips or stops on a key (:data:`GUIDANCE_PURPOSE`, #813). With no option
-    nothing is asked: the gap stays in the report. A picked option is the value; a
-    typed answer is interpreted once and never followed by another question.
+    and skips or stops on a key (:data:`GUIDANCE_PURPOSE`, #813). A picked option is
+    the value; a typed answer is interpreted once and never followed by another
+    question.
     """
-    options = _deposit_options(engine, gap, usage_sink=usage_sink, overrides=overrides)
-    if not options:
-        logger.debug("guidance: the deposit states nothing for %s; not asked (#811).", gap.property)
-        return None
     labels = [f"{value}  (from {source})" for value, source in options]
     question = _phrase_question(
         engine, gap, usage_sink=usage_sink, overrides=overrides, choices_shown=True
@@ -1474,6 +1483,7 @@ def _resolve_ask_user(
     *,
     usage_sink: UsageSink | None,
     overrides: ModelOverrides | None = None,
+    on_ask: Callable[[], None] | None = None,
 ) -> str | None:
     """Run the LLM-mediated ask-user exchange for ``gap``; return a clean value.
 
@@ -1498,30 +1508,49 @@ def _resolve_ask_user(
     (today's ask-and-set behavior), keeping offline runs deterministic.
 
     Nothing is asked when the answer could not be stored
-    (:func:`_answer_can_be_stored`, #813).
+    (:func:`_answer_can_be_stored`, #813). With a scanned deposit, the one value it
+    states is recorded without asking; several make a required gap a choice; a
+    recommended or optional gap is never asked (#833). ``on_ask`` is called just
+    before a question is shown.
     """
     if not _answer_can_be_stored(engine, gap):
         logger.debug("guidance: an answer to %s could not be stored; not asked.", gap.property)
         return None
+
+    def asking() -> None:
+        if on_ask is not None:
+            on_ask()
 
     # No provider -> deterministic ask-and-set (offline determinism, #244).
     # The reply goes through `_deterministic_decision` rather than straight back:
     # that is where the D5 identifier skip lives, and routing around it (#375) made
     # the documented guard unreachable on this path — prose became an identifier.
     if get_provider() is None:
+        asking()
         reply = _ask_user(engine, human, gap)
         if reply is None:
             return None
         value = _deterministic_decision(gap, reply).get("value")
         return value.strip() if isinstance(value, str) and value.strip() else None
 
-    # A scanned deposit is read before anything is asked (#811): the user picks from
-    # what it states, and what it does not state is not asked.
+    # A scanned deposit is read before anything is asked (#811). The one value it
+    # states is recorded; several make a required gap a choice; a recommended or
+    # optional gap is never asked, and stays in the report (#833).
     if engine.state.scanned_files:
-        return _ask_from_the_deposit(
-            engine, human, gap, usage_sink=usage_sink, overrides=overrides
-        )
+        options = _deposit_options(engine, gap, usage_sink=usage_sink, overrides=overrides)
+        if len(options) == 1:
+            value, source = options[0]
+            _notify(human, f"Recorded {value!r} from {source}.")
+            return value
+        if gap.tier != "MUST":
+            return None
+        if options:
+            asking()
+            return _ask_from_the_deposit(
+                engine, human, gap, options, usage_sink=usage_sink, overrides=overrides
+            )
 
+    asking()
     question = _phrase_question(engine, gap, usage_sink=usage_sink, overrides=overrides)
     response = human.request_input(question)
     reply = _reply_text(response)
@@ -1874,28 +1903,31 @@ def _resolve_person_group(
     (#375), and a helper that had already claimed them resolved would make that
     correction a deletion instead of a decision.
     """
-    for gap in gaps:
-        # Every gathered gap WAS surfaced to the user — in one question, but the
-        # summary's `asked` list counts gaps, not prompts, and under-reporting
-        # here would hide the coalescing rather than demonstrate it.
-        asked.append(_gap_record(gap))
-
     # A synthetic gap carrying the group's message: `_resolve_ask_user` phrases
     # whatever gap it is handed, so re-messaging a copy of the primary is how the
     # group's wording reaches both the LLM and the offline prompt without
     # threading an extra parameter through five call sites. The copy is never
     # recorded anywhere — identities and applies use the REAL gaps.
     question_gap = replace(gaps[0], message=_person_group_message(engine, gaps))
+    # When the question is shown, every gathered gap WAS surfaced to the user — in
+    # one question, but the summary's `asked` list counts gaps, not prompts.
+    shown = len(asked)
     value = _resolve_ask_user(
-        engine, human, question_gap, usage_sink=usage_sink, overrides=overrides
+        engine,
+        human,
+        question_gap,
+        usage_sink=usage_sink,
+        overrides=overrides,
+        on_ask=lambda: asked.extend(_gap_record(gap) for gap in gaps),
     )
     if value is None:
         return []
 
+    via = "ask-user-grouped" if len(asked) > shown else "deposit"
     applied: list[tuple[GapIdentity, dict[str, Any]]] = []
     for gap in gaps:
         if _apply_value(engine, gap, value, human):
-            applied.append((_gap_identity(gap), {**_gap_record(gap), "via": "ask-user-grouped"}))
+            applied.append((_gap_identity(gap), {**_gap_record(gap), "via": via}))
     return applied
 
 
@@ -1934,7 +1966,9 @@ def _resolve_gap(
         return fixed
 
     # --- draftable: draft -> confirm -> commit (D5) ---------------------------
-    if gap.fix_hint == "draft":
+    # With a deposit only a required gap is put to the user as a draft; the deposit
+    # fills the others, or they stay in the report (#833).
+    if gap.fix_hint == "draft" and (gap.tier == "MUST" or not engine.state.scanned_files):
         candidate = _drafted_value(engine, gap, usage_sink=usage_sink)
         if candidate is not None:
             decision = human.present(
@@ -1960,12 +1994,14 @@ def _resolve_gap(
         # No usable draft, or the user rejected it -> fall through to ask-user.
 
     # --- ask-user: phrase -> interpret -> apply (LLM-mediated, #244) ----------
-    asked.append(record)
-    value = _resolve_ask_user(engine, human, gap, usage_sink=usage_sink)
+    shown = len(asked)
+    value = _resolve_ask_user(
+        engine, human, gap, usage_sink=usage_sink, on_ask=lambda: asked.append(record)
+    )
     if value is None:
         return False
     if _apply_value(engine, gap, value, human):
-        resolved.append({**record, "via": "ask-user"})
+        resolved.append({**record, "via": "ask-user" if len(asked) > shown else "deposit"})
         return True
     return False
 

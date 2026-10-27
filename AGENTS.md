@@ -3419,19 +3419,31 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   gap — which re-emits every round until a `ScholarlyArticle` is wired — is re-asked
   every round (#179).
 
-  **A scanned deposit is read before anything is asked (#811).** With a provider and
-  a scanned deposit, `_ask_from_the_deposit` looks for the answer first: up to three
+  **A scanned deposit is read before anything is asked (#811, #833).** With a provider
+  and a scanned deposit, `_deposit_options` looks for the answer first: up to three
   deposit documents (`_gap_documents`: a step's SOPs first, ranked by the words their
   names share with the step's; the deposit's own description first otherwise) are
   read by `extract_field_with_quote`, and a value counts only when the passage it
-  quotes is in that file. No value means no question: the gap stays in the report.
-  Otherwise the gap is ONE multiple-choice question whose rows are answers only: each
-  value with the file it came from, then the console's own typed-answer row. Skipping
-  and stopping are keys, not rows: a `GUIDANCE_PURPOSE` box skips the question on Esc,
-  ends guidance on Ctrl+D, and names both on its help line (#813). A picked value is
-  committed; a typed answer is interpreted once and never followed by another
-  question. A session with no scanned deposit keeps the exchange below, because there
-  is nothing to read.
+  quotes is in that file and states the field itself (a general description is not
+  a value for a narrower field; a keyword list holds terms, not a sentence). Then:
+
+  - the one value the deposit states is recorded without asking, at any tier;
+  - several values make a required (MUST) gap ONE multiple-choice question whose rows
+    are answers only: each value with the file it came from, then the console's own
+    typed-answer row. Skipping and stopping are keys, not rows: a `GUIDANCE_PURPOSE`
+    box skips the question on Esc, ends guidance on Ctrl+D, and names both on its
+    help line (#813);
+  - a required gap the deposit is silent on is asked in words, through the exchange
+    below;
+  - a recommended or optional gap is never asked and stays in the report, and the
+    draft-confirmation dialog is for required gaps only.
+
+  One field of one entity is asked about at most once per run: `_gap_identity` is
+  `(entity, field)`, so two checks about the same field, or a gap re-raised with new
+  wording after an answer, are one question. A picked value is committed; a typed
+  answer is interpreted once and never followed by another question. A session with
+  no scanned deposit keeps the exchange below for every tier, because there is
+  nothing to read.
 
   **Nothing is asked whose answer could not be stored (#813).** An identifier is
   looked up, never typed (D5), and a field that must name an entity takes words only
