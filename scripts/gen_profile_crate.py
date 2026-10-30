@@ -160,11 +160,55 @@ def build(out: Path) -> dict:
                 },
             )
         )
-        root["hasResource"] = [{"@id": "#spec"}]
+
+        shape_ids = []
+        for path in sorted(SHAPES_DIR.glob("*.ttl")):
+            entity = crate.add_file(
+                path,
+                dest_path=f"shapes/{path.name}",
+                properties={
+                    "name": path.stem.replace("_", " "),
+                    "encodingFormat": "text/turtle",
+                    "license": {"@id": MIT},
+                },
+            )
+            shape_ids.append({"@id": entity.id})
+        crate.add(
+            ContextEntity(
+                crate,
+                "#shapes",
+                properties={
+                    "@type": "ResourceDescriptor",
+                    "name": "SHACL shapes",
+                    "hasRole": {"@id": f"{ROLE}validation"},
+                    "hasArtifact": shape_ids,
+                },
+            )
+        )
+        crate.add(
+            ContextEntity(
+                crate,
+                "#vocabulary",
+                properties={
+                    "@type": "ResourceDescriptor",
+                    "name": "Extension vocabulary",
+                    "hasRole": {"@id": f"{ROLE}vocabulary"},
+                    "hasArtifact": {"@id": "shapes/ontology.ttl"},
+                },
+            )
+        )
+        root["hasResource"] = [
+            {"@id": "#spec"},
+            {"@id": "#shapes"},
+            {"@id": "#vocabulary"},
+        ]
 
         out.mkdir(parents=True, exist_ok=True)
         crate.write(out)
 
+    # After the write: ro-crate-py walks ``out`` while writing, so nothing
+    # unlisted goes in before it.
+    (out / ".nojekyll").write_text("", encoding="utf-8")
     doc = _as_profile_crate(crate.metadata.generate())
     (out / "ro-crate-metadata.json").write_text(
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

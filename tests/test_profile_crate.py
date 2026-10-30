@@ -30,6 +30,7 @@ from scripts.gen_profile_crate import (
     DATE_PUBLISHED,
     ORCID,
     PARENT_IRI,
+    MIT,
     PROFILE_IRI,
     ROLE,
     VERSION,
@@ -120,6 +121,43 @@ class TestTheSpecDocument:
         assert "mermaid@10.9.1" in html
         # The requirement tables are the substance of the profile.
         assert "<table>" in html
+
+
+class TestTheShapes:
+    def test_every_shape_file_is_in_the_crate_as_mit_turtle(self, doc):
+        shipped = {n["@id"] for n in doc["@graph"] if n["@id"].startswith("shapes/")}
+        on_disk = {
+            f"shapes/{p.name}"
+            for p in (REPO / "profiles" / "shapes" / "tox").glob("*.ttl")
+        }
+        assert shipped == on_disk
+        for entity_id in sorted(shipped):
+            node = _node(doc, entity_id)
+            assert node["encodingFormat"] == "text/turtle"
+            assert node["license"] == {"@id": MIT}, entity_id
+
+    def test_the_shapes_have_the_validation_role(self, doc):
+        descriptor = _node(doc, "#shapes")
+        assert descriptor["hasRole"] == {"@id": f"{ROLE}validation"}
+        assert {"@id": "shapes/profile.ttl"} in descriptor["hasArtifact"]
+
+    def test_the_ontology_has_the_vocabulary_role(self, doc):
+        descriptor = _node(doc, "#vocabulary")
+        assert descriptor["hasRole"] == {"@id": f"{ROLE}vocabulary"}
+        assert descriptor["hasArtifact"] == {"@id": "shapes/ontology.ttl"}
+
+    def test_the_resources_are_all_declared_on_the_root(self, doc):
+        assert _node(doc, PROFILE_IRI)["hasResource"] == [
+            {"@id": "#spec"},
+            {"@id": "#shapes"},
+            {"@id": "#vocabulary"},
+        ]
+
+    def test_pages_serves_the_crate_verbatim(self, tmp_path):
+        """Jekyll would rewrite index.html and hide the dotfiles."""
+        build(tmp_path)
+        assert (tmp_path / ".nojekyll").exists()
+        assert (tmp_path / "shapes" / "profile.ttl").exists()
 
 
 def test_nothing_generated_is_committed():
