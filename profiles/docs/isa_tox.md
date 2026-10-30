@@ -245,11 +245,21 @@ requirements of their own below; any other kind is described by this section alo
 preparation consumes is source cells whatever it states, so one with no `sampleType` is still reported. The labels
 `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases.
 
+A test system is dual-typed `Sample` and [BioSample](https://bioschemas.org/BioSample), which is a Bioschemas subtype
+of `Sample`: the inherited ISA requirements and every shape here keep matching on `Sample`, while a BioSample-aware
+consumer recognises the material and can read `cellType`, `anatomicalStructure` and `sex` directly. Those three are
+BioSample's own properties, pending integration into Schema.org. They state the same facts this profile also carries
+as Characteristic [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic) items with their ontology terms, and it is the
+Characteristic that the shapes check — so a crate stays conformant whether or not it carries the BioSample
+properties as well.
+
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|A categorical annotation of the material as a fixed, resolvable ontology term; see the expected terms below.|
+|cellType|MAY|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|BioSample: the cell line, lineage or biological classification of a cell. Also carried as a cell-type Characteristic (`EFO:0000324`), which is what the shapes check.|
+|anatomicalStructure|MAY|[schema.org/AnatomicalStructure](https://schema.org/AnatomicalStructure), [DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm) or URL|BioSample: the organ or tissue the material was collected from. Also carried as Organ / Tissue Characteristics (`UBERON:0000062`, `UBERON:0000479`).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 
@@ -276,7 +286,7 @@ identified by its Cellosaurus accession.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
@@ -293,10 +303,11 @@ isolated as instead.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660); its `termCode` also carries the IUCLID OHT 201 test-system type `IUCLID:108175` ("primary cells").|
 |name|MUST|Text|A name identifying the sample, e.g. "kidney tubuloids, donor T19".|
 |taxonomicRange|SHOULD|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The species the cells were taken from, e.g. NCBITaxon:9606.|
+|sex|MAY|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|BioSample: the biological sex of the donor the cells were taken from. Also carried as a donor-sex Characteristic (`PATO:0000047`).|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the source; see expected values below. The cell type SHOULD be one.|
 |identifier|MAY|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|A BioSamples accession, if the material was deposited. There is no Cellosaurus entry or RRID.|
 
@@ -333,7 +344,7 @@ from the [Source Cells](#sample---source-cells) they were grown from. Its `sampl
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
 |name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
@@ -352,7 +363,7 @@ or more source cells. One source grown alone is an ordinary test system, not a c
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
 |name|MUST|Text|A name identifying the material, e.g. "hepatocyte / Kupffer co-culture".|
 |isBasedOn|MUST|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The two or more Samples this material was grown from.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
