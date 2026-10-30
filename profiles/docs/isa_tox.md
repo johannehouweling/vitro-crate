@@ -42,9 +42,10 @@ toxicology-specific, ontology-backed requirements on top.
 The extension is additive and reuse-first: each concept is expressed through the most specific applicable
 [Schema.org](https://schema.org/) or [Bioschemas](https://bioschemas.org/) type, refined where necessary by an existing
 ontology term: a step by the protocol type of the record it executes, a test-system source by its `sampleType`. Test/control chemicals are
-[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity) instances; the cell-based test system's source is a
-[Sample](isa.md#sample) carrying `sampleType`, either a cell line with a Cellosaurus `identifier` or primary cells
-described by species and cell type; and the experimental workflow is a chain of
+[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity) instances; the test system is a
+[Sample](isa.md#sample) carrying `sampleType` — a cell line, primary cells, an organoid or other 3D model, a tissue
+or organ fragment, a sub-cellular fraction — of which cell lines and primary cells carry requirements of their own
+here; and the experimental workflow is a chain of
 [LabProcess](isa.md#labprocess) steps discriminated as `TestSystemPreparation`, `Exposure`, `EndpointReadout`, and `DataAnalysis`.
 No new RDF types are introduced, and no change to the base RO-Crate specification or the ISA profile is required.
 
@@ -229,11 +230,13 @@ machine-actionable. Concentration is **not** a property of the compound — it i
 ### Sample - Source Cells
 
 Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample) type ([ISA Sample](isa.md#sample)).
-The cells a [Test System Preparation](#labprocess---test-system-preparation) starts from — the test system in the
-sense IUCLID OHT 201 gives it. One Sample carries a categorical annotation via `sampleType`
-(a [DefinedTerm](isa.md#definedterm)) saying which kind it is, and each kind adds requirements of its own below. A
-Sample a preparation consumes is source cells whatever it states, so one with no `sampleType` is still reported. The
-labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases.
+The cells or material a [Test System Preparation](#labprocess---test-system-preparation) starts from — the test
+system in the sense IUCLID OHT 201 gives it. One Sample carries a categorical annotation via `sampleType`
+(a [DefinedTerm](isa.md#definedterm)) saying which kind it is: a cell line, primary cells, an organoid or other 3D
+model, a tissue or organ fragment, a sub-cellular fraction, a whole organism. Cell lines and primary cells add
+requirements of their own below; any other kind is described by this section alone, under its own term. A Sample a
+preparation consumes is source cells whatever it states, so one with no `sampleType` is still reported. The labels
+`"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -244,7 +247,8 @@ labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 
 **Expected `sampleType` terms.** Each is a [DefinedTerm](isa.md#definedterm) whose `@id` dereferences to the term.
-The term is what each section below keys on, so it decides which requirements apply to a Sample.
+The term is what each section below keys on, so it decides which requirements apply to a Sample. A kind with no term
+in this table is reported until one is added, so that a typo in a `sampleType` is still caught.
 
 | term | @id | Applies to |
 |------|-----|------------|
@@ -252,6 +256,10 @@ The term is what each section below keys on, so it decides which requirements ap
 |primary cell|`http://www.ebi.ac.uk/efo/EFO_0002660`|[Source Cells - Primary Cells](#source-cells---primary-cells)|
 |cell culture|`http://purl.obolibrary.org/obo/OBI_0001876`|[Sample - Test System](#sample---test-system) and [Sample - Exposed Test System](#sample---exposed-test-system)|
 |co-culture|`http://purl.obolibrary.org/obo/NCIT_C93168`|[Test System - Co-Culture](#test-system---co-culture)|
+|organoid|`http://purl.obolibrary.org/obo/NCIT_C172259`|This section; no further requirements.|
+|tissue|`http://purl.obolibrary.org/obo/UBERON_0000479`|This section; no further requirements.|
+|organ part|`http://purl.obolibrary.org/obo/UBERON_0000064`|This section; no further requirements.|
+|multicellular organism|`http://purl.obolibrary.org/obo/UBERON_0000468`|This section; no further requirements.|
 
 #### Source Cells - Cell Line
 
