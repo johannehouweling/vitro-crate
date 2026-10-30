@@ -161,12 +161,13 @@ rather than named again on the Study: an adverse outcome occurs in more than one
 specific statement and the one the assays' Key Events are steps of.
 
 The rows below are the [ISA Study](isa.md#study)'s own, repeated so this profile's requirement levels can be read
-in one place; `mentions` is this profile's addition. `additionalType` MUST carry 'Study', as the ISA profile requires.
+in one place; `mentions` is this profile's addition.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Should be a subdirectory corresponding to this study.|
 |@type|MUST|Text|MUST be '[schema.org/Dataset](https://schema.org/Dataset)'|
+|additionalType|MUST|Text or URL|'Study' or ontology term to identify it as a Study. It is what selects the entity, so no shape can check it.|
 |identifier|MUST|Text or URL|Identifying descriptor of the study.|
 |name|MUST|Text|A title of the study.|
 |mentions|SHOULD|[DefinedTerm](isa.md#definedterm)|The Adverse Outcome Pathway the study addresses, as its AOP-Wiki node.|
@@ -186,12 +187,13 @@ AOP-Wiki RDF (`https://identifiers.org/aop.events/<id>`), typed `KeyEvent`
 ([AOPO](http://aopkb.org/aop_ontology#KeyEvent)) and [DefinedTerm](isa.md#definedterm), with the wiki page as `url`.
 
 The rows below are the [ISA Assay](isa.md#assay)'s own, repeated so this profile's requirement levels can be read
-in one place; `mentions` is this profile's addition. `additionalType` MUST carry 'Assay', as the ISA profile requires.
+in one place; `mentions` is this profile's addition.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Should be a subdirectory corresponding to this assay.|
 |@type|MUST|Text|MUST be '[schema.org/Dataset](https://schema.org/Dataset)'|
+|additionalType|MUST|Text or URL|'Assay' or ontology term to identify it as an Assay. It is what selects the entity, so no shape can check it.|
 |identifier|MUST|Text or URL|Identifying descriptor of the assay.|
 |mentions|SHOULD|[DefinedTerm](isa.md#definedterm)|The Key Event this assay's endpoint reads out, as its AOP-Wiki node.|
 |name|SHOULD|Text|A title of the assay.|
