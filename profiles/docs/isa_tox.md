@@ -186,6 +186,11 @@ each assay covers. The referenced node is the AOP-Wiki Key Event itself: `@id` i
 AOP-Wiki RDF (`https://identifiers.org/aop.events/<id>`), typed `KeyEvent`
 ([AOPO](http://aopkb.org/aop_ontology#KeyEvent)) and [DefinedTerm](isa.md#definedterm), with the wiki page as `url`.
 
+What the assay measures is named in [BAO](https://bioassayontology.org/) terms, the vocabulary this profile uses
+throughout for assay description: at this level through `measurementMethod` and `measurementTechnique`, and in more
+detail on the step that reads the endpoint, whose parameters carry the detection instrument, measured entity and
+endpoint as BAO terms (see [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)).
+
 The rows below are the [ISA Assay](isa.md#assay)'s own, repeated so this profile's requirement levels can be read
 in one place; `mentions` is this profile's addition.
 
@@ -201,8 +206,8 @@ in one place; `mentions` is this profile's addition.
 |about|SHOULD|[bioschemas.org/LabProcess](isa.md#labprocess)|The experimental processes performed in this assay.|
 |creator|SHOULD|[schema.org/Person](isa.md#person)|The performer of the experiments.|
 |hasPart|SHOULD|[File](isa.md#file)|The data files resulting from the process sequence. MUST not be used to directly point to data fragments.|
-|measurementMethod|SHOULD|URL or [schema.org/DefinedTerm](isa.md#definedterm)|Describes the type measurement e.g Complexomics or Transcriptomics as an ontology term.|
-|measurementTechnique|SHOULD|URL or [schema.org/DefinedTerm](isa.md#definedterm)|Describes the type of technology used to take the measurement, e.g mass spectrometry or deep sequencing.|
+|measurementMethod|SHOULD|URL or [schema.org/DefinedTerm](isa.md#definedterm)|What is measured, as an ontology term — for an in vitro assay a [BAO](https://bioassayontology.org/) term, e.g. the endpoint `BAO:0000179`.|
+|measurementTechnique|SHOULD|URL or [schema.org/DefinedTerm](isa.md#definedterm)|How it is measured, as an ontology term — for an in vitro assay a [BAO](https://bioassayontology.org/) term, e.g. the detection instrument `BAO:0000697`.|
 
 ### MolecularEntity - Test and Control Chemicals
 
