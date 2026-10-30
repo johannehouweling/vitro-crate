@@ -253,7 +253,7 @@ properties as well.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|A categorical annotation of the material as a fixed, resolvable ontology term; see the expected terms below.|
 |cellType|MAY|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|BioSample: the cell line, lineage or biological classification of a cell. Also carried as a cell-type Characteristic (`EFO:0000324`), which is what the shapes check.|
 |anatomicalStructure|MAY|[schema.org/AnatomicalStructure](https://schema.org/AnatomicalStructure), [DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm) or URL|BioSample: the organ or tissue the material was collected from. Also carried as Organ / Tissue Characteristics (`UBERON:0000062`, `UBERON:0000479`).|
@@ -283,7 +283,7 @@ identified by its Cellosaurus accession.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
@@ -300,7 +300,7 @@ isolated as instead.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660); its `termCode` also carries the IUCLID OHT 201 test-system type `IUCLID:108175` ("primary cells").|
 |name|MUST|Text|A name identifying the sample, e.g. "kidney tubuloids, donor T19".|
 |taxonomicRange|SHOULD|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The species the cells were taken from, e.g. NCBITaxon:9606.|
@@ -341,7 +341,7 @@ from the [Source Cells](#sample---source-cells) they were grown from. Its `sampl
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
 |name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
@@ -360,7 +360,7 @@ or more source cells. One source grown alone is an ordinary test system, not a c
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
 |name|MUST|Text|A name identifying the material, e.g. "hepatocyte / Kupffer co-culture".|
 |isBasedOn|MUST|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The two or more Samples this material was grown from.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
