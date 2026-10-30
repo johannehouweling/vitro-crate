@@ -140,7 +140,7 @@ description with the SHACL shapes MAY additionally be published at the profile U
 ## Requirements
 
 A crate MUST include at least one Exposure that one of its Studies or Assays is about: it
-is not toxicology if nothing is exposed to a chemical. The check targets the Root
+is not *in vitro* toxicology if nothing is exposed to a chemical. The check targets the Root
 Data Entity, so it holds even for a crate that contains nothing else. Each Exposure's
 protocol then names its compounds (see [LabProcess - Exposure](#labprocess---exposure)).
 
@@ -148,12 +148,13 @@ protocol then names its compounds (see [LabProcess - Exposure](#labprocess---exp
 
 Is based on the [ISA Study](isa.md#study). A study addresses one Adverse Outcome Pathway, referenced via
 `schema:mentions` at the Study level; each of its assays annotates the one Key Event it measures
-([Assay - Key Event](#assay---key-event)). The referenced node is the AOP-Wiki entity itself: `@id` is its resolvable
-AOP-Wiki IRI (`https://aopwiki.org/aops/<id>`), typed `AdverseOutcomePathway`
+([Assay - Key Event](#assay---key-event)). The referenced node is the AOP-Wiki entity itself: `@id` is its
+identifiers.org IRI as used in AOP-Wiki RDF (`https://identifiers.org/aop/<id>`), typed `AdverseOutcomePathway`
 ([AOPO](http://aopkb.org/aop_ontology#AdverseOutcomePathway), the ontology AOP-Wiki RDF itself uses) and
-[DefinedTerm](isa.md#definedterm), with AOP-Wiki as its term set. A crate MAY carry the surrounding AOP-Wiki subgraph
-— Key Events and their `KeyEventRelationship` nodes, cross-linked by `upstream_event` / `downstream_event` — so the
-pathway reads without a network call.
+[DefinedTerm](isa.md#definedterm), with AOP-Wiki as its term set and the wiki page as `url`. A crate MAY carry the
+surrounding AOP-Wiki subgraph — Key Events (`https://identifiers.org/aop.events/<id>`) and their
+`KeyEventRelationship` nodes (`https://identifiers.org/aop.relationships/<id>`), cross-linked by `upstream_event` /
+`downstream_event` — so the pathway reads without a network call.
 
 The adverse outcome the study is ultimately about is reached through the pathway, via its `has_adverse_outcome`,
 rather than named again on the Study: an adverse outcome occurs in more than one pathway, so the pathway is the more
@@ -180,9 +181,9 @@ in one place; `mentions` is this profile's addition. `additionalType` MUST carry
 
 Is based on the [ISA Assay](isa.md#assay). An assay measures one endpoint, annotated with the AOP-Wiki Key Event it
 reads out via `schema:mentions` — the level below the Study's AOP, so a reader can tell which step of the pathway
-each assay covers. The referenced node is the AOP-Wiki Key Event itself: `@id` is its resolvable IRI
-(`https://aopwiki.org/events/<id>`), typed `KeyEvent` ([AOPO](http://aopkb.org/aop_ontology#KeyEvent)) and
-[DefinedTerm](isa.md#definedterm).
+each assay covers. The referenced node is the AOP-Wiki Key Event itself: `@id` is its identifiers.org IRI as used in
+AOP-Wiki RDF (`https://identifiers.org/aop.events/<id>`), typed `KeyEvent`
+([AOPO](http://aopkb.org/aop_ontology#KeyEvent)) and [DefinedTerm](isa.md#definedterm), with the wiki page as `url`.
 
 The rows below are the [ISA Assay](isa.md#assay)'s own, repeated so this profile's requirement levels can be read
 in one place; `mentions` is this profile's addition. `additionalType` MUST carry 'Assay', as the ISA profile requires.
