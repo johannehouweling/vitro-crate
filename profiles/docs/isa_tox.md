@@ -75,7 +75,7 @@ file.](figures/isa-tox-model.svg)
 >   `propertyID` IRI and optional `unitText` — never an inline literal (the
 >   LabProcess shapes use `sh:class schema:PropertyValue`).
 > - a derived `Sample`'s `derivesFrom` links the Sample it was made from; only cultured
->   material is constrained: at most one cell line, or two or more for a co-culture (#678).
+>   material is constrained: at most one parent Sample, or two or more for a co-culture.
 >
 > The four LabProcess shapes are **selected by the `intendedUse` of the protocol record a
 > step executes**: a term of the test system preparation types set, treatment
@@ -136,7 +136,7 @@ permalink is not yet registered. The referenced profiles are declared as context
 
 > **Note — RO-Crate 1.2 placement.** RO-Crate **1.2** recommends declaring the profiles a crate targets on the
 > *Root Data Entity* (`./`) and reserving the *Metadata Descriptor*'s `conformsTo` for a single base-specification
-> value — which this profile now follows (Issue #110). The earlier 1.1 placement (all URIs on the descriptor) was a
+> value — which this profile now follows. The earlier 1.1 placement (all URIs on the descriptor) was a
 > temporary measure while the toolchain lagged: it was lifted once `rocrate-validator` 0.11.0 shipped a `ro-crate-1.2`
 > base profile (crs4/rocrate-validator#164), so the base pass validates against 1.2.
 
@@ -146,7 +146,7 @@ description with the SHACL shapes MAY additionally be published at the profile U
 ## Requirements
 
 A crate MUST include at least one Exposure that one of its Studies or Assays is about: it
-is not toxicology if nothing is exposed to a chemical (#781). The check targets the Root
+is not toxicology if nothing is exposed to a chemical. The check targets the Root
 Data Entity, so it holds even for a crate that contains nothing else. Each Exposure's
 protocol then names its compounds (see [LabProcess - Exposure](#labprocess---exposure)).
 
