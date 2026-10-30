@@ -163,7 +163,7 @@ in one place; `mentions` is this profile's addition.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Should be a subdirectory corresponding to this study.|
-|@type|MUST|Text|MUST be '[schema.org/Dataset](https://schema.org/Dataset)'|
+|@type|MUST|[schema.org/Dataset](https://schema.org/Dataset)|—|
 |additionalType|MUST|Text or URL|'Study' or ontology term to identify it as a Study. It is what selects the entity, so no shape can check it.|
 |identifier|MUST|Text or URL|Identifying descriptor of the study.|
 |name|MUST|Text|A title of the study.|
@@ -194,7 +194,7 @@ in one place; `mentions` is this profile's addition.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Should be a subdirectory corresponding to this assay.|
-|@type|MUST|Text|MUST be '[schema.org/Dataset](https://schema.org/Dataset)'|
+|@type|MUST|[schema.org/Dataset](https://schema.org/Dataset)|—|
 |additionalType|MUST|Text or URL|'Assay' or ontology term to identify it as an Assay. It is what selects the entity, so no shape can check it.|
 |identifier|MUST|Text or URL|Identifying descriptor of the assay.|
 |mentions|SHOULD|[DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The Key Event this assay's endpoint reads out, as its AOP-Wiki node.|
@@ -222,7 +222,7 @@ Concentration is **not** a property of the compound — it is carried per well b
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|SHOULD be an absolute, resolvable compound IRI — a [PubChem](https://pubchem.ncbi.nlm.nih.gov/), [CompTox](https://comptox.epa.gov/dashboard/) or CompoundWiki entry. A crate-local identifier (`#iopanoic-acid`) is allowed, and is the only option for a coded or proprietary test item with no public record; the compound's identity is carried by `inChIKey` and `identifier` either way.|
-|@type|MUST|Text|MUST be '[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)'|
+|@type|MUST|[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)|—|
 |name|MUST|Text|The compound name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|A compound identifier (e.g. InChIKey, CAS, PubChem CID), ideally a PropertyValue carrying its scheme, resolving to an authoritative resource.|
 |inChIKey|SHOULD|Text|The hashed InChI for unambiguous structure lookup.|
@@ -253,7 +253,7 @@ properties as well.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
+|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|A categorical annotation of the material as a fixed, resolvable ontology term; see the expected terms below.|
 |cellType|MAY|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|BioSample: the cell line, lineage or biological classification of a cell. Also carried as a cell-type Characteristic (`EFO:0000324`), which is what the shapes check.|
 |anatomicalStructure|MAY|[schema.org/AnatomicalStructure](https://schema.org/AnatomicalStructure), [DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm) or URL|BioSample: the organ or tissue the material was collected from. Also carried as Organ / Tissue Characteristics (`UBERON:0000062`, `UBERON:0000479`).|
@@ -283,7 +283,7 @@ identified by its Cellosaurus accession.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
+|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
@@ -300,7 +300,7 @@ isolated as instead.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
+|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660); its `termCode` also carries the IUCLID OHT 201 test-system type `IUCLID:108175` ("primary cells").|
 |name|MUST|Text|A name identifying the sample, e.g. "kidney tubuloids, donor T19".|
 |taxonomicRange|SHOULD|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The species the cells were taken from, e.g. NCBITaxon:9606.|
@@ -341,7 +341,7 @@ from the [Source Cells](#sample---source-cells) they were grown from. Its `sampl
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
+|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
 |name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
@@ -360,7 +360,7 @@ or more source cells. One source grown alone is an ordinary test system, not a c
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|Text|MUST include '[bioschemas.org/Sample](https://bioschemas.org/Sample)'; a test system also carries '[BioSample](https://bioschemas.org/BioSample)', so the value is the array `["Sample", "BioSample"]`.|
+|@type|MUST|[bioschemas.org/Sample](https://bioschemas.org/Sample) and [BioSample](https://bioschemas.org/BioSample)|The array `["Sample", "BioSample"]`. `Sample` MUST be present: every requirement here is matched on it.|
 |name|MUST|Text|A name identifying the material, e.g. "hepatocyte / Kupffer co-culture".|
 |isBasedOn|MUST|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The two or more Samples this material was grown from.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
@@ -394,7 +394,7 @@ profile; the term states it with `inDefinedTermSet`:
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
-|@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
+|@type|MUST|[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)|—|
 |name|MUST|Text|The name of the process, e.g. "Cell Culture".|
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The input source sample(s): a cell line or primary cells. At least one.|
 |result|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The output (cultured) sample(s). At least one.|
@@ -428,7 +428,7 @@ well (cell line, compound, concentration, exposure duration).
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
-|@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
+|@type|MUST|[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)|—|
 |name|MUST|Text|The name of the process, e.g. "Exposure".|
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one. (A `MolecularEntity` is **not** allowed here — see note above.)|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
@@ -453,7 +453,7 @@ Is based on the Bioschemas DRAFT [bioschemas.org/LabProcess](https://bioschemas.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
-|@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
+|@type|MUST|[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)|—|
 |name|MUST|Text|The name of the process, e.g. "Endpoint Readout".|
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s) (the cultured Sample in an assay with no exposure), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
@@ -489,7 +489,7 @@ Statistics* module of the Minimal Information Table.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
-|@type|MUST|Text|MUST be '[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)'|
+|@type|MUST|[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)|—|
 |name|MUST|Text|The name of the process, e.g. "Data Analysis".|
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
@@ -519,7 +519,7 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|One record per step, e.g. the process `@id` followed by `_protocol`.|
-|@type|MUST|Text|MUST be '[bioschemas.org/LabProtocol](https://bioschemas.org/LabProtocol)'|
+|@type|MUST|[bioschemas.org/LabProtocol](https://bioschemas.org/LabProtocol)|—|
 |intendedUse|SHOULD|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The protocol type of its step, from the table below, written as `{"@id": …}` and described once in the graph.|
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
 |description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
