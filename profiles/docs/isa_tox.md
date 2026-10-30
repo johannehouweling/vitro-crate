@@ -132,9 +132,7 @@ permalink is not yet registered. The referenced profiles are declared as context
 
 > **Note — RO-Crate 1.2 placement.** RO-Crate **1.2** recommends declaring the profiles a crate targets on the
 > *Root Data Entity* (`./`) and reserving the *Metadata Descriptor*'s `conformsTo` for a single base-specification
-> value — which this profile now follows. The earlier 1.1 placement (all URIs on the descriptor) was a
-> temporary measure while the toolchain lagged: it was lifted once `rocrate-validator` 0.11.0 shipped a `ro-crate-1.2`
-> base profile (crs4/rocrate-validator#164), so the base pass validates against 1.2.
+> value — which this profile follows.
 
 A machine-readable [Profile Crate](https://www.researchobject.org/ro-crate/specification/1.2/profiles.html#profile-crate) bundling this
 description with the SHACL shapes MAY additionally be published at the profile URI; this is planned but not yet provided.
