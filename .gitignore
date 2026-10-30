@@ -43,3 +43,7 @@ Maturity report UI mockups.zip
 # experimental data, and this repository is public.
 context/*.zip
 input/raw/*.zip
+
+# Generated Profile Crate (scripts/gen_profile_crate.py); published from the
+# isa-tox-ro-crate-profile repo, never committed here.
+dist/
