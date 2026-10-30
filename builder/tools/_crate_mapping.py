@@ -1406,10 +1406,11 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
 # PropertyValue nodes (ISA Sample Characteristics; #143, #180).
 #
 # Each entry maps the recognised state field (plus any drafter aliases) to the
-# PropertyValue's display ``name`` and its ``propertyID`` ontology IRI. ``organ``
-# and ``tissue`` mirror the gold crate's #SampleCell_MDCK1 characteristics
-# (PropertyValue "Organ"/"Tissue" with the ISA-Tox ``param/{organ,tissue}``
-# propertyID); ``passage``/``growth`` keep their lower-case ISA names (#143).
+# PropertyValue's display ``name`` and its ``propertyID`` ontology IRI.
+# ``passage``/``growth`` keep their lower-case ISA names (#143). ``organ`` and
+# ``tissue`` once carried profile-local ``param/{organ,tissue}`` IRIs copied from
+# the gold crate; they now carry the UBERON terms the MIT YAML curates, so the
+# propertyID resolves and `eval/scorers.py` can join on it (#856).
 @dataclass(frozen=True)
 class _Characteristic:
     aliases: tuple[str, ...]  # candidate state field names (first non-empty wins)
@@ -1420,8 +1421,8 @@ class _Characteristic:
 _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
     _Characteristic(("passage",), "passage", iri("EFO:0007061")),
     _Characteristic(("growth",), "growth", iri("BAO:0002648")),
-    _Characteristic(("organ",), "Organ", f"{PROFILE_ISATOX}/param/organ"),
-    _Characteristic(("tissue",), "Tissue", f"{PROFILE_ISATOX}/param/tissue"),
+    _Characteristic(("organ",), "Organ", iri("UBERON:0000062")),
+    _Characteristic(("tissue",), "Tissue", iri("UBERON:0000479")),
     _Characteristic(("cell_type",), "cell type", iri("EFO:0000324")),
 )
 # NB: the field names above (passage/growth/organ/tissue/cell_type) are also listed in

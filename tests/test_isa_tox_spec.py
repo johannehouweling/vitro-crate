@@ -45,9 +45,12 @@ _BIOSCHEMAS = Namespace("https://bioschemas.org/")
 # followed, so the inherited ISA rows the tables repeat are matched against the
 # ISA shapes that enforce them.
 _SECTION_CLASSES: dict[str, URIRef] = {
-    "MolecularEntity - Chemical": _BIOSCHEMAS.MolecularEntity,
-    "Sample - Cell-based Test System": _TOX.CellLineSample,
+    "MolecularEntity - Test and Control Chemicals": _BIOSCHEMAS.MolecularEntity,
+    "Sample - Source Cells": _TOX.TestSystemSource,
+    "Sample - Cell Line": _TOX.CellLineSample,
     "Sample - Primary Cells": _TOX.PrimaryCellSample,
+    "Sample - Test System": _TOX.CulturedSample,
+    "Sample - Co-Culture": _TOX.CoCultureSample,
     "LabProcess - Test System Preparation": _TOX.LabProcessTestSystemPreparation,
     "LabProcess - Exposure": _TOX.LabProcessExposure,
     "LabProcess - Endpoint Readout": _TOX.LabProcessEndpointReadout,

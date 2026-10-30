@@ -18,10 +18,10 @@ a binding exists with a non-empty, non-placeholder ``value``. Decisions:
   With no joinable parameters at all (the YAML unreadable or uncurated),
   ``coverage`` is ``None`` — not assessed, never a fabricated zero.
 - The join is **exact IRI equality**. Where the crate's emitters and the MIT
-  YAML curate *different* terms for the same concept (e.g. MIT ``organ`` =
-  UBERON_0000062 vs the crate's ``…/param/organ``), the parameter honestly
+  YAML curate *different* terms for the same concept, the parameter honestly
   reads unbound — the ``per_param`` detail exists precisely so those curation
-  gaps are visible and fixable instead of papered over.
+  gaps are visible and fixable instead of papered over. That is how the
+  ``organ``/``tissue`` gap was found and closed (#856).
 - ``propertyID`` is accepted both as ``{"@id": IRI}`` (every builder-emitted
   path) and as a bare string (LLM-drafted PropertyValue state entities pass
   it through verbatim).

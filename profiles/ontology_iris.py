@@ -32,6 +32,7 @@ PREFIXES: dict[str, str] = {
     "NCIT": "http://purl.obolibrary.org/obo/NCIT_",
     "OBI": "http://purl.obolibrary.org/obo/OBI_",
     "PATO": "http://purl.obolibrary.org/obo/PATO_",
+    "UBERON": "http://purl.obolibrary.org/obo/UBERON_",
     "UO": "http://purl.obolibrary.org/obo/UO_",
 }
 
