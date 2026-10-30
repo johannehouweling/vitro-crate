@@ -18,9 +18,13 @@ portal's own CI runs.
 from __future__ import annotations
 
 import argparse
+import html as html_mod
 import json
+import re
+import tempfile
 from pathlib import Path
 
+import markdown
 from rocrate.model import ContextEntity, Person
 from rocrate.rocrate import ROCrate
 
@@ -43,6 +47,55 @@ DESCRIPTION = (
     "ISA RO-Crate Profile: the entity types, ontology-backed properties and "
     "SHACL shapes needed to describe in vitro toxicology studies."
 )
+
+
+_MERMAID_FENCE = re.compile(
+    r'<pre><code class="language-mermaid">(.*?)</code></pre>', re.DOTALL
+)
+
+_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+:root {{ color-scheme: light dark; }}
+body {{ max-width: 54rem; margin: 2rem auto; padding: 0 1rem;
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
+th, td {{ border: 1px solid #8884; padding: .35rem .6rem; text-align: left;
+  vertical-align: top; font-size: .92em; }}
+code, pre {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
+pre {{ overflow-x: auto; padding: .75rem; background: #8881; border-radius: 4px; }}
+</style>
+</head>
+<body>
+{body}
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
+mermaid.initialize({{ startOnLoad: true }});
+</script>
+</body>
+</html>
+"""
+
+
+def _render_spec() -> str:
+    """Render ``isa_tox.md`` to a standalone page.
+
+    python-markdown emits Mermaid fences as ``<pre><code>``; Mermaid needs
+    ``<div class="mermaid">`` holding the unescaped source, so the fences are
+    rewritten. GitHub Pages serves the result as-is (``.nojekyll``).
+    """
+    body = markdown.markdown(
+        SPEC.read_text(encoding="utf-8"),
+        extensions=["tables", "fenced_code", "toc", "attr_list"],
+    )
+    body = _MERMAID_FENCE.sub(
+        lambda m: f'<div class="mermaid">{html_mod.unescape(m.group(1))}</div>', body
+    )
+    return _PAGE.format(title=NAME, body=body)
 
 
 def build(out: Path) -> dict:
@@ -80,8 +133,38 @@ def build(out: Path) -> dict:
         )
     )
 
-    out.mkdir(parents=True, exist_ok=True)
-    crate.write(out)
+    # Staged outside ``out``: ``crate.write()`` copies every file entity to its
+    # destination, and copying a file onto itself raises ``shutil.SameFileError``.
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = Path(tmp) / "index.html"
+        staged.write_text(_render_spec(), encoding="utf-8")
+        spec = crate.add_file(
+            staged,
+            dest_path="index.html",
+            properties={
+                "name": f"{NAME} — specification",
+                "encodingFormat": "text/html",
+                "about": {"@id": "./"},
+                "license": {"@id": CC_BY},
+            },
+        )
+        crate.add(
+            ContextEntity(
+                crate,
+                "#spec",
+                properties={
+                    "@type": "ResourceDescriptor",
+                    "name": "Profile specification",
+                    "hasRole": {"@id": f"{ROLE}specification"},
+                    "hasArtifact": {"@id": spec.id},
+                },
+            )
+        )
+        root["hasResource"] = [{"@id": "#spec"}]
+
+        out.mkdir(parents=True, exist_ok=True)
+        crate.write(out)
+
     doc = _as_profile_crate(crate.metadata.generate())
     (out / "ro-crate-metadata.json").write_text(
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
