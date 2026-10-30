@@ -539,6 +539,5 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 
 ## Example ro-crate-metadata.json
 
-Crates conforming to this profile are published at <https://github.com/johannehouweling/crates>. Each types
-every step by its protocol record's `intendedUse` and every test-system source by its `sampleType`, as
-described above, and is validated in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).
+A conforming crate types every step by its protocol record's `intendedUse` and every test-system source by its
+`sampleType`, as described above, and validates in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).
