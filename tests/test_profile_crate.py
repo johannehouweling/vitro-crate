@@ -31,6 +31,7 @@ from scripts.gen_profile_crate import (
     ORCID,
     PARENT_IRI,
     PROFILE_IRI,
+    ROLE,
     VERSION,
     build,
 )
@@ -88,6 +89,37 @@ class TestProfileCrateRequirements:
     def test_the_author_is_identified_by_orcid(self, doc):
         assert _node(doc, PROFILE_IRI)["author"] == {"@id": ORCID}
         assert _node(doc, ORCID)["@type"] == "Person"
+
+
+class TestTheSpecDocument:
+    """RO-Crate 1.2: a Profile Crate MUST declare a human-readable description."""
+
+    def test_the_spec_is_a_part_of_the_profile(self, doc):
+        assert {"@id": "index.html"} in _node(doc, PROFILE_IRI)["hasPart"]
+
+    def test_it_is_html_about_the_profile_and_cc_by(self, doc):
+        spec = _node(doc, "index.html")
+        assert spec["encodingFormat"] == "text/html"
+        assert spec["about"] == {"@id": PROFILE_IRI}
+        assert spec["license"] == {"@id": CC_BY}
+
+    def test_a_resource_descriptor_gives_it_the_specification_role(self, doc):
+        descriptor = _node(doc, "#spec")
+        assert descriptor["@type"] == "ResourceDescriptor"
+        assert descriptor["hasRole"] == {"@id": f"{ROLE}specification"}
+        assert descriptor["hasArtifact"] == {"@id": "index.html"}
+        assert {"@id": "#spec"} in _node(doc, PROFILE_IRI)["hasResource"]
+
+    def test_the_rendered_page_carries_the_spec_and_its_diagram(self, tmp_path):
+        build(tmp_path)
+        html = (tmp_path / "index.html").read_text(encoding="utf-8")
+        # The `toc` extension adds an anchor id to every heading.
+        assert '<h1 id="isa-tox-ro-crate-profile">ISA-Tox RO-Crate Profile</h1>' in html
+        assert '<div class="mermaid">' in html, "mermaid fence was not converted"
+        assert "flowchart TD" in html
+        assert "mermaid@10.9.1" in html
+        # The requirement tables are the substance of the profile.
+        assert "<table>" in html
 
 
 def test_nothing_generated_is_committed():
