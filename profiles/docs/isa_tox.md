@@ -212,8 +212,14 @@ in one place; `mentions` is this profile's addition.
 ### MolecularEntity - Test and Control Chemicals
 
 The test and control chemicals are modelled as [bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)
-instances (rather than the broader `ChemicalSubstance`), so a resolvable identifier and structure make the compound
-machine-actionable. Concentration is **not** a property of the compound — it is carried per well by the
+instances. A `MolecularEntity` is one defined molecule, and it is the type that carries the structure and identity
+properties this profile asks for — `inChIKey`, `smiles`, `inChI`, `molecularFormula` — so a reader can tell which
+compound was tested and look it up in [PubChem](https://pubchem.ncbi.nlm.nih.gov/) or
+[CompTox](https://comptox.epa.gov/dashboard/). Schema.org's broader
+[`ChemicalSubstance`](https://schema.org/ChemicalSubstance) covers a portion of matter of constant composition — a
+mixture or preparation as readily as a pure compound — and defines no structure property at all, so a compound typed
+that way cannot be matched by structure. A test item that is genuinely a mixture has no modelling in this version.
+Concentration is **not** a property of the compound — it is carried per well by the
 [Exposure](#labprocess---exposure)'s condition table (CSVW), so there is no per-concentration chemical Sample.
 
 | Property | Required | Expected Type | Description |
