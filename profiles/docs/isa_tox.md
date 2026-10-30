@@ -81,11 +81,7 @@ file.](figures/isa-tox-model.svg)
 > step executes**: a term of the test system preparation types set, treatment
 > protocol EFO:0003969, assay protocol BAO:0000523, data transformation OBI:0200000. A
 > `LabProcess` whose record carries none of these is targeted by no tox shape and is
-> checked only by the base + ISA layers, and a type outside the list is a warning. The
-> `additionalType` labels older crates carry (`TestSystemPreparation`, `CellCulture`,
-> `Exposure`, `EndpointReadout`, `DataAnalysis`) are read as aliases, as are growth
-> protocol and transfection stated without the set. The ISA-Tox pass runs at `OPTIONAL` severity, so a missing tox MUST
-> is reported but does not fail the CLI exit code (which tracks the base pass).
+> checked only by the base + ISA layers, and a type outside the list is a warning.
 
 ## Conformance
 
