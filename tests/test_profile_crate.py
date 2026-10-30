@@ -121,34 +121,50 @@ class TestProfileCrateRequirements:
 
 
 class TestTheSpecDocument:
-    """RO-Crate 1.2: a Profile Crate MUST declare a human-readable description."""
+    """RO-Crate 1.2: a Profile Crate MUST declare a human-readable description.
 
-    def test_the_spec_is_a_part_of_the_profile(self, doc):
-        assert {"@id": "index.html"} in _node(doc, PROFILE_IRI)["hasPart"]
+    The crate ships the Markdown and names the page GitHub Pages renders from
+    it, which is how the published profiles do it — see
+    :func:`scripts.gen_profile_crate.build`.
+    """
 
-    def test_it_is_html_about_the_profile_and_cc_by(self, doc):
-        spec = _node(doc, "index.html")
-        assert spec["encodingFormat"] == "text/html"
+    def test_the_markdown_source_is_a_part_of_the_profile(self, doc):
+        assert {"@id": "index.md"} in _node(doc, PROFILE_IRI)["hasPart"]
+        spec = _node(doc, "index.md")
+        assert spec["encodingFormat"] == "text/markdown"
         assert spec["about"] == {"@id": PROFILE_IRI}
         assert spec["license"] == {"@id": CC_BY}
+
+    def test_the_rendered_page_is_declared_and_resolves_from_anywhere(self, doc):
+        """An absolute URI, so the archived crate has nothing dangling.
+
+        Jekyll renders `index.md` server side, so a relative `index.html`
+        would name a file no copy of this crate contains.
+        """
+        page = _node(doc, PAGES)
+        assert page["encodingFormat"] == "text/html"
+        assert page["about"] == {"@id": PROFILE_IRI}
 
     def test_a_resource_descriptor_gives_it_the_specification_role(self, doc):
         descriptor = _node(doc, "#hasSpecification")
         assert descriptor["@type"] == "ResourceDescriptor"
         assert descriptor["hasRole"] == {"@id": f"{ROLE}specification"}
-        assert descriptor["hasArtifact"] == {"@id": "index.html"}
+        assert descriptor["hasArtifact"] == {"@id": PAGES}
         assert {"@id": "#hasSpecification"} in _node(doc, PROFILE_IRI)["hasResource"]
 
-    def test_the_rendered_page_carries_the_spec_and_its_diagram(self, tmp_path):
+    def test_the_shipped_markdown_is_the_spec_with_jekyll_front_matter(self, tmp_path):
         build(tmp_path)
-        html = (tmp_path / "index.html").read_text(encoding="utf-8")
-        # The `toc` extension adds an anchor id to every heading.
-        assert '<h1 id="isa-tox-ro-crate-profile">ISA-Tox RO-Crate Profile</h1>' in html
-        assert 'src="figures/isa-tox-model.svg"' in html, "the model figure is not referenced"
+        md = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert md.startswith("---\ntitle: ISA-Tox RO-Crate Profile\n---\n"), (
+            "the front matter is what titles the rendered page"
+        )
+        assert "# ISA-Tox RO-Crate Profile" in md
+        assert "(figures/isa-tox-model.svg)" in md, "the model figure is not referenced"
         assert (tmp_path / "figures" / "isa-tox-model.svg").exists(), "figure not in the crate"
-        assert "mermaid" not in html, "the mermaid summary was replaced by the figure"
+        assert "mermaid" not in md, "the mermaid summary was replaced by the figure"
         # The requirement tables are the substance of the profile.
-        assert "<table>" in html
+        assert md.count("\n|") > 100
+        assert not (tmp_path / "index.html").exists(), "the page is Jekyll's to render"
 
 
 class TestTheShapes:
@@ -181,10 +197,10 @@ class TestTheShapes:
             {"@id": "#hasVocabulary"},
         ]
 
-    def test_pages_serves_the_crate_verbatim(self, tmp_path):
-        """Jekyll would rewrite index.html and hide the dotfiles."""
+    def test_nothing_disables_jekyll(self, tmp_path):
+        """Jekyll is what renders the specification; a .nojekyll would stop it."""
         build(tmp_path)
-        assert (tmp_path / ".nojekyll").exists()
+        assert not (tmp_path / ".nojekyll").exists()
         assert (tmp_path / "shapes" / "profile.ttl").exists()
 
 

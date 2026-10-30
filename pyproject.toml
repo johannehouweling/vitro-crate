@@ -36,7 +36,6 @@ dependencies = [
     # so nothing else will stop this recurring).
     "pyshacl>=0.26,<0.40",
     "defusedxml>=0.7.1",
-    "markdown>=3.7",
 ]
 
 [project.optional-dependencies]
