@@ -68,6 +68,8 @@ file.](figures/isa-tox-model.svg)
 > - process parameters appear under `parameter` (→ `schema:additionalProperty`),
 >   inputs under `input` (→ `schema:object`), outputs under `output`
 >   (→ `schema:result`), and `derivesFrom` expands to `schema:isBasedOn`.
+> - the AOP links are written as `aop` on a Study and `keyEvent` on an Assay, both expanding to
+>   `schema:mentions`, and a compound's hashed structure as `inchikey` (→ `schema:inChIKey`).
 > - each `parameter` is a `PropertyValue` **node** with a deterministic `@id`, a
 >   `propertyID` IRI and optional `unitText` — never an inline literal (the
 >   LabProcess shapes use `sh:class schema:PropertyValue`).
@@ -174,6 +176,15 @@ in one place; `mentions` is this profile's addition.
 |datePublished|SHOULD|DateTime|When the Study was published.|
 |description|SHOULD|Text|A short description of the study (e.g. an abstract).|
 |hasPart|SHOULD|[schema.org/Dataset](https://schema.org/Dataset) ([Assay](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#assay)) or [File](https://schema.org/MediaObject)|Assays contained in this study or actual data files resulting from the process sequence.|
+
+**Expected identifier [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) items.** Where a study's `citation` carries its publication's
+identifiers, each is a PropertyValue whose `propertyID` fixes which identifier it is. A shape checks the `propertyID`
+of each.
+
+| name | Required | propertyID |
+|------|----------|------------|
+|DOI|MUST if stated|`http://purl.obolibrary.org/obo/OBI_0002110`|
+|PubMedID|MUST if stated|`http://purl.obolibrary.org/obo/OBI_0001617`|
 
 ### Assay - Key Event
 
@@ -347,7 +358,7 @@ from the [Source Cells](#sample---source-cells) they were grown from. Its `sampl
 |name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
-|isBasedOn|MAY|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The material this one was grown from; see the modelling rule below.|
+|isBasedOn|SHOULD|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The material this one was grown from — the source cells for a test system, the test system for the exposed material. See the modelling rules below.|
 
 **Modelling rules.**
 

@@ -78,6 +78,24 @@ tox:CulturedSampleDerivesFromOneLine a sh:NodeShape ;
         sh:severity sh:Violation ;
     ] .
 
+# The cap above says at most one parent; nothing said a cultured Sample needs a
+# parent at all, so a test system could sit in a crate with no link to the cells
+# it was grown from and the chain back to the source would simply be absent
+# (#856). A warning, not a violation: the material is still described, and a
+# depositor who genuinely cannot say where a culture came from should not be
+# blocked — but an unstated source is a provenance gap worth reporting.
+tox:CulturedSampleShouldStateItsSource a sh:NodeShape ;
+    sh:name "A cultured Sample states the Sample it was grown from" ;
+    sh:description "Without it the derivation chain from exposed material back to the source cells is broken." ;
+    sh:targetClass tox:CulturedSample ;
+    sh:property [
+        a sh:PropertyShape ;
+        sh:path schema:isBasedOn ;
+        sh:minCount 1 ;
+        sh:message "A cultured Sample SHOULD state the Sample it was grown from (schema:isBasedOn), so the chain from the exposed material back to the source cells can be followed" ;
+        sh:severity sh:Warning ;
+    ] .
+
 tox:CoCultureDerivesFromSeveralLines a sh:NodeShape ;
     sh:name "A co-culture Sample derives from SEVERAL parent Samples" ;
     sh:description "The co-culture type describes a mixture; a single source grown alone is a plain culture." ;
