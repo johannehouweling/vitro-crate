@@ -62,8 +62,8 @@ file.](figures/isa-tox-model.svg)
 
 > **How the reference builder encodes this.** The tables below give the canonical
 > property names and expected types (what the SHACL shapes check). The
-> `rocrate-wizard` builder emits them through compact JSON-LD aliases defined in
-> the crate's `@context`, all RDF-identical to the canonical predicates:
+> [`vitro-crate`](https://github.com/johannehouweling/vitro-crate) builder emits them through compact JSON-LD
+> aliases defined in the crate's `@context`, all RDF-identical to the canonical predicates:
 >
 > - `@type` is the bare token (`Sample`, `LabProcess`, `LabProtocol`,
 >   `PropertyValue`, …); the `@context` expands it to the Bioschemas/schema.org
