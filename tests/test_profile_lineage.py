@@ -141,7 +141,7 @@ def test_a_sample_is_dual_typed_sample_and_biosample():
     from profiles.models.isa import Sample
 
     sample = Sample(ROCrate(gen_preview=False), identifier="#s1", name="SK-N-AS")
-    assert sample["@type"] == ["Sample", "BioSample"]
+    assert sample["@type"] == ["BioSample", "Sample"]
 
 
 def test_the_biosample_properties_expand_to_the_bioschemas_namespace():
