@@ -11,11 +11,13 @@
   * [Overview](#overview)
   * [Conformance](#conformance)
   * [Requirements](#requirements)
+    * [Study - Adverse Outcome Pathway](#study---adverse-outcome-pathway)
+    * [Assay - Key Event](#assay---key-event)
     * [MolecularEntity - Test and Control Chemicals](#molecularentity---test-and-control-chemicals)
     * [Sample - Source Cells](#sample---source-cells)
     * [Sample - Cell Line](#sample---cell-line)
     * [Sample - Primary Cells](#sample---primary-cells)
-    * [Sample - Test System](#sample---test-system)
+    * [Sample - Test System and Exposed Test System](#sample---test-system-and-exposed-test-system)
     * [Sample - Co-Culture](#sample---co-culture)
     * [LabProcess - Test System Preparation](#labprocess---test-system-preparation)
     * [LabProcess - Exposure](#labprocess---exposure)
@@ -186,6 +188,53 @@ is not toxicology if nothing is exposed to a chemical (#781). The check targets 
 Data Entity, so it holds even for a crate that contains nothing else. Each Exposure's
 protocol then names its compounds (see [LabProcess - Exposure](#labprocess---exposure)).
 
+### Study - Adverse Outcome Pathway
+
+Is based on the [ISA Study](isa.md#study). A study addresses one Adverse Outcome Pathway, referenced via
+`schema:mentions` at the Study level; each of its assays annotates the one Key Event it measures
+([Assay - Key Event](#assay---key-event)). The referenced node is the AOP-Wiki entity itself: `@id` is its resolvable
+AOP-Wiki IRI (`https://aopwiki.org/aops/<id>`), typed `AdverseOutcomePathway`
+([AOPO](http://aopkb.org/aop_ontology#AdverseOutcomePathway), the ontology AOP-Wiki RDF itself uses) and
+[DefinedTerm](isa.md#definedterm), with AOP-Wiki as its term set. A crate MAY carry the surrounding AOP-Wiki subgraph
+— Key Events and their `KeyEventRelationship` nodes, cross-linked by `upstream_event` / `downstream_event` — so the
+pathway reads without a network call.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|The study identifier, e.g. a directory name.|
+|@type|MUST|Text|MUST be '[Study](isa.md#study)'|
+|name|MUST|Text|The study title.|
+|identifier|MUST|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The study identifier.|
+|mentions|SHOULD|[DefinedTerm](isa.md#definedterm)|The Adverse Outcome Pathway the study addresses, as its AOP-Wiki node.|
+|description|SHOULD|Text|What the study set out to find.|
+|about|SHOULD|[schema.org/Thing](isa.md#study)|What the study is about.|
+|creator|SHOULD|[Person](isa.md#person) or [Organization](isa.md#organization)|Who ran the study.|
+|dateCreated|SHOULD|Date or DateTime|When the study was created.|
+|datePublished|SHOULD|Date or DateTime|When the study was published.|
+|hasPart|SHOULD|[Assay](isa.md#assay)|The assays the study comprises.|
+
+### Assay - Key Event
+
+Is based on the [ISA Assay](isa.md#assay). An assay measures one endpoint, annotated with the AOP-Wiki Key Event it
+reads out via `schema:mentions` — the level below the Study's AOP, so a reader can tell which step of the pathway
+each assay covers. The referenced node is the AOP-Wiki Key Event itself: `@id` is its resolvable IRI
+(`https://aopwiki.org/events/<id>`), typed `KeyEvent` ([AOPO](http://aopkb.org/aop_ontology#KeyEvent)) and
+[DefinedTerm](isa.md#definedterm).
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|The assay identifier, e.g. a directory name.|
+|@type|MUST|Text|MUST be '[Assay](isa.md#assay)'|
+|identifier|MUST|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The assay identifier.|
+|name|SHOULD|Text|The assay title.|
+|mentions|SHOULD|[DefinedTerm](isa.md#definedterm)|The Key Event this assay's endpoint reads out, as its AOP-Wiki node.|
+|description|SHOULD|Text|What the assay measures.|
+|about|SHOULD|[schema.org/Thing](isa.md#assay)|What the assay is about.|
+|creator|SHOULD|[Person](isa.md#person) or [Organization](isa.md#organization)|Who ran the assay.|
+|measurementMethod|SHOULD|Text, URL or [DefinedTerm](isa.md#definedterm)|The method the endpoint was measured with.|
+|measurementTechnique|SHOULD|Text, URL or [DefinedTerm](isa.md#definedterm)|The technique the endpoint was measured with.|
+|hasPart|SHOULD|[File](isa.md#file) or [LabProcess](isa.md#labprocess)|The steps and files the assay comprises.|
+
 ### MolecularEntity - Test and Control Chemicals
 
 The test and control chemicals are modelled as [bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)
@@ -213,7 +262,7 @@ categorical annotation via `sampleType` (a [DefinedTerm](isa.md#definedterm)) sa
 a [Cell Line](#sample---cell-line) or [Primary Cells](#sample---primary-cells), each adding requirements of its own.
 A Sample a preparation consumes is a source whatever it states, so one with no `sampleType` is still reported. The
 labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases. What a preparation
-*produces* is a [Test System](#sample---test-system), not a source.
+*produces* is a [Test System](#sample---test-system-and-exposed-test-system), not a source.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -274,7 +323,7 @@ Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, n
 - A donor pool is **one** primary-cell Sample carrying the number of donors.
 - Donors cultured separately are one Sample each.
 
-### Sample - Test System
+### Sample - Test System and Exposed Test System
 
 The material a [Test System Preparation](#labprocess---test-system-preparation) produces: cultured cells, derived
 from the [Source Cells](#sample---source-cells) they were grown from. Its `sampleType` is "cell culture"
@@ -300,7 +349,7 @@ the chain of `isBasedOn` links runs back from the exposed material to the source
 
 A test system grown from two or more sources, `sampleType` "co-culture"
 → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). One source grown alone is a
-[Test System](#sample---test-system), not a co-culture.
+[Test System](#sample---test-system-and-exposed-test-system), not a co-culture.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
