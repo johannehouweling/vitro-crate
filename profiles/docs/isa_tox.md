@@ -6,7 +6,7 @@
 * Licence: this text [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the SHACL shapes MIT
 * Profile of: [ISA RO-Crate Profile](isa.md) (<https://github.com/nfdi4plants/isa-ro-crate-profile>)
 * Authors
-  * Jente Houweling - https://orcid.org/0009-0005-3680-0645
+  * Jente Houweling - <https://orcid.org/0009-0005-3680-0645>
 * **Table of contents**
   * [Overview](#overview)
   * [Conformance](#conformance)
