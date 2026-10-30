@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Assay Key Event annotation (SHOULD).
 # The endpoint measured by each Assay SHOULD be annotated with the corresponding
 # AOP-Wiki Key Event, referenced via schema:mentions.

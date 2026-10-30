@@ -1,8 +1,10 @@
 # ISA-Tox RO-Crate Profile
 
-* Version: 0.1.0-draft.1
+* Version: 1.0.0
 * Permalink: <https://w3id.org/ro/crate/isa-tox/1.0>
-* Profile of: [ISA RO-Crate Profile](isa.md) (<https://w3id.org/ro/crate/isa/1.0>)
+* Published at: <https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/>
+* Licence: this text [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the SHACL shapes MIT
+* Profile of: [ISA RO-Crate Profile](isa.md) (<https://github.com/nfdi4plants/isa-ro-crate-profile>)
 * Authors
   * Jente Houweling - https://orcid.org/0009-0005-3680-0645
 * **Table of contents**
@@ -416,6 +418,6 @@ the record is `isBasedOn`, so one document can serve several steps, each record 
 
 ## Example ro-crate-metadata.json
 
-A worked example crate is planned but not yet provided. A crate built by the reference builder types each step by
-its protocol record's `intendedUse` and each test-system source by its `sampleType`, as described above,
-and is validated in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).
+Crates conforming to this profile are published at <https://github.com/johannehouweling/crates>. Each types
+every step by its protocol record's `intendedUse` and every test-system source by its `sampleType`, as
+described above, and is validated in three passes (base RO-Crate 1.2 → ISA → ISA-Tox).

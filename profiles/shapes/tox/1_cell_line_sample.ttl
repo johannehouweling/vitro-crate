@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # CellLineSample — the test-system source (biological model module).
 # A bioschemas:Sample typed by its sampleType: NCIT:C16403 cell line or EFO:0002660
 # primary cell (#799). The additionalType labels "CellLine" and "PrimaryCell" older

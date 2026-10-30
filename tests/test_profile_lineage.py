@@ -22,6 +22,9 @@ TOX_PROFILE = (
     / "tox"
     / "profile.ttl"
 )
+SHAPES_DIR = TOX_PROFILE.parent
+SPDX_MIT = "# SPDX-License-Identifier: MIT"
+SPEC = TOX_PROFILE.parents[2] / "docs" / "isa_tox.md"
 
 
 def _crate_base_versions(ttl_text: str) -> set[str]:
@@ -107,3 +110,20 @@ def test_tier_capability_matches_the_severities_the_shapes_declare():
     assert tiers_defined("base") == {"required", "recommended", "optional"}
     assert tiers_defined("isa") == {"required", "recommended"}
     assert tiers_defined("tox") == {"required", "recommended"}
+
+
+def test_every_shape_file_states_its_licence():
+    """The shapes ship MIT while the spec text ships CC BY 4.0 (#856).
+
+    The split is only discoverable if each file says so; the Profile Crate
+    reads nothing from here, so nothing else would catch a missing header.
+    """
+    missing = [
+        p.name for p in sorted(SHAPES_DIR.glob("*.ttl")) if SPDX_MIT not in p.read_text()
+    ]
+    assert missing == [], f"no SPDX header: {missing}"
+
+
+def test_the_profile_declares_the_release_version():
+    assert 'dct:hasVersion "1.0.0"' in TOX_PROFILE.read_text()
+    assert "* Version: 1.0.0" in SPEC.read_text()

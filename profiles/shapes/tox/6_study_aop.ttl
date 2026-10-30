@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Study AOP annotation (SHOULD).
 # Each Study SHOULD situate its biology within the Adverse Outcome Pathway
 # framework by referencing a linked AOP (AOP-Wiki) via schema:mentions.

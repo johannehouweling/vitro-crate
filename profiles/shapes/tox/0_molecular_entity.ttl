@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # MolecularEntity — the test/control chemical (material module).
 # Keyed directly by @type bioschemas:MolecularEntity (no additionalType
 # discriminator); chemicals are MolecularEntity, not ChemicalSubstance/Sample.
