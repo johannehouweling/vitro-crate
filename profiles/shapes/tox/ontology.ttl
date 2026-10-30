@@ -46,6 +46,18 @@ tox:TestSystemSource rdf:type owl:Class ;
     rdfs:comment "The cells a test system preparation starts from, whatever they state" ;
     rdfs:label "TestSystemSource"@en .
 
+# The test system itself: a bioschemas:Sample whose sampleType is OBI:0001876 cell culture.
+tox:CulturedSample rdf:type owl:Class ;
+    rdfs:subClassOf isa-ro-crate:Sample ;
+    rdfs:comment "The test system a preparation produces, and the exposed test system derived from it" ;
+    rdfs:label "CulturedSample"@en .
+
+# A test system grown from several sources: sampleType is NCIT:C93168 co-culture.
+tox:CoCultureSample rdf:type owl:Class ;
+    rdfs:subClassOf isa-ro-crate:Sample ;
+    rdfs:comment "A test system grown from two or more sources" ;
+    rdfs:label "CoCultureSample"@en .
+
 # The test system preparation types (#785): a published DefinedTermSet, not a class.
 # A step whose protocol record's intendedUse is one of its terms, stated in the crate
 # with inDefinedTermSet, is a test system preparation. The builder writes the same

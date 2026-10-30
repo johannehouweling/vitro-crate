@@ -11,9 +11,12 @@
   * [Overview](#overview)
   * [Conformance](#conformance)
   * [Requirements](#requirements)
-    * [MolecularEntity - Chemical](#molecularentity---chemical)
-    * [Sample - Cell-based Test System](#sample---cell-based-test-system)
+    * [MolecularEntity - Test and Control Chemicals](#molecularentity---test-and-control-chemicals)
+    * [Sample - Source Cells](#sample---source-cells)
+    * [Sample - Cell Line](#sample---cell-line)
     * [Sample - Primary Cells](#sample---primary-cells)
+    * [Sample - Test System](#sample---test-system)
+    * [Sample - Co-Culture](#sample---co-culture)
     * [LabProcess - Test System Preparation](#labprocess---test-system-preparation)
     * [LabProcess - Exposure](#labprocess---exposure)
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
@@ -183,7 +186,7 @@ is not toxicology if nothing is exposed to a chemical (#781). The check targets 
 Data Entity, so it holds even for a crate that contains nothing else. Each Exposure's
 protocol then names its compounds (see [LabProcess - Exposure](#labprocess---exposure)).
 
-### MolecularEntity - Chemical
+### MolecularEntity - Test and Control Chemicals
 
 The test and control chemicals are modelled as [bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)
 instances (rather than the broader `ChemicalSubstance`), so a resolvable identifier and structure make the compound
@@ -202,21 +205,35 @@ machine-actionable. Concentration is **not** a property of the compound — it i
 |molecularFormula|MAY|Text|The molecular formula.|
 |url|MAY|URL|Link to an external record, e.g. PubChem, ChEBI or CompoundWiki.|
 
-### Sample - Cell-based Test System
+### Sample - Source Cells
 
 Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample) type ([ISA Sample](isa.md#sample)).
-The source of the cell-based test system is a single Sample carrying a categorical annotation via `sampleType`
-(a [DefinedTerm](isa.md#definedterm)). A cell line also carries a cell-line identity via `identifier` resolved to a
-Cellosaurus accession; primary cells are described in [Sample - Primary Cells](#sample---primary-cells). It is
-typed by its `sampleType`; cultured and exposed cells carry "cell culture" instead, so these shapes do not constrain them.
-A Sample a test system preparation consumes is a source whatever it states, so one with no `sampleType` is still
-reported. The labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases.
+The cells a [Test System Preparation](#labprocess---test-system-preparation) starts from. One Sample carries a
+categorical annotation via `sampleType` (a [DefinedTerm](isa.md#definedterm)) saying what kind of source it is:
+a [Cell Line](#sample---cell-line) or [Primary Cells](#sample---primary-cells), each adding requirements of its own.
+A Sample a preparation consumes is a source whatever it states, so one with no `sampleType` is still reported. The
+labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases. What a preparation
+*produces* is a [Test System](#sample---test-system), not a source.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name, e.g. the cell-line name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
-|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the test system as a fixed, resolvable ontology term (its `@id` dereferences to the term), e.g. "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403). It SHOULD be cell line, primary cell, co-culture (NCIT:C93168) or cell culture (OBI:0001876).|
+|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the source as a fixed, resolvable ontology term (its `@id` dereferences to the term), e.g. "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403). It SHOULD be cell line, primary cell, co-culture (NCIT:C93168) or cell culture (OBI:0001876).|
+|name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
+|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
+
+### Sample - Cell Line
+
+A [Source Cells](#sample---source-cells) Sample whose `sampleType` is "cell line"
+→ [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403): an immortalized line, identified by its Cellosaurus
+accession. Cultured and exposed cells carry "cell culture" instead, so these requirements do not constrain them.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|Could be the unique sample name, e.g. the cell-line name.|
+|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
@@ -224,10 +241,10 @@ reported. The labels `"CellLine"` / `"PrimaryCell"` older crates carry in `addit
 
 ### Sample - Primary Cells
 
-Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample) type ([ISA Sample](isa.md#sample)).
-Primary cells are taken directly from donor tissue and are not immortalized. Cellosaurus holds no record for them and
-assigns them no RRID ([FAQ Q19](https://www.cellosaurus.org/faq)), so the source is described by the species and the
-cell type it was isolated as instead.
+A [Source Cells](#sample---source-cells) Sample whose `sampleType` is "primary cell". Primary cells are taken
+directly from donor tissue and are not immortalized. Cellosaurus holds no record for them and assigns them no RRID
+([FAQ Q19](https://www.cellosaurus.org/faq)), so the source is described by the species and the cell type it was
+isolated as instead.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -245,7 +262,7 @@ cell type it was isolated as instead.
 | name | Required | propertyID |
 |------|----------|------------|
 |cell type|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000324` (value e.g. a CL term)|
-|Organ, Tissue|SHOULD|`https://w3id.org/ro/crate/isa-tox/1.0/param/organ`, `https://w3id.org/ro/crate/isa-tox/1.0/param/tissue`|
+|Organ, Tissue|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000062`, `http://purl.obolibrary.org/obo/UBERON_0000479` (value e.g. an UBERON term)|
 |supplier, catalogue number, lot number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C90473`, `http://purl.obolibrary.org/obo/NCIT_C99286`, `http://purl.obolibrary.org/obo/NCIT_C70848`; the lot, not the catalogue number, fixes the donor|
 |donor code, number of donors|SHOULD|—|
 |donor sex, age, health status|MAY|`http://purl.obolibrary.org/obo/PATO_0000047`, `http://www.ebi.ac.uk/efo/EFO_0000246`, —; age as a reported band, never a birth date|
@@ -254,8 +271,45 @@ Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, n
 
 **Modelling rules.**
 
-- A donor pool is **one** `PrimaryCell` Sample carrying the number of donors.
+- A donor pool is **one** primary-cell Sample carrying the number of donors.
 - Donors cultured separately are one Sample each.
+
+### Sample - Test System
+
+The material a [Test System Preparation](#labprocess---test-system-preparation) produces: cultured cells, derived
+from the [Source Cells](#sample---source-cells) they were grown from. Its `sampleType` is "cell culture"
+→ [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The exposed test system an
+[Exposure](#labprocess---exposure) produces is one of these too, derived from the test system it was grown from, so
+the chain of `isBasedOn` links runs back from the exposed material to the source cells.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|Could be the unique sample name.|
+|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
+|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number, confluence or culture conditions.|
+|sampleType|MAY|[schema.org/DefinedTerm](isa.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
+|isBasedOn|MAY|[Sample](isa.md#sample)|The material this one was grown from; see the modelling rule below.|
+
+**Modelling rules.**
+
+- A test system derives from **at most one** parent Sample. Culture each source separately, or type material grown
+  from several sources as a [Co-Culture](#sample---co-culture).
+
+### Sample - Co-Culture
+
+A test system grown from two or more sources, `sampleType` "co-culture"
+→ [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). One source grown alone is a
+[Test System](#sample---test-system), not a co-culture.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|Could be the unique sample name.|
+|@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
+|name|MUST|Text|A name identifying the material, e.g. "hepatocyte / Kupffer co-culture".|
+|isBasedOn|MUST|[Sample](isa.md#sample)|The two or more Samples this material was grown from.|
+|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. the seeding ratio.|
+|sampleType|MAY|[schema.org/DefinedTerm](isa.md#definedterm)|"co-culture" → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). The term is what makes the Sample a co-culture: without it these requirements do not apply to it.|
 
 ### LabProcess - Test System Preparation
 
