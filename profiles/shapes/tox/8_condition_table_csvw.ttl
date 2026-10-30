@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Condition-table CSVW typing (SHOULD).
 # The Exposure's condition table SHOULD be CSV-on-the-Web typed so each column
 # carries a datatype and an ontology propertyUrl (machine-actionable, and the

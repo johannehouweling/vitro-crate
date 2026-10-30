@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # ISA-Tox RO-Crate Profile — ontology of validation-internal discriminated types.
 #
 # These tox: classes exist ONLY in the validation graph. They are inferred by the

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # PubMedID PropertyValue (folded ISA extra).
 # A PropertyValue named "PubMedID" MUST pin its propertyID to the OBI PubMed
 # identifier term.

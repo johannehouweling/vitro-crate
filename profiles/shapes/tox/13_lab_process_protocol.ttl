@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Every ISA-Tox LabProcess executes one LabProtocol: its protocol record, which
 # carries the step's protocol type (intendedUse) and is based on the documents the
 # deposit holds for the step (#783, #799). Bioschemas LabProcess and ISA-JSON both

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # DOI PropertyValue (folded ISA extra).
 # A PropertyValue named "DOI" MUST pin its propertyID to the OBI DOI term, so the
 # identifier scheme is machine-resolvable rather than a bare string.

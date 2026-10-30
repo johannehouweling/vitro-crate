@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Cultured and co-cultured material — how many source Samples a Sample may come from.
 #
 # A preparation step of several lines emitting ONE Sample asserts the lines were mixed.

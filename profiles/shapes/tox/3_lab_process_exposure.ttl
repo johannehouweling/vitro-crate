@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # LabProcessExposure — exposure process (exposure module).
 # A bioschemas:LabProcess whose protocol record's intendedUse is EFO:0003969 treatment
 # protocol (#799); the additionalType label "Exposure" older crates carry is an alias. Takes the

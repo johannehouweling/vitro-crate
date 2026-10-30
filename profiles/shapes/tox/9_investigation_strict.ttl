@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Investigation strict descriptors (folded ISA extra).
 # The bundled isa-ro-crate profile leaves name/description/license/datePublished
 # on the root Investigation as commented-out (optional). The ISA-Tox profile
