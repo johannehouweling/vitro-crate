@@ -22,6 +22,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import markdown
 from rocrate.model import ContextEntity, Person
 from rocrate.rocrate import ROCrate
 
@@ -62,25 +63,46 @@ KEYWORDS = [
 ]
 
 
-FRONT_MATTER = f"---\ntitle: {NAME}\n---\n\n"
+_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+:root {{ color-scheme: light dark; }}
+body {{ max-width: 54rem; margin: 2rem auto; padding: 0 1rem;
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
+th, td {{ border: 1px solid #8884; padding: .35rem .6rem; text-align: left;
+  vertical-align: top; font-size: .92em; }}
+code, pre {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
+pre {{ overflow-x: auto; padding: .75rem; background: #8881; border-radius: 4px; }}
+/* The figure is drawn for paper: dark text on light fills, so it keeps a light
+   surface in both themes rather than vanishing against a dark background. */
+img {{ display: block; max-width: 100%; margin: 1.25rem auto; background: #fff;
+  padding: 1rem; border-radius: 6px; }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
 
 
-def _jekyll_page() -> str:
-    """The specification Markdown, front-matter'd for GitHub Pages.
+def _render_spec() -> str:
+    """Render ``isa_tox.md`` to a standalone page.
 
-    The published profiles serve their specification this way — Markdown in
-    the repository, rendered by the Jekyll build GitHub Pages runs, with a
-    supported theme and no stylesheet of their own (the RO-Crate team's own
-    Workflow Run Crate profiles and our parent ISA profile both use
-    `jekyll-theme-slate`, set in the profile repository's `_config.yml`).
-    The front matter names the page: GitHub Pages bundles
-    `jekyll-optional-front-matter`, so the file renders without it, but then
-    the theme titles the page from its filename.
-
-    The spec's one figure is referenced relatively and resolves both on GitHub
-    and under the rendered page, where :func:`build` writes it alongside.
+    The spec's one figure is referenced relatively, so it resolves both on
+    GitHub and in the crate, where :func:`build` writes it to the same path.
+    GitHub Pages serves the result as-is (``.nojekyll``).
     """
-    return FRONT_MATTER + SPEC.read_text(encoding="utf-8")
+    body = markdown.markdown(
+        SPEC.read_text(encoding="utf-8"),
+        extensions=["tables", "fenced_code", "toc", "attr_list"],
+    )
+    return _PAGE.format(title=NAME, body=body)
 
 
 def build(out: Path) -> dict:
@@ -126,28 +148,13 @@ def build(out: Path) -> dict:
     # Staged outside ``out``: ``crate.write()`` copies every file entity to its
     # destination, and copying a file onto itself raises ``shutil.SameFileError``.
     with tempfile.TemporaryDirectory() as tmp:
-        staged = Path(tmp) / "index.md"
-        staged.write_text(_jekyll_page(), encoding="utf-8")
-        crate.add_file(
+        staged = Path(tmp) / "index.html"
+        staged.write_text(_render_spec(), encoding="utf-8")
+        spec = crate.add_file(
             staged,
-            dest_path="index.md",
+            dest_path="index.html",
             properties={
                 "name": f"{NAME} — specification",
-                "encodingFormat": "text/markdown",
-                "about": {"@id": "./"},
-                "license": {"@id": CC_BY},
-            },
-        )
-        # The readable specification is the page Jekyll renders from that
-        # Markdown, which exists only once published — so it is named by its
-        # absolute URI. A relative ``index.html`` would be a data entity no
-        # copy of this crate, the Zenodo archive included, actually contains.
-        page = crate.add_file(
-            PAGES,
-            fetch_remote=False,
-            validate_url=False,
-            properties={
-                "name": f"{NAME} — specification (rendered)",
                 "encodingFormat": "text/html",
                 "about": {"@id": "./"},
                 "license": {"@id": CC_BY},
@@ -161,7 +168,7 @@ def build(out: Path) -> dict:
                     "@type": "ResourceDescriptor",
                     "name": "Profile specification",
                     "hasRole": {"@id": f"{ROLE}specification"},
-                    "hasArtifact": {"@id": page.id},
+                    "hasArtifact": {"@id": spec.id},
                 },
             )
         )
@@ -220,6 +227,9 @@ def build(out: Path) -> dict:
         out.mkdir(parents=True, exist_ok=True)
         crate.write(out)
 
+    # After the write: ro-crate-py walks ``out`` while writing, so nothing
+    # unlisted goes in before it.
+    (out / ".nojekyll").write_text("", encoding="utf-8")
     doc = _as_profile_crate(crate.metadata.generate())
     (out / "ro-crate-metadata.json").write_text(
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
