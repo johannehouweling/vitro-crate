@@ -18,9 +18,7 @@ portal's own CI runs.
 from __future__ import annotations
 
 import argparse
-import html as html_mod
 import json
-import re
 import tempfile
 from pathlib import Path
 
@@ -30,6 +28,7 @@ from rocrate.rocrate import ROCrate
 
 REPO = Path(__file__).resolve().parents[1]
 SPEC = REPO / "profiles" / "docs" / "isa_tox.md"
+FIGURE = REPO / "profiles" / "docs" / "figures" / "isa-tox-model.svg"
 SHAPES_DIR = REPO / "profiles" / "shapes" / "tox"
 
 PROFILE_IRI = "https://w3id.org/ro/crate/isa-tox/1.0"
@@ -49,10 +48,6 @@ DESCRIPTION = (
 )
 
 
-_MERMAID_FENCE = re.compile(
-    r'<pre><code class="language-mermaid">(.*?)</code></pre>', re.DOTALL
-)
-
 _PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -68,14 +63,14 @@ th, td {{ border: 1px solid #8884; padding: .35rem .6rem; text-align: left;
   vertical-align: top; font-size: .92em; }}
 code, pre {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
 pre {{ overflow-x: auto; padding: .75rem; background: #8881; border-radius: 4px; }}
+/* The figure is drawn for paper: dark text on light fills, so it keeps a light
+   surface in both themes rather than vanishing against a dark background. */
+img {{ display: block; max-width: 100%; margin: 1.25rem auto; background: #fff;
+  padding: 1rem; border-radius: 6px; }}
 </style>
 </head>
 <body>
 {body}
-<script type="module">
-import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
-mermaid.initialize({{ startOnLoad: true }});
-</script>
 </body>
 </html>
 """
@@ -84,16 +79,13 @@ mermaid.initialize({{ startOnLoad: true }});
 def _render_spec() -> str:
     """Render ``isa_tox.md`` to a standalone page.
 
-    python-markdown emits Mermaid fences as ``<pre><code>``; Mermaid needs
-    ``<div class="mermaid">`` holding the unescaped source, so the fences are
-    rewritten. GitHub Pages serves the result as-is (``.nojekyll``).
+    The spec's one figure is referenced relatively, so it resolves both on
+    GitHub and in the crate, where :func:`build` writes it to the same path.
+    GitHub Pages serves the result as-is (``.nojekyll``).
     """
     body = markdown.markdown(
         SPEC.read_text(encoding="utf-8"),
         extensions=["tables", "fenced_code", "toc", "attr_list"],
-    )
-    body = _MERMAID_FENCE.sub(
-        lambda m: f'<div class="mermaid">{html_mod.unescape(m.group(1))}</div>', body
     )
     return _PAGE.format(title=NAME, body=body)
 
@@ -196,6 +188,15 @@ def build(out: Path) -> dict:
                     "hasArtifact": {"@id": "shapes/ontology.ttl"},
                 },
             )
+        )
+        crate.add_file(
+            FIGURE,
+            dest_path=f"figures/{FIGURE.name}",
+            properties={
+                "name": "The ISA-Tox model of an in vitro NAM study",
+                "encodingFormat": "image/svg+xml",
+                "license": {"@id": CC_BY},
+            },
         )
         root["hasResource"] = [
             {"@id": "#spec"},

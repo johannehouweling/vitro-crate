@@ -46,11 +46,11 @@ _BIOSCHEMAS = Namespace("https://bioschemas.org/")
 # ISA shapes that enforce them.
 _SECTION_CLASSES: dict[str, URIRef] = {
     "MolecularEntity - Test and Control Chemicals": _BIOSCHEMAS.MolecularEntity,
-    "Sample - Test System": _TOX.TestSystemSource,
-    "Sample - Test System: Cell Line": _TOX.CellLineSample,
-    "Sample - Test System: Primary Cells": _TOX.PrimaryCellSample,
-    "Sample - Cultured and Exposed Test System": _TOX.CulturedSample,
-    "Sample - Co-Culture": _TOX.CoCultureSample,
+    "Sample - Source Cells": _TOX.TestSystemSource,
+    "Source Cells - Cell Line": _TOX.CellLineSample,
+    "Source Cells - Primary Cells": _TOX.PrimaryCellSample,
+    "Sample - Test System": _TOX.CulturedSample,
+    "Test System - Co-Culture": _TOX.CoCultureSample,
     "Study - Adverse Outcome Pathway": _ISA.Study,
     "Assay - Key Event": _ISA.Assay,
     "LabProcess - Test System Preparation": _TOX.LabProcessTestSystemPreparation,
@@ -67,7 +67,9 @@ _LABPROCESS_ALIAS = {"additionalProperty": "parameterValue"}
 
 _LEVEL_OF_SEVERITY = {SH.Violation: "MUST", SH.Warning: "SHOULD"}
 
-_SECTION_RE = re.compile(r"^### (.+?)\n(.*?)(?=^#{2,3} |\Z)", re.M | re.S)
+# `####` sub-sections carry their own tables (the source-cell kinds, co-culture),
+# so they are parsed as sections in their own right and terminate their parent.
+_SECTION_RE = re.compile(r"^#{3,4} (.+?)\n(.*?)(?=^#{2,4} |\Z)", re.M | re.S)
 _ROW_RE = re.compile(r"^\|([A-Za-z]+)\|(MUST|SHOULD|MAY)\|", re.M)
 
 

@@ -116,9 +116,9 @@ class TestTheSpecDocument:
         html = (tmp_path / "index.html").read_text(encoding="utf-8")
         # The `toc` extension adds an anchor id to every heading.
         assert '<h1 id="isa-tox-ro-crate-profile">ISA-Tox RO-Crate Profile</h1>' in html
-        assert '<div class="mermaid">' in html, "mermaid fence was not converted"
-        assert "flowchart TD" in html
-        assert "mermaid@10.9.1" in html
+        assert 'src="figures/isa-tox-model.svg"' in html, "the model figure is not referenced"
+        assert (tmp_path / "figures" / "isa-tox-model.svg").exists(), "figure not in the crate"
+        assert "mermaid" not in html, "the mermaid summary was replaced by the figure"
         # The requirement tables are the substance of the profile.
         assert "<table>" in html
 
