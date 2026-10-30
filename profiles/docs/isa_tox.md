@@ -47,7 +47,6 @@ ontology term: a step by the protocol type of the record it executes, a test-sys
 or organ fragment, a sub-cellular fraction — of which cell lines and primary cells carry requirements of their own
 here; and the experimental workflow is a chain of
 [LabProcess](isa.md#labprocess) steps discriminated as `TestSystemPreparation`, `Exposure`, `EndpointReadout`, and `DataAnalysis`.
-No new RDF types are introduced, and no change to the base RO-Crate specification or the ISA profile is required.
 
 Requirement levels use [RFC 2119](https://tools.ietf.org/html/rfc2119) keywords, as recommended by the RO-Crate 1.2
 profile conventions: MUST (required for conformance), SHOULD (recommended; absence is reported as a warning), and
