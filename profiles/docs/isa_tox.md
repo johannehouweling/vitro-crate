@@ -309,19 +309,21 @@ isolated as instead.
 |identifier|MAY|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|A BioSamples accession, if the material was deposited. There is no Cellosaurus entry or RRID.|
 
 **Expected `additionalProperty` items.** Each is a Characteristic [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic)
-(`additionalType` `"CharacteristicValue"`). Only the cell type is checked by a shape.
+(`additionalType` `"CharacteristicValue"`). Only the cell type is checked by a shape. A donor's sex is the
+BioSample `sex` property in the table above, not a characteristic.
 
 | name | Required | propertyID | Notes |
 |------|----------|------------|-------|
-|cell type|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000324`|Value e.g. a CL term. The only item a shape checks.|
-|Organ|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000062`|Value e.g. an UBERON term.|
-|Tissue|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000479`|Value e.g. an UBERON term.|
+|cell type|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000324`|Value e.g. a CL term. The only item a shape checks. Also statable as `cellType`.|
+|Organ|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000062`|Value e.g. an UBERON term. Also statable as `anatomicalStructure`.|
+|Tissue|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000479`|Value e.g. an UBERON term. Also statable as `anatomicalStructure`.|
+|passage|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0007061`|The passage number the material was used at.|
+|growth|SHOULD|`http://www.bioassayontology.org/bao#BAO_0002648`|The growth or culture conditions.|
 |supplier|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C90473`||
 |catalogue number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C99286`||
 |lot number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C70848`|The lot, not the catalogue number, fixes the donor.|
 |donor code|SHOULD|—||
 |number of donors|SHOULD|—||
-|donor sex|MAY|`http://purl.obolibrary.org/obo/PATO_0000047`||
 |donor age|MAY|`http://www.ebi.ac.uk/efo/EFO_0000246`|A reported band, never a birth date.|
 |donor health status|MAY|—||
 
