@@ -199,19 +199,22 @@ AOP-Wiki IRI (`https://aopwiki.org/aops/<id>`), typed `AdverseOutcomePathway`
 — Key Events and their `KeyEventRelationship` nodes, cross-linked by `upstream_event` / `downstream_event` — so the
 pathway reads without a network call.
 
+The rows below are the [ISA Study](isa.md#study)'s own, repeated so this profile's requirement levels can be read
+in one place; `mentions` is this profile's addition. `additionalType` MUST carry 'Study', as the ISA profile requires.
+
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|The study identifier, e.g. a directory name.|
-|@type|MUST|Text|MUST be '[Study](isa.md#study)'|
-|name|MUST|Text|The study title.|
-|identifier|MUST|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The study identifier.|
+|@id|MUST|Text or URL|Should be a subdirectory corresponding to this study.|
+|@type|MUST|Text|MUST be '[schema.org/Dataset](https://schema.org/Dataset)'|
+|identifier|MUST|Text or URL|Identifying descriptor of the study.|
+|name|MUST|Text|A title of the study.|
 |mentions|SHOULD|[DefinedTerm](isa.md#definedterm)|The Adverse Outcome Pathway the study addresses, as its AOP-Wiki node.|
-|description|SHOULD|Text|What the study set out to find.|
-|about|SHOULD|[schema.org/Thing](isa.md#study)|What the study is about.|
-|creator|SHOULD|[Person](isa.md#person) or [Organization](isa.md#organization)|Who ran the study.|
-|dateCreated|SHOULD|Date or DateTime|When the study was created.|
-|datePublished|SHOULD|Date or DateTime|When the study was published.|
-|hasPart|SHOULD|[Assay](isa.md#assay)|The assays the study comprises.|
+|about|SHOULD|[bioschemas.org/LabProcess](isa.md#labprocess)|The experimental processes performed in this study.|
+|creator|SHOULD|[schema.org/Person](isa.md#person)|The performer of the study.|
+|dateCreated|SHOULD|DateTime|When the Study was created.|
+|datePublished|SHOULD|DateTime|When the Study was published.|
+|description|SHOULD|Text|A short description of the study (e.g. an abstract).|
+|hasPart|SHOULD|[schema.org/Dataset](https://schema.org/Dataset) ([Assay](isa.md#assay)) or [File](isa.md#file)|Assays contained in this study or actual data files resulting from the process sequence.|
 
 ### Assay - Key Event
 
@@ -221,19 +224,22 @@ each assay covers. The referenced node is the AOP-Wiki Key Event itself: `@id` i
 (`https://aopwiki.org/events/<id>`), typed `KeyEvent` ([AOPO](http://aopkb.org/aop_ontology#KeyEvent)) and
 [DefinedTerm](isa.md#definedterm).
 
+The rows below are the [ISA Assay](isa.md#assay)'s own, repeated so this profile's requirement levels can be read
+in one place; `mentions` is this profile's addition. `additionalType` MUST carry 'Assay', as the ISA profile requires.
+
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|The assay identifier, e.g. a directory name.|
-|@type|MUST|Text|MUST be '[Assay](isa.md#assay)'|
-|identifier|MUST|Text, URL or [schema.org/PropertyValue](isa.md#propertyvalue)|The assay identifier.|
-|name|SHOULD|Text|The assay title.|
+|@id|MUST|Text or URL|Should be a subdirectory corresponding to this assay.|
+|@type|MUST|Text|MUST be '[schema.org/Dataset](https://schema.org/Dataset)'|
+|identifier|MUST|Text or URL|Identifying descriptor of the assay.|
 |mentions|SHOULD|[DefinedTerm](isa.md#definedterm)|The Key Event this assay's endpoint reads out, as its AOP-Wiki node.|
-|description|SHOULD|Text|What the assay measures.|
-|about|SHOULD|[schema.org/Thing](isa.md#assay)|What the assay is about.|
-|creator|SHOULD|[Person](isa.md#person) or [Organization](isa.md#organization)|Who ran the assay.|
-|measurementMethod|SHOULD|Text, URL or [DefinedTerm](isa.md#definedterm)|The method the endpoint was measured with.|
-|measurementTechnique|SHOULD|Text, URL or [DefinedTerm](isa.md#definedterm)|The technique the endpoint was measured with.|
-|hasPart|SHOULD|[File](isa.md#file) or [LabProcess](isa.md#labprocess)|The steps and files the assay comprises.|
+|name|SHOULD|Text|A title of the assay.|
+|description|SHOULD|Text|A short description of the assay (e.g. an abstract).|
+|about|SHOULD|[bioschemas.org/LabProcess](isa.md#labprocess)|The experimental processes performed in this assay.|
+|creator|SHOULD|[schema.org/Person](isa.md#person)|The performer of the experiments.|
+|hasPart|SHOULD|[File](isa.md#file)|The data files resulting from the process sequence. MUST not be used to directly point to data fragments.|
+|measurementMethod|SHOULD|URL or [schema.org/DefinedTerm](isa.md#definedterm)|Describes the type measurement e.g Complexomics or Transcriptomics as an ontology term.|
+|measurementTechnique|SHOULD|URL or [schema.org/DefinedTerm](isa.md#definedterm)|Describes the type of technology used to take the measurement, e.g mass spectrometry or deep sequencing.|
 
 ### MolecularEntity - Test and Control Chemicals
 
@@ -319,7 +325,7 @@ isolated as instead.
 |catalogue number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C99286`||
 |lot number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C70848`|The lot, not the catalogue number, fixes the donor.|
 |donor code|SHOULD|—||
-|number of donors|SHOULD|—|One Sample per donor pool; see the modelling rules below.|
+|number of donors|SHOULD|—||
 |donor sex|MAY|`http://purl.obolibrary.org/obo/PATO_0000047`||
 |donor age|MAY|`http://www.ebi.ac.uk/efo/EFO_0000246`|A reported band, never a birth date.|
 |donor health status|MAY|—||
@@ -345,7 +351,7 @@ the chain of `isBasedOn` links runs back from the exposed material to the source
 |@id|MUST|Text or URL|Could be the unique sample name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
 |name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
-|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number, confluence or culture conditions.|
+|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](isa.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
 |isBasedOn|MAY|[Sample](isa.md#sample)|The material this one was grown from; see the modelling rule below.|
 
@@ -366,7 +372,7 @@ A cultured test system grown from two or more test systems, `sampleType` "co-cul
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
 |name|MUST|Text|A name identifying the material, e.g. "hepatocyte / Kupffer co-culture".|
 |isBasedOn|MUST|[Sample](isa.md#sample)|The two or more Samples this material was grown from.|
-|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. the seeding ratio.|
+|additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](isa.md#definedterm)|"co-culture" → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). The term is what makes the Sample a co-culture: without it these requirements do not apply to it.|
 
 ### LabProcess - Test System Preparation
