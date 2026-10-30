@@ -14,11 +14,12 @@
     * [Study - Adverse Outcome Pathway](#study---adverse-outcome-pathway)
     * [Assay - Key Event](#assay---key-event)
     * [MolecularEntity - Test and Control Chemicals](#molecularentity---test-and-control-chemicals)
+    * [Sample - Source Cells](#sample---source-cells)
+      * [Source Cells - Cell Line](#source-cells---cell-line)
+      * [Source Cells - Primary Cells](#source-cells---primary-cells)
     * [Sample - Test System](#sample---test-system)
-    * [Sample - Test System: Cell Line](#sample---test-system-cell-line)
-    * [Sample - Test System: Primary Cells](#sample---test-system-primary-cells)
-    * [Sample - Cultured and Exposed Test System](#sample---cultured-and-exposed-test-system)
-    * [Sample - Co-Culture](#sample---co-culture)
+      * [Test System - Co-Culture](#test-system---co-culture)
+    * [Sample - Exposed Test System](#sample---exposed-test-system)
     * [LabProcess - Test System Preparation](#labprocess---test-system-preparation)
     * [LabProcess - Exposure](#labprocess---exposure)
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
@@ -51,52 +52,13 @@ Requirement levels use [RFC 2119](https://tools.ietf.org/html/rfc2119) keywords,
 profile conventions: MUST (required for conformance), SHOULD (recommended; absence is reported as a warning), and
 MAY (optional). The shapes are open-world: a property this profile does not name is neither checked nor
 forbidden (no shape declares `sh:closed`), so a crate may carry further metadata without affecting conformance.
-The following graph summarises the *in vitro* toxicology workflow in terms of the profile's entity types.
+The figure below is the model of an *in vitro* NAM study in terms of this profile's entity types: box colour gives
+the type, line style the relationship. Each material is a Bioschemas `Sample`, each step a `LabProcess` following a
+`LabProtocol`, and the chemicals a `MolecularEntity`.
 
-```mermaid
-
-flowchart TD
-
-dataset[Investigation/Study/Assay=Dataset]
-
-Process[LabProcess]
-
-Protocol[Protocol=LabProtocol]
-
-BioSample[Source/Sample/Material=Sample]
-
-Mol[Chemical=MolecularEntity]
-
-DataFile[Data=File]
-
-ont[OntologyAnnotation=DefinedTerm]
-
-prop[ParameterValue=PropertyValue]
-
-dataset --hasPart--> dataset
-dataset --hasPart----> DataFile
-dataset --processSequence--> Process
-
-Process --"result"---> DataFile
-Process --"result"--> BioSample
-Process --"object"--> BioSample
-Process --"object"---> DataFile
-Process --executesLabProtocol--> Protocol
-Process --parameterValue---> prop
-
-BioSample --derivesFrom--> BioSample
-BioSample --sampleType--> ont
-BioSample --additionalProperty--> prop
-
-DataFile --about--> BioSample
-
-Protocol --intendedUse---> ont
-Protocol --labEquipment---> ont
-Protocol --reagent---> ont
-Protocol --reagent--> Mol
-Protocol --isBasedOn--> DataFile
-
-```
+![The ISA-Tox model of an in vitro NAM study: source cells are prepared into a test system, exposed, read out and
+analysed, each step following a protocol record and producing the next material or
+file.](figures/isa-tox-model.svg)
 
 > **How the reference builder encodes this.** The tables below give the canonical
 > property names and expected types (what the SHACL shapes check). The
@@ -199,6 +161,10 @@ AOP-Wiki IRI (`https://aopwiki.org/aops/<id>`), typed `AdverseOutcomePathway`
 — Key Events and their `KeyEventRelationship` nodes, cross-linked by `upstream_event` / `downstream_event` — so the
 pathway reads without a network call.
 
+The adverse outcome the study is ultimately about is reached through the pathway, via its `has_adverse_outcome`,
+rather than named again on the Study: an adverse outcome occurs in more than one pathway, so the pathway is the more
+specific statement and the one the assays' Key Events are steps of.
+
 The rows below are the [ISA Study](isa.md#study)'s own, repeated so this profile's requirement levels can be read
 in one place; `mentions` is this profile's addition. `additionalType` MUST carry 'Study', as the ISA profile requires.
 
@@ -260,35 +226,31 @@ machine-actionable. Concentration is **not** a property of the compound — it i
 |molecularFormula|MAY|Text|The molecular formula.|
 |url|MAY|URL|Link to an external record, e.g. PubChem, ChEBI or CompoundWiki.|
 
-### Sample - Test System
+### Sample - Source Cells
 
 Is based on the Bioschemas [bioschemas.org/Sample](https://bioschemas.org/Sample) type ([ISA Sample](isa.md#sample)).
-The biological system the study tests on, and what a
-[Test System Preparation](#labprocess---test-system-preparation) starts from — the sense IUCLID OHT 201 gives
-"test system". One Sample carries a categorical annotation via `sampleType` (a [DefinedTerm](isa.md#definedterm))
-saying which kind it is: a [Cell Line](#sample---test-system-cell-line) or
-[Primary Cells](#sample---test-system-primary-cells), each adding requirements of its own. A Sample a preparation
-consumes is a test system whatever it states, so one with no `sampleType` is still reported. The labels
-`"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases. What a preparation *produces* is
-a [cultured test system](#sample---cultured-and-exposed-test-system), not a test system in this sense.
+The cells a [Test System Preparation](#labprocess---test-system-preparation) starts from — the test system in the
+sense IUCLID OHT 201 gives it. One Sample carries a categorical annotation via `sampleType`
+(a [DefinedTerm](isa.md#definedterm)) saying which kind it is, and each kind adds requirements of its own below. A
+Sample a preparation consumes is source cells whatever it states, so one with no `sampleType` is still reported. The
+labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are aliases.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|Could be the unique sample name, e.g. the cell-line name.|
+|@id|MUST|Text or URL|Could be the unique sample name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
 |sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the source as a fixed, resolvable ontology term (its `@id` dereferences to the term), e.g. "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403). It SHOULD be cell line, primary cell, co-culture (NCIT:C93168) or cell culture (OBI:0001876).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 
-### Sample - Test System: Cell Line
+#### Source Cells - Cell Line
 
-A [Test System](#sample---test-system) Sample whose `sampleType` is "cell line"
-→ [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403): an immortalized line, identified by its Cellosaurus
-accession. Cultured and exposed cells carry "cell culture" instead, so these requirements do not constrain them.
+`sampleType` "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403): an immortalized line,
+identified by its Cellosaurus accession.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|Could be the unique sample name, e.g. the cell-line name.|
+|@id|MUST|Text or URL|Could be the unique sample name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
 |sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
@@ -296,10 +258,10 @@ accession. Cultured and exposed cells carry "cell culture" instead, so these req
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 |url|MAY|URL|Link to the [Cellosaurus](https://www.cellosaurus.org/) entry.|
 
-### Sample - Test System: Primary Cells
+#### Source Cells - Primary Cells
 
-A [Test System](#sample---test-system) Sample whose `sampleType` is "primary cell". Primary cells are taken
-directly from donor tissue and are not immortalized. Cellosaurus holds no record for them and assigns them no RRID
+`sampleType` "primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660). Primary cells are taken directly
+from donor tissue and are not immortalized. Cellosaurus holds no record for them and assigns them no RRID
 ([FAQ Q19](https://www.cellosaurus.org/faq)), so the source is described by the species and the cell type it was
 isolated as instead.
 
@@ -337,14 +299,11 @@ Donor consent or ethics approval MAY be stated at [Study](isa.md#study) level, n
 - A donor pool is **one** primary-cell Sample carrying the number of donors.
 - Donors cultured separately are one Sample each.
 
-### Sample - Cultured and Exposed Test System
+### Sample - Test System
 
 The material a [Test System Preparation](#labprocess---test-system-preparation) produces: cultured cells, derived
-from the [Test System](#sample---test-system) they were grown from. This is the "Test system" box of the model
-figure — the culture, not the cell line. Its `sampleType` is "cell culture"
-→ [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The exposed test system an
-[Exposure](#labprocess---exposure) produces is one of these too, derived from the test system it was grown from, so
-the chain of `isBasedOn` links runs back from the exposed material to the source cells.
+from the [Source Cells](#sample---source-cells) they were grown from. Its `sampleType` is "cell culture"
+→ [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876).
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -358,13 +317,12 @@ the chain of `isBasedOn` links runs back from the exposed material to the source
 **Modelling rules.**
 
 - A test system derives from **at most one** parent Sample. Culture each source separately, or type material grown
-  from several sources as a [Co-Culture](#sample---co-culture).
+  from several sources as a [co-culture](#test-system---co-culture).
 
-### Sample - Co-Culture
+#### Test System - Co-Culture
 
-A cultured test system grown from two or more test systems, `sampleType` "co-culture"
-→ [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). One source grown alone is a
-[cultured test system](#sample---cultured-and-exposed-test-system), not a co-culture.
+`sampleType` "co-culture" → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168): a test system grown from two
+or more source cells. One source grown alone is an ordinary test system, not a co-culture.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -374,6 +332,15 @@ A cultured test system grown from two or more test systems, `sampleType` "co-cul
 |isBasedOn|MUST|[Sample](isa.md#sample)|The two or more Samples this material was grown from.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
 |sampleType|MAY|[schema.org/DefinedTerm](isa.md#definedterm)|"co-culture" → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). The term is what makes the Sample a co-culture: without it these requirements do not apply to it.|
+
+### Sample - Exposed Test System
+
+The material an [Exposure](#labprocess---exposure) produces: the test system after the chemical was applied. It
+carries the same requirements as the [Test System](#sample---test-system) it derives from — same type, same
+`sampleType` "cell culture", `isBasedOn` the test system it was exposed from — so it has no table of its own. What
+makes it the exposed material is stated on the step, not on the Sample: an Exposure MUST have the test system as
+`schema:object` and the exposed material as `schema:result`. Following `isBasedOn` back from it therefore walks the
+whole chain: exposed test system → test system → source cells.
 
 ### LabProcess - Test System Preparation
 
