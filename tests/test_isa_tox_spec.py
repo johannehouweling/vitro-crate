@@ -46,10 +46,10 @@ _BIOSCHEMAS = Namespace("https://bioschemas.org/")
 # ISA shapes that enforce them.
 _SECTION_CLASSES: dict[str, URIRef] = {
     "MolecularEntity - Test and Control Chemicals": _BIOSCHEMAS.MolecularEntity,
-    "Sample - Source Cells": _TOX.TestSystemSource,
-    "Sample - Cell Line": _TOX.CellLineSample,
-    "Sample - Primary Cells": _TOX.PrimaryCellSample,
-    "Sample - Test System and Exposed Test System": _TOX.CulturedSample,
+    "Sample - Test System": _TOX.TestSystemSource,
+    "Sample - Test System: Cell Line": _TOX.CellLineSample,
+    "Sample - Test System: Primary Cells": _TOX.PrimaryCellSample,
+    "Sample - Cultured and Exposed Test System": _TOX.CulturedSample,
     "Sample - Co-Culture": _TOX.CoCultureSample,
     "Study - Adverse Outcome Pathway": _ISA.Study,
     "Assay - Key Event": _ISA.Assay,
