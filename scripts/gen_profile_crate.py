@@ -35,6 +35,8 @@ PROFILE_IRI = "https://w3id.org/ro/crate/isa-tox/1.0"
 VERSION = "1.0.0"
 DATE_PUBLISHED = "2026-10-30"
 PARENT_IRI = "https://github.com/nfdi4plants/isa-ro-crate-profile"
+RO_CRATE = "https://w3id.org/ro/crate/1.2"
+PAGES = "https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/"
 ORCID = "https://orcid.org/0009-0005-3680-0645"
 CC_BY = "https://creativecommons.org/licenses/by/4.0/"
 MIT = "https://opensource.org/licenses/MIT"
@@ -46,6 +48,19 @@ DESCRIPTION = (
     "ISA RO-Crate Profile: the entity types, ontology-backed properties and "
     "SHACL shapes needed to describe in vitro toxicology studies."
 )
+# The RO-Crate Profile Portal facets its listing on these, and keeps a
+# `scripts/gaps.ttl` of hand-written keywords for the profiles that ship none.
+KEYWORDS = [
+    "RO-Crate",
+    "in vitro toxicology",
+    "New Approach Methodology",
+    "ISA",
+    "SHACL",
+    "FAIR",
+    "Adverse Outcome Pathway",
+    "Bioschemas",
+    "toxicology",
+]
 
 
 _PAGE = """<!doctype html>
@@ -99,8 +114,15 @@ def build(out: Path) -> dict:
     root["version"] = VERSION
     root["datePublished"] = DATE_PUBLISHED
     root["license"] = {"@id": CC_BY}
-    root["isProfileOf"] = {"@id": PARENT_IRI}
+    root["keywords"] = KEYWORDS
+    # Most specific first. ISA-Tox layers on ISA, which layers on RO-Crate;
+    # peer Profile Crates all name the base specification, and the portal's
+    # listing roots its hierarchy there.
+    root["isProfileOf"] = [{"@id": PARENT_IRI}, {"@id": RO_CRATE}]
     root["identifier"] = PROFILE_IRI
+    # `identifier` is the permalink the profile is cited by; `url` is the
+    # address that serves it, which is what a reader can click today.
+    root["url"] = PAGES
     root["author"] = crate.add(
         Person(crate, ORCID, properties={"name": "Jente Houweling"})
     )
@@ -114,16 +136,14 @@ def build(out: Path) -> dict:
             crate, MIT, properties={"@type": "CreativeWork", "name": "MIT License"}
         )
     )
-    crate.add(
-        ContextEntity(
-            crate,
-            PARENT_IRI,
-            properties={
-                "@type": ["CreativeWork", "Profile"],
-                "name": "ISA RO-Crate Profile",
-            },
+    for iri, label in ((PARENT_IRI, "ISA RO-Crate Profile"), (RO_CRATE, "RO-Crate 1.2")):
+        crate.add(
+            ContextEntity(
+                crate,
+                iri,
+                properties={"@type": ["CreativeWork", "Profile"], "name": label},
+            )
         )
-    )
 
     # Staged outside ``out``: ``crate.write()`` copies every file entity to its
     # destination, and copying a file onto itself raises ``shutil.SameFileError``.
@@ -143,7 +163,7 @@ def build(out: Path) -> dict:
         crate.add(
             ContextEntity(
                 crate,
-                "#spec",
+                "#hasSpecification",
                 properties={
                     "@type": "ResourceDescriptor",
                     "name": "Profile specification",
@@ -168,7 +188,7 @@ def build(out: Path) -> dict:
         crate.add(
             ContextEntity(
                 crate,
-                "#shapes",
+                "#hasSHACL",
                 properties={
                     "@type": "ResourceDescriptor",
                     "name": "SHACL shapes",
@@ -180,7 +200,7 @@ def build(out: Path) -> dict:
         crate.add(
             ContextEntity(
                 crate,
-                "#vocabulary",
+                "#hasVocabulary",
                 properties={
                     "@type": "ResourceDescriptor",
                     "name": "Extension vocabulary",
@@ -199,9 +219,9 @@ def build(out: Path) -> dict:
             },
         )
         root["hasResource"] = [
-            {"@id": "#spec"},
-            {"@id": "#shapes"},
-            {"@id": "#vocabulary"},
+            {"@id": "#hasSpecification"},
+            {"@id": "#hasSHACL"},
+            {"@id": "#hasVocabulary"},
         ]
 
         out.mkdir(parents=True, exist_ok=True)

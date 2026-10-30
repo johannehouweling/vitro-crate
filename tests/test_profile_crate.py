@@ -28,10 +28,13 @@ from profiles.validator import validate_crate_dict
 from scripts.gen_profile_crate import (
     CC_BY,
     DATE_PUBLISHED,
+    KEYWORDS,
     ORCID,
+    PAGES,
     PARENT_IRI,
     MIT,
     PROFILE_IRI,
+    RO_CRATE,
     ROLE,
     VERSION,
     build,
@@ -78,11 +81,36 @@ class TestProfileCrateRequirements:
 
     def test_the_root_declares_its_lineage_and_version(self, doc):
         root = _node(doc, PROFILE_IRI)
-        assert root["isProfileOf"] == {"@id": PARENT_IRI}
+        # Most specific first: ISA-Tox extends ISA, which extends RO-Crate.
+        assert root["isProfileOf"] == [{"@id": PARENT_IRI}, {"@id": RO_CRATE}]
         assert root["version"] == VERSION
         assert root["datePublished"] == DATE_PUBLISHED
         assert root["name"]
         assert root["description"]
+
+    def test_it_carries_every_field_the_portal_renders(self, doc):
+        """The portal's profile query (`SparqlQueriesProfiles.js`) reads these
+        seven off the root; its `scripts/gaps.ttl` exists only to hand-patch
+        them into listed profiles that omit them. `keywords` also drives a
+        facet, so a profile without it is unfilterable there.
+        """
+        root = _node(doc, PROFILE_IRI)
+        for field in (
+            "name",
+            "description",
+            "identifier",
+            "version",
+            "datePublished",
+            "author",
+            "keywords",
+        ):
+            assert root.get(field), field
+        assert root["keywords"] == KEYWORDS
+        assert "in vitro toxicology" in KEYWORDS
+
+    def test_the_root_links_to_where_the_profile_actually_resolves(self, doc):
+        """`identifier` is the permalink; `url` is the address serving it today."""
+        assert _node(doc, PROFILE_IRI)["url"] == PAGES
 
     def test_the_spec_text_is_cc_by_and_the_root_follows_it(self, doc):
         assert _node(doc, PROFILE_IRI)["license"] == {"@id": CC_BY}
@@ -105,11 +133,11 @@ class TestTheSpecDocument:
         assert spec["license"] == {"@id": CC_BY}
 
     def test_a_resource_descriptor_gives_it_the_specification_role(self, doc):
-        descriptor = _node(doc, "#spec")
+        descriptor = _node(doc, "#hasSpecification")
         assert descriptor["@type"] == "ResourceDescriptor"
         assert descriptor["hasRole"] == {"@id": f"{ROLE}specification"}
         assert descriptor["hasArtifact"] == {"@id": "index.html"}
-        assert {"@id": "#spec"} in _node(doc, PROFILE_IRI)["hasResource"]
+        assert {"@id": "#hasSpecification"} in _node(doc, PROFILE_IRI)["hasResource"]
 
     def test_the_rendered_page_carries_the_spec_and_its_diagram(self, tmp_path):
         build(tmp_path)
@@ -137,20 +165,20 @@ class TestTheShapes:
             assert node["license"] == {"@id": MIT}, entity_id
 
     def test_the_shapes_have_the_validation_role(self, doc):
-        descriptor = _node(doc, "#shapes")
+        descriptor = _node(doc, "#hasSHACL")
         assert descriptor["hasRole"] == {"@id": f"{ROLE}validation"}
         assert {"@id": "shapes/profile.ttl"} in descriptor["hasArtifact"]
 
     def test_the_ontology_has_the_vocabulary_role(self, doc):
-        descriptor = _node(doc, "#vocabulary")
+        descriptor = _node(doc, "#hasVocabulary")
         assert descriptor["hasRole"] == {"@id": f"{ROLE}vocabulary"}
         assert descriptor["hasArtifact"] == {"@id": "shapes/ontology.ttl"}
 
     def test_the_resources_are_all_declared_on_the_root(self, doc):
         assert _node(doc, PROFILE_IRI)["hasResource"] == [
-            {"@id": "#spec"},
-            {"@id": "#shapes"},
-            {"@id": "#vocabulary"},
+            {"@id": "#hasSpecification"},
+            {"@id": "#hasSHACL"},
+            {"@id": "#hasVocabulary"},
         ]
 
     def test_pages_serves_the_crate_verbatim(self, tmp_path):
