@@ -239,9 +239,19 @@ labels `"CellLine"` / `"PrimaryCell"` older crates carry in `additionalType` are
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
 |@type|MUST|Text|MUST be '[bioschemas.org/Sample](https://bioschemas.org/Sample)'|
-|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the source as a fixed, resolvable ontology term (its `@id` dereferences to the term), e.g. "cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403). It SHOULD be cell line, primary cell, co-culture (NCIT:C93168) or cell culture (OBI:0001876).|
+|sampleType|MUST|[schema.org/DefinedTerm](isa.md#definedterm)|A categorical annotation of the material as a fixed, resolvable ontology term; see the expected terms below.|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](isa.md#propertyvalue) ([Characteristic](isa.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
+
+**Expected `sampleType` terms.** Each is a [DefinedTerm](isa.md#definedterm) whose `@id` dereferences to the term.
+The term is what each section below keys on, so it decides which requirements apply to a Sample.
+
+| term | @id | Applies to |
+|------|-----|------------|
+|cell line|`http://purl.obolibrary.org/obo/NCIT_C16403`|[Source Cells - Cell Line](#source-cells---cell-line)|
+|primary cell|`http://www.ebi.ac.uk/efo/EFO_0002660`|[Source Cells - Primary Cells](#source-cells---primary-cells)|
+|cell culture|`http://purl.obolibrary.org/obo/OBI_0001876`|[Sample - Test System](#sample---test-system) and [Sample - Exposed Test System](#sample---exposed-test-system)|
+|co-culture|`http://purl.obolibrary.org/obo/NCIT_C93168`|[Test System - Co-Culture](#test-system---co-culture)|
 
 #### Source Cells - Cell Line
 
