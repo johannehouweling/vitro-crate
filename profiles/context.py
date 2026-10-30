@@ -48,6 +48,11 @@ ISA_TOX_CONTEXT: list[dict] = [
         "ChemicalSubstance": "https://bioschemas.org/ChemicalSubstance",
         "LabProtocol": "https://bioschemas.org/LabProtocol",
         "Sample": "https://bioschemas.org/Sample",
+        # Bioschemas BioSample (0.2-DRAFT) sits UNDER Sample in the Bioschemas
+        # hierarchy (Thing > Sample > BioSample), so a test-system Sample carries
+        # both: the ISA shapes keep matching on `Sample` while a BioSample-aware
+        # consumer recognises the material and reads its own properties below.
+        "BioSample": "https://bioschemas.org/BioSample",
         "BioChemEntity": "https://bioschemas.org/BioChemEntity",
         # schema:sampleType — the categorical annotation (a DefinedTerm) on the
         # cell-based test-system Sample (ISA-Tox domain layer).
@@ -72,6 +77,15 @@ ISA_TOX_CONTEXT: list[dict] = [
         "parameterValue": f"{BIOSCHEMAS_PROP}parameterValue",
         "parameter": "http://schema.org/additionalProperty",
         "factorValue": f"{BIOSCHEMAS_PROP}factorValue",
+        # BioSample's own properties, for the facts this profile otherwise states
+        # only as Characteristic PropertyValues: the cell type, the organ or
+        # tissue the material came from, and a donor's sex. Bioschemas lists them
+        # as pending schema.org integration and serves no page for them — as it
+        # serves none for `reagent` or `intendedUse` either — so they take the
+        # same /properties/ namespace as every other Bioschemas property here.
+        "cellType": f"{BIOSCHEMAS_PROP}cellType",
+        "anatomicalStructure": f"{BIOSCHEMAS_PROP}anatomicalStructure",
+        "sex": f"{BIOSCHEMAS_PROP}sex",
         # schema:object is the real schema.org Action/LabProcess input predicate
         # (https://bioschemas.org/object does not exist); the shapes target schema:object.
         "object": "http://schema.org/object",
@@ -168,7 +182,11 @@ ISA_TOX_CONTEXT: list[dict] = [
         # Cell-line terms (from CELLOSAURUS)
         "accession": "http://schema.org/identifier",
         "biologicalOrganization": "http://schema.org/taxonomicRange",
-        "sex": "http://schema.org/gender",
+        # `sex` is declared once, above, as BioSample's own property. It used to
+        # expand to schema:gender, which is a person's gender and not the
+        # biological sex of the donor a cell line came from; nothing read that
+        # predicate (no shape, ours or ISA's), so the key keeps its name and only
+        # its meaning is now right.
         "species": "http://schema.org/taxonomicRange",
         "taxonomicRange": "http://schema.org/taxonomicRange",
         # OLS / ontology-term metadata (from BAO lookups via OLS API)

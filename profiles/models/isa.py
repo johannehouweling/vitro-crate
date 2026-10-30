@@ -475,8 +475,12 @@ class Sample(AutoAddContextEntity):
         add: bool = True,
     ):
         # Define default properties for this LabProcess
+        #
+        # Dual-typed: BioSample is a subtype of Sample in Bioschemas, so carrying
+        # both keeps every ISA and tox shape matching on `Sample` while exposing
+        # the material to consumers that look for BioSample.
         default_properties = {
-            "@type": "Sample",
+            "@type": ["Sample", "BioSample"],
             "name": name,
         }
         if additionalProperty is not None:
