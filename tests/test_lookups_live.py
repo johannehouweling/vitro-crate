@@ -146,5 +146,6 @@ def test_each_characteristic_term_means_its_characteristic():
     from builder.tools._crate_mapping import _CELL_LINE_CHARACTERISTICS
 
     for c in _CELL_LINE_CHARACTERISTICS:
+        assert c.property_id, f"{c.name} names no ontology term to check"
         label = _ols_term(c.property_id).get("label", "")
         assert c.name.lower() in label.lower(), (c.name, c.property_id, label)
