@@ -45,9 +45,14 @@ _BIOSCHEMAS = Namespace("https://bioschemas.org/")
 # followed, so the inherited ISA rows the tables repeat are matched against the
 # ISA shapes that enforce them.
 _SECTION_CLASSES: dict[str, URIRef] = {
-    "MolecularEntity - Chemical": _BIOSCHEMAS.MolecularEntity,
-    "Sample - Cell-based Test System": _TOX.CellLineSample,
-    "Sample - Primary Cells": _TOX.PrimaryCellSample,
+    "MolecularEntity - Test and Control Chemicals": _BIOSCHEMAS.MolecularEntity,
+    "Sample - Source Cells": _TOX.TestSystemSource,
+    "Source Cells - Cell Line": _TOX.CellLineSample,
+    "Source Cells - Primary Cells": _TOX.PrimaryCellSample,
+    "Sample - Test System": _TOX.CulturedSample,
+    "Test System - Co-Culture": _TOX.CoCultureSample,
+    "Study - Adverse Outcome Pathway": _ISA.Study,
+    "Assay - Key Event": _ISA.Assay,
     "LabProcess - Test System Preparation": _TOX.LabProcessTestSystemPreparation,
     "LabProcess - Exposure": _TOX.LabProcessExposure,
     "LabProcess - Endpoint Readout": _TOX.LabProcessEndpointReadout,
@@ -62,7 +67,20 @@ _LABPROCESS_ALIAS = {"additionalProperty": "parameterValue"}
 
 _LEVEL_OF_SEVERITY = {SH.Violation: "MUST", SH.Warning: "SHOULD"}
 
-_SECTION_RE = re.compile(r"^### (.+?)\n(.*?)(?=^#{2,3} |\Z)", re.M | re.S)
+# Requirements the profile inherits but no shape can check, because the value is
+# what selects the entity in the first place: a Dataset without `additionalType`
+# "Study" is not a Study, so there is no Study for a Study shape to validate. The
+# ISA profile states them as MUST, so the tables state them too; they are listed
+# here so the parity check reads a missing shape as the tautology it is rather
+# than as drift (#856).
+_SELECTOR_ENFORCED: dict[tuple[str, str], str] = {
+    ("Study - Adverse Outcome Pathway", "additionalType"): "MUST",
+    ("Assay - Key Event", "additionalType"): "MUST",
+}
+
+# `####` sub-sections carry their own tables (the source-cell kinds, co-culture),
+# so they are parsed as sections in their own right and terminate their parent.
+_SECTION_RE = re.compile(r"^#{3,4} (.+?)\n(.*?)(?=^#{2,4} |\Z)", re.M | re.S)
 _ROW_RE = re.compile(r"^\|([A-Za-z]+)\|(MUST|SHOULD|MAY)\|", re.M)
 
 
@@ -131,7 +149,7 @@ def test_every_section_has_rows_to_check() -> None:
 
 def test_requirement_levels_match_the_shapes() -> None:
     spec = _spec_rows()
-    shapes = _shape_rows(_shapes_graph())
+    shapes = _shape_rows(_shapes_graph()) | _SELECTOR_ENFORCED
     drift = {
         key: (spec.get(key, "MAY"), shapes.get(key, "MAY"))
         for key in sorted(spec.keys() | shapes.keys())

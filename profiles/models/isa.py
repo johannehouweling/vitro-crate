@@ -475,8 +475,13 @@ class Sample(AutoAddContextEntity):
         add: bool = True,
     ):
         # Define default properties for this LabProcess
+        #
+        # Dual-typed, most specific first: the material IS a BioSample, which is a
+        # Bioschemas subtype of Sample. `Sample` stays in the list because every
+        # ISA and tox shape targets it by rdf:type — dropping it would silently
+        # remove the whole inherited Sample requirement layer, not fail loudly.
         default_properties = {
-            "@type": "Sample",
+            "@type": ["BioSample", "Sample"],
             "name": name,
         }
         if additionalProperty is not None:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # LabProcessTestSystemPreparation — test system preparation (biological model preparation).
 # A bioschemas:LabProcess whose protocol record's intendedUse is a term of the ISA-Tox
 # preparation-types set (ontology.ttl), as the term states with inDefinedTermSet (#785).

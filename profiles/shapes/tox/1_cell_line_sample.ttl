@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # CellLineSample — the test-system source (biological model module).
 # A bioschemas:Sample typed by its sampleType: NCIT:C16403 cell line or EFO:0002660
 # primary cell (#799). The additionalType labels "CellLine" and "PrimaryCell" older
@@ -146,6 +147,15 @@ tox:PrimaryCellSampleShouldDescribeSource a sh:NodeShape ;
     ] .
 
 # The sample types ISA-Tox knows (#799); a warning first.
+#
+# The list covers the kinds of test system an in vitro study uses, not only the
+# two this profile places extra requirements on (#856): a cell line and primary
+# cells carry their own shapes, while an organoid, a tissue, an organ fragment or
+# a whole organism are recognised and constrained no further. Before #856 those
+# warned, so a crate describing an organoid was told its correct sampleType was
+# unknown. A kind with no term here (a sub-cellular fraction, say) still warns —
+# add its term rather than widening this to anything resolvable, which would stop
+# catching the typo this shape exists for.
 tox:SampleTypeIsKnown a sh:NodeShape ;
     sh:name "A Sample's sampleType SHOULD be an ISA-Tox sample type" ;
     sh:description "A sampleType SHOULD be one of the ISA-Tox sample types" ;
@@ -158,7 +168,11 @@ tox:SampleTypeIsKnown a sh:NodeShape ;
             <http://www.ebi.ac.uk/efo/EFO_0002660>
             <http://purl.obolibrary.org/obo/NCIT_C93168>
             <http://purl.obolibrary.org/obo/OBI_0001876>
+            <http://purl.obolibrary.org/obo/NCIT_C172259>
+            <http://purl.obolibrary.org/obo/UBERON_0000479>
+            <http://purl.obolibrary.org/obo/UBERON_0000064>
+            <http://purl.obolibrary.org/obo/UBERON_0000468>
         ) ;
-        sh:message "A Sample's sampleType SHOULD be one of the ISA-Tox sample types: cell line, primary cell, co-culture or cell culture" ;
+        sh:message "A Sample's sampleType SHOULD be one of the ISA-Tox sample types: cell line, primary cell, co-culture, cell culture, organoid, tissue, organ part or multicellular organism" ;
         sh:severity sh:Warning ;
     ] .

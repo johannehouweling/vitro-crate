@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # ISA-Tox RO-Crate Profile — profile descriptor.
 #
 # The toxicology (in vitro NAM) domain layer. It is an extension of the ISA
@@ -21,9 +22,9 @@
 <https://w3id.org/ro/crate/isa-tox/1.0>
     a prof:Profile ;
     rdfs:label "ISA-Tox RO-Crate Profile" ;
-    # The /1.0 IRI path is the profile series; this is its precise (pre-release)
-    # version, kept in sync with isa_tox.md's Profile contextual entity.
-    dct:hasVersion "0.1.0-draft.1" ;
+    # The /1.0 IRI path is the profile series; this is its precise version,
+    # kept in sync with isa_tox.md's header and the published Profile Crate.
+    dct:hasVersion "1.0.0" ;
     rdfs:comment "Toxicology (in vitro New Approach Methodology) domain extension of the ISA RO-Crate Profile."@en ;
 
     # Extends the bundled ISA RO-Crate profile (token `isa-ro-crate`), which in

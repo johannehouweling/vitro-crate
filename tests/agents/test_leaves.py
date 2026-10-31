@@ -1413,6 +1413,7 @@ class TestLeafModelOverrides:
         assert seen["base_url"] is None
 
 
+<<<<<<< HEAD
 class TestDeriveDepositStructure:
     """One drafter-tier call labels the folder tree as studies and assays (#852)."""
 
@@ -1485,3 +1486,51 @@ class TestDeriveDepositStructure:
         rec["model"] = FakeChatModel(not_a_dict)
 
         assert leaves.derive_deposit_structure(self.SUMMARY) == {}
+=======
+# ---------------------------------------------------------------------------
+# One question, or nothing (#838). A model once returned its own reasoning
+# inside the question field, and the console showed it verbatim.
+# ---------------------------------------------------------------------------
+
+_LEAKED = (
+    "What measurement technique was used in the assay “LDH”?} xq No. Wait format "
+    "strict JSON only. Need no extra. Let's craft.}"
+)
+
+
+class TestTheLeafReturnsOneQuestionOrNothing:
+    @pytest.mark.parametrize(
+        "text",
+        [
+            _LEAKED,
+            "What measurement method was used for the assay “LDH”? prie",
+            "What is the CAS number?\nAnd the supplier?",
+            "What is the {entity} called?",
+            "Describe the study design.",
+            "What is it? " * 60,
+        ],
+    )
+    def test_a_leak_is_dropped_so_the_caller_falls_back(
+        self, _patch_build_chat_model: dict[str, Any], text: str
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel({"question": text})
+
+        assert leaves.phrase_gap_question(_GAP_CONTEXT) == ""
+
+    def test_one_question_with_an_example_passes(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        text = "What is the CAS Registry Number for Silychristin A (for example, 33889-69-9)?"
+        _patch_build_chat_model["model"] = FakeChatModel({"question": f"  {text} \n"})
+
+        assert leaves.phrase_gap_question(_GAP_CONTEXT) == text
+
+    def test_a_leaked_clarify_question_becomes_a_skip(
+        self, _patch_build_chat_model: dict[str, Any]
+    ) -> None:
+        _patch_build_chat_model["model"] = FakeChatModel({"action": "clarify", "question": _LEAKED})
+
+        decision = leaves.interpret_gap_reply("Q?", "the assay", _GAP_CONTEXT)
+
+        assert decision == {"action": "skip"}
+>>>>>>> origin/main

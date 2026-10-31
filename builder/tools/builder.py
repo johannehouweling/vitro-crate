@@ -10,8 +10,14 @@ serialises a valid `ro-crate-metadata.json`.
 
 from __future__ import annotations
 
+import html
+import json
 import logging
 import os
+import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -397,6 +403,119 @@ _SCHEMA_ORG_TYPE_TOKENS: frozenset[str] = frozenset(
 )
 
 
+# The RO-Crate community's preview generator (https://github.com/Arkisto-Platform/
+# ro-crate-html-js): `rochtml` renders ro-crate-preview.html with every entity
+# tabulated. It is used only when installed (`npm install -g ro-crate-html@0.1.6`
+# puts `rochtml` on the PATH): `npx -p` asks the registry on every run and
+# stalls ~70 s offline before failing, so it is never tried. 0.1.6 is the
+# version the escaping below is reviewed against — the page embeds the JSON-LD
+# it is given in a script block and re-renders it once at runtime.
+_PREVIEW_PACKAGE = "ro-crate-html@0.1.6"
+_PREVIEW_TIMEOUT_S = 120
+# Resolved once per process: None = not yet, False = none usable. A machine
+# without the generator, or a generator that failed once, is not asked again on
+# each of the many exports a ReAct run makes.
+_preview_generator_memo: list[str] | bool | None = None
+# Keys whose values the generator puts in href/src attributes; everywhere else
+# a scalar is text (it links only http(s) values).
+_URL_KEYS = frozenset({"@id", "contentUrl", "url", "path", "image", "thumbnail"})
+_SCRIPT_SCHEME = re.compile(r"^(javascript|vbscript|data):", re.IGNORECASE)
+# What a browser's URL parser drops before reading the scheme (C0 controls and
+# space at the ends, tab/CR/LF anywhere), so `java\tscript:` is `javascript:`.
+_URL_NOISE = re.compile(r"[\x00-\x20]")
+
+
+def _find_preview_generator() -> list[str] | None:
+    """The command that runs ``rochtml`` on this machine, or ``None``.
+
+    The resolved path, not the bare name: on Windows ``shutil.which`` finds the
+    ``rochtml.cmd`` shim that a bare name cannot launch without a shell.
+    """
+    found = shutil.which("rochtml")
+    return [found] if found else None
+
+
+def _preview_generator() -> list[str] | None:
+    global _preview_generator_memo
+    if _preview_generator_memo is None:
+        _preview_generator_memo = _find_preview_generator() or False
+    return _preview_generator_memo if isinstance(_preview_generator_memo, list) else None
+
+
+def _html_safe(value: Any, key: str | None = None) -> Any:
+    """A copy of a JSON-LD document whose strings cannot act as markup (#169).
+
+    The community generator interpolates crate strings into HTML as they are
+    and embeds the document raw in a ``<script type="application/ld+json">``
+    block, so a crate named ``<script>…`` would render as a live tag and a key
+    holding ``</script>`` would close the block. Every string, keys included, is
+    HTML-escaped. A value the page puts in a link (:data:`_URL_KEYS`) whose
+    scheme is ``javascript:``/``vbscript:``/``data:`` — read the way a browser
+    reads it, with controls and spaces dropped — is defused so it cannot become
+    a link; prose that happens to start with "Data:" is left alone.
+    Presentation only: the crate on disk keeps the raw values, and the page's
+    embedded JSON-LD is this copy, not the crate's metadata.
+    """
+    if isinstance(value, dict):
+        return {html.escape(k, quote=True): _html_safe(item, k) for k, item in value.items()}
+    if isinstance(value, list):
+        return [_html_safe(item, key) for item in value]
+    if isinstance(value, str):
+        text = html.escape(value, quote=True)
+        if key in _URL_KEYS:
+            scheme = _SCRIPT_SCHEME.match(_URL_NOISE.sub("", text))
+            if scheme:
+                text = f"unsafe-{scheme.group(1).lower()}-{text}"
+        return text
+    return value
+
+
+def _write_community_preview(crate_dir: Path) -> bool:
+    """Render ``ro-crate-preview.html`` with the community generator (#849).
+
+    Runs ``rochtml`` over an escaped copy of the written metadata in a scratch
+    directory and copies the page into the crate, replacing ro-crate-py's. Any
+    failure keeps ro-crate-py's page and stops the generator being tried again
+    this process. Returns whether the community page was written.
+    """
+    global _preview_generator_memo
+    command = _preview_generator()
+    if command is None:
+        return False
+    metadata = json.loads((crate_dir / "ro-crate-metadata.json").read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as scratch:
+        work = Path(scratch)
+        (work / "ro-crate-metadata.json").write_text(
+            json.dumps(_html_safe(metadata), indent=2), encoding="utf-8"
+        )
+        try:
+            subprocess.run(
+                [*command, "ro-crate-metadata.json"],
+                cwd=work,
+                check=True,
+                capture_output=True,
+                timeout=_PREVIEW_TIMEOUT_S,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            stderr = getattr(exc, "stderr", None) or b""
+            detail = stderr.decode("utf-8", "replace").strip()[-300:] if stderr else str(exc)
+            logger.warning(
+                "The RO-Crate preview generator failed; keeping ro-crate-py's page: %s", detail
+            )
+            _preview_generator_memo = False
+            return False
+        rendered = work / "ro-crate-preview.html"
+        if not rendered.is_file():
+            logger.warning("The RO-Crate preview generator wrote no page; keeping ro-crate-py's.")
+            _preview_generator_memo = False
+            return False
+        page = rendered.read_text(encoding="utf-8")
+    # The base profile requires the HTML5 doctype on ro-crate-preview.html; the
+    # generator's page starts at <html>.
+    if not page.lstrip().lower().startswith("<!doctype"):
+        page = "<!DOCTYPE html>\n" + page
+    (crate_dir / "ro-crate-preview.html").write_text(page, encoding="utf-8")
+    return True
 
 
 def _add_safe_preview(crate: ROCrate) -> None:
@@ -697,10 +816,11 @@ def export_crate(
         except Exception as payload_err:  # noqa: BLE001 — never fail the write
             logger.warning("Could not verify the crate payload: %s", payload_err)
 
-        # Embed the standard ro-crate-py preview (ro-crate-preview.html, a
-        # CreativeWork about ./) so the written crate is browsable without
-        # tooling (#86) — rendered through an autoescaping template so
-        # crate-controlled strings can't inject script (XSS, #169).
+        # Embed ro-crate-py's preview (ro-crate-preview.html, a CreativeWork
+        # about ./) so the written crate is browsable without tooling (#86) —
+        # rendered through an autoescaping template so crate-controlled strings
+        # can't inject script (XSS, #169). The community generator replaces the
+        # page after the write when it is on the machine (#849).
         _add_safe_preview(crate)
 
         # Embed the maturity report (ro-crate-metadata-maturity.html, a CreativeWork about
@@ -714,6 +834,8 @@ def export_crate(
         # The preview and the report were added after assembly.
         _write_single_values(crate)
         crate.write(str(output_dir))
+        if _write_community_preview(output_dir):
+            logger.info("Preview rendered by rochtml (%s)", _PREVIEW_PACKAGE)
 
         # Remember where it landed: without this the state cannot say where the
         # crate went, so the goodbye summary (and a later re-export) had to guess

@@ -55,6 +55,9 @@ folder are versioned (`_v2`, `_v3`, …); `-o` selects another location. The cra
 contains:
 
 - `ro-crate-metadata.json` and the data files;
+- `ro-crate-preview.html`: the RO-Crate community's HTML preview when its generator
+  is installed (`npm install -g ro-crate-html@0.1.6`), ro-crate-py's own page
+  otherwise;
 - `ro-crate-metadata-maturity.html`: a self-contained report on profile conformance,
   FAIR maturity and MIT coverage, with an entity explorer. It needs no network access.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # LabProcessDataAnalysis — data analysis process (analysis module).
 # A bioschemas:LabProcess whose protocol record's intendedUse is OBI:0200000 data
 # transformation (#799); the additionalType label "DataAnalysis" is an alias.

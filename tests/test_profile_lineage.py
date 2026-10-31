@@ -22,6 +22,9 @@ TOX_PROFILE = (
     / "tox"
     / "profile.ttl"
 )
+SHAPES_DIR = TOX_PROFILE.parent
+SPDX_MIT = "# SPDX-License-Identifier: MIT"
+SPEC = TOX_PROFILE.parents[2] / "docs" / "isa_tox.md"
 
 
 def _crate_base_versions(ttl_text: str) -> set[str]:
@@ -107,3 +110,47 @@ def test_tier_capability_matches_the_severities_the_shapes_declare():
     assert tiers_defined("base") == {"required", "recommended", "optional"}
     assert tiers_defined("isa") == {"required", "recommended"}
     assert tiers_defined("tox") == {"required", "recommended"}
+
+
+def test_every_shape_file_states_its_licence():
+    """The shapes ship MIT while the spec text ships CC BY 4.0 (#856).
+
+    The split is only discoverable if each file says so; the Profile Crate
+    reads nothing from here, so nothing else would catch a missing header.
+    """
+    missing = [
+        p.name for p in sorted(SHAPES_DIR.glob("*.ttl")) if SPDX_MIT not in p.read_text()
+    ]
+    assert missing == [], f"no SPDX header: {missing}"
+
+
+def test_the_profile_declares_the_release_version():
+    assert 'dct:hasVersion "1.0.0"' in TOX_PROFILE.read_text()
+    assert "* Version: 1.0.0" in SPEC.read_text()
+
+
+def test_a_sample_is_dual_typed_sample_and_biosample():
+    """BioSample is a Bioschemas subtype of Sample, so a built Sample carries both.
+
+    `Sample` has to stay in the list and stay first: every ISA and tox shape
+    targets it by rdf:type, so dropping it silently removes the whole inherited
+    Sample requirement layer rather than failing loudly (#856).
+    """
+    from rocrate.rocrate import ROCrate
+
+    from profiles.models.isa import Sample
+
+    sample = Sample(ROCrate(gen_preview=False), identifier="#s1", name="SK-N-AS")
+    assert sample["@type"] == ["BioSample", "Sample"]
+
+
+def test_the_biosample_properties_expand_to_the_bioschemas_namespace():
+    """Bioschemas serves no page for any of its properties — `reagent` and
+    `intendedUse` 404 just as these do — so the namespace, not a live URL, is
+    what makes them the vocabulary's own terms rather than invented ones."""
+    from profiles.context import BIOSCHEMAS_PROP, ISA_TOX_CONTEXT
+
+    terms = next(block for block in ISA_TOX_CONTEXT if isinstance(block, dict) and "@vocab" in block)
+    assert terms["BioSample"] == "https://bioschemas.org/BioSample"
+    for name in ("cellType", "anatomicalStructure", "sex"):
+        assert terms[name] == f"{BIOSCHEMAS_PROP}{name}", name

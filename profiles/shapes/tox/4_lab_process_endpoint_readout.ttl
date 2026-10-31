@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # LabProcessEndpointReadout — endpoint readout process (endpoint read-out module).
 # A bioschemas:LabProcess whose protocol record's intendedUse is BAO:0000523 assay
 # protocol (#799); the additionalType label "EndpointReadout" is an alias.

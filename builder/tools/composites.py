@@ -1417,7 +1417,8 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
     # answers the finding from data already fetched, rather than by asking a
     # human for something a registry already states. Written only when ORCID has
     # it: many researchers leave the role blank, and an invented title is worse
-    # than a missing one.
+    # than a missing one. The state keeps the role as ORCID states it; the build
+    # writes it as the DefinedTerm the shape requires (``_wire_job_title``, #837).
     job_title = str(data.get("job_title") or "").strip()
     if job_title:
         fields["jobTitle"] = job_title

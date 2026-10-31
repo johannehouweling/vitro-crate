@@ -484,35 +484,67 @@ def _verified_orcid_for(family: str, bare_orcid: str) -> str | None:
     return bare_orcid if verified is not None else None
 
 
-def _apply_measurement_method(
-    engine: AgentEngine, gap: Gap, value: str, *, human: HumanInterface | None = None
-) -> bool:
-    """Resolve a human method description into a crate DefinedTerm reference."""
-    state_id = _resolve_entity_id(engine, gap)
-    if state_id is None:
-        return False
+def _lookup_method(name: str) -> dict[str, Any] | None:
+    """The BAO record for *name*, or ``None`` when the lookup finds nothing."""
     try:
         from builder.tools.lookups import lookup_bao_term
 
-        result = lookup_bao_term(value.strip())
+        result = lookup_bao_term(name.strip())
     except Exception as exc:  # noqa: BLE001 — a lookup failure is a guidance skip
         logger.warning("Could not look up the measurement method: %s", exc)
-        result = {"found": False}
+        return None
     data = result.get("data") if isinstance(result, dict) else None
-    if not result.get("found") or not isinstance(data, dict) or not data.get("@id"):
-        _notify(human, f"'{value}' is not a BioAssay Ontology method, so it was not recorded.")
+    if isinstance(result, dict) and result.get("found") and isinstance(data, dict):
+        return data if data.get("@id") else None
+    return None
+
+
+def _apply_measurement_method(
+    engine: AgentEngine, gap: Gap, value: str, *, human: HumanInterface | None = None
+) -> bool:
+    """Resolve a human method description into a crate DefinedTerm reference.
+
+    An answer naming several methods ("LDH; Alamar Blue; internal dose; BMD") is
+    split the way a Key Event answer is (:func:`_split_key_event_answer`) and each
+    name is offered to BAO in turn. ``measurementMethod`` holds ONE term, so the
+    first name that resolves is stored and the other names are reported back
+    instead of the whole reply being lost (#839). Whether an assay with several
+    read-outs takes several terms or becomes several Assays is open (#654).
+    """
+    state_id = _resolve_entity_id(engine, gap)
+    if state_id is None:
+        return False
+    names = _split_key_event_answer(value)
+    data = None
+    for stored, name in enumerate(names):
+        if (data := _lookup_method(name)) is not None:
+            break
+    if data is None:
+        _notify(
+            human,
+            f"I could not resolve {' or '.join(repr(n) for n in names)} to a BioAssay "
+            "Ontology method. Please provide a more specific method name or skip this field.",
+        )
         return False
     hints = {
         "entity_id": data["@id"],
         "termCode": data.get("termCode") or data.get("term_code"),
         "inDefinedTermSet": data.get("inDefinedTermSet") or "http://bioassayontology.org/bao",
     }
-    term = engine.run_tool("draft_defined_term", name=data.get("name") or value, hints=hints)
+    term = engine.run_tool(
+        "draft_defined_term", name=data.get("name") or names[stored], hints=hints
+    )
     term_id = getattr(term, "entity_id", None)
     if not term_id:
         return False
     field = _local_name(gap.property) or "measurementMethod"
     engine.run_tool("set_fields", entity_id=state_id, fields={field: {"@id": term_id}})
+    if rest := [n for i, n in enumerate(names) if i != stored]:
+        _notify(
+            human,
+            f"Stored '{names[stored]}' as the measurement method; an assay holds one. "
+            f"Not stored: {', '.join(rest)}.",
+        )
     return True
 
 
@@ -885,8 +917,7 @@ def _apply_value(
     if is_reference_field(field) and not is_resolvable_reference(engine.state, value):
         _notify(
             human,
-            f"'{field}' has to name something already in the crate, so your answer "
-            "was not stored.",
+            f"'{field}' has to name something already in the crate, so your answer was not stored.",
         )
         return False
 
@@ -903,9 +934,7 @@ def _apply_value(
     if gap.entity_type not in (None, "Investigation"):
         instances = _instances_for_commit(engine, gap.entity_type)
         if len(instances) == 1:
-            engine.run_tool(
-                "set_fields", entity_id=instances[0].entity_id, fields={field: value}
-            )
+            engine.run_tool("set_fields", entity_id=instances[0].entity_id, fields={field: value})
             return True
         # Zero or several instances: there is no unambiguous target, so commit
         # nothing rather than guess (D5).
@@ -1232,8 +1261,7 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
     # typed, so the gap is asked and retired every round without ever committing.
     if _is_key_event_gap(gap) and (candidates := _key_event_candidates(engine)):
         context["candidates"] = [
-            f"{c['name']} ({c['event_type']})" if c["event_type"] else c["name"]
-            for c in candidates
+            f"{c['name']} ({c['event_type']})" if c["event_type"] else c["name"] for c in candidates
         ]
     title = (engine.state.metadata.title or "").strip()
     if title:

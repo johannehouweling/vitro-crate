@@ -746,6 +746,29 @@ _INTERPRET_SYSTEM_PROMPT = (
 )
 
 
+# A phrased question reaches the console verbatim, so the leaf's text is accepted
+# only when it IS one question: one line, no braces, bounded, ending in a question
+# mark. A model once returned its own reasoning inside the field (#838).
+_MAX_QUESTION_CHARS = 400
+
+
+def _one_question(text: Any) -> str:
+    """``text`` stripped when it is one question a user can be shown, else ``""``."""
+    if not isinstance(text, str):
+        return ""
+    question = text.strip()
+    if (
+        not question
+        or len(question) > _MAX_QUESTION_CHARS
+        or "\n" in question
+        or "{" in question
+        or "}" in question
+        or not question.endswith("?")
+    ):
+        return ""
+    return question
+
+
 def _phrase_schema() -> dict[str, Any]:
     """Structured-output schema for the phrasing leaf: one question string."""
     return {
@@ -905,7 +928,9 @@ def phrase_gap_question(
 
     Returns:
         The phrased question string, or ``""`` when the model returns nothing
-        usable (the caller then falls back to its deterministic prompt).
+        usable — nothing at all, or anything that is not one question
+        (:func:`_one_question`, #838) — so the caller falls back to its
+        deterministic prompt.
     """
     llm = _build_chat_model(role="drafter", **(overrides or ModelOverrides()).as_kwargs())
     messages = [
@@ -919,11 +944,7 @@ def phrase_gap_question(
         ),
     ]
     result = _invoke_structured_with_usage(llm, _phrase_schema(), messages, usage_sink)
-    if isinstance(result, dict):
-        question = result.get("question")
-        if isinstance(question, str) and question.strip():
-            return question.strip()
-    return ""
+    return _one_question(result.get("question")) if isinstance(result, dict) else ""
 
 
 def interpret_gap_reply(
@@ -985,7 +1006,8 @@ def _normalise_interpretation(result: Any, gap_context: dict[str, Any]) -> dict[
       * ``commit`` with no usable (non-whitespace) value -> ``skip``;
       * ``commit`` for an identifier-bearing field -> ``skip`` (identifiers come
         from lookups, never the user — D5);
-      * ``clarify`` with no usable question -> ``skip``;
+      * ``clarify`` whose question is not one question (:func:`_one_question`,
+        #838) -> ``skip``;
       * ``from_file`` keeps only a clean ``filename`` hint and NEVER a value.
     """
     decision = result if isinstance(result, dict) else {}
@@ -1006,10 +1028,8 @@ def _normalise_interpretation(result: Any, gap_context: dict[str, Any]) -> dict[
         return {"action": "commit", "value": value.strip()}
 
     if action == "clarify":
-        follow_up = decision.get("question")
-        if not isinstance(follow_up, str) or not follow_up.strip():
-            return {"action": "skip"}
-        return {"action": "clarify", "question": follow_up.strip()}
+        follow_up = _one_question(decision.get("question"))
+        return {"action": "clarify", "question": follow_up} if follow_up else {"action": "skip"}
 
     if action == "from_file":
         filename = decision.get("filename")

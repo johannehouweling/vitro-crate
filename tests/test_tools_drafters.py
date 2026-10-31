@@ -677,11 +677,11 @@ class TestUnitsThreadedIntoProcesses:
         assert by_name["Organ"].get("value") == "Brain"
         assert by_name["Tissue"].get("value") == "Neural tissue"
         assert by_name["Organ"].get("propertyID") == {
-            "@id": "https://w3id.org/ro/crate/isa-tox/1.0/param/organ"
-        }, "Organ PV must carry the ISA-Tox param/organ propertyID as an @id node"
+            "@id": "http://purl.obolibrary.org/obo/UBERON_0000062"
+        }, "Organ PV must carry the UBERON organ term as an @id node"
         assert by_name["Tissue"].get("propertyID") == {
-            "@id": "https://w3id.org/ro/crate/isa-tox/1.0/param/tissue"
-        }, "Tissue PV must carry the ISA-Tox param/tissue propertyID as an @id node"
+            "@id": "http://purl.obolibrary.org/obo/UBERON_0000479"
+        }, "Tissue PV must carry the UBERON tissue term as an @id node"
         # The CellLineSample must reference both via additionalProperty.
         cell_nodes = [n for n in with_kinds(graph) if n.get("additionalType") == "CellLine"]
         assert cell_nodes, "CellLineSample node should exist"
