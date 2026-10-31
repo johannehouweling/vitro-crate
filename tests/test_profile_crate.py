@@ -35,8 +35,10 @@ from scripts.gen_profile_crate import (
     PAGES,
     PARENT_IRI,
     PROFILE_IRI,
+    PRONOM_SHACL,
     RO_CRATE,
     ROLE,
+    SHACL,
     SHAPES_BASE,
     VERSION,
     build,
@@ -173,8 +175,13 @@ class TestTheShapes:
         assert referenced == on_disk
         for entity_id in sorted(referenced):
             node = _node(doc, entity_id)
-            assert node["encodingFormat"] == "text/turtle"
+            # RO-Crate 1.2 §Profile Crate: SHACL is text/turtle, PRONOM fmt/874,
+            # conforming to the SHACL recommendation.
+            assert node["encodingFormat"] == ["text/turtle", {"@id": PRONOM_SHACL}], entity_id
+            assert node["conformsTo"] == {"@id": SHACL}, entity_id
             assert node["license"] == {"@id": MIT}, entity_id
+        # What conformsTo names is itself an entity, as RO-Crate expects of it.
+        assert _node(doc, SHACL)["@type"] == "CreativeWork"
 
     def test_no_copy_of_a_shape_is_shipped(self, doc, tmp_path):
         assert not [n for n in doc["@graph"] if n["@id"].startswith("shapes/")]
@@ -182,7 +189,7 @@ class TestTheShapes:
         assert not (tmp_path / "shapes").exists(), "the shapes were copied in again"
 
     def test_the_shapes_have_the_validation_role(self, doc):
-        descriptor = _node(doc, "#hasSHACL")
+        descriptor = _node(doc, "#hasShape")
         assert descriptor["hasRole"] == {"@id": f"{ROLE}validation"}
         assert {"@id": f"{SHAPES_BASE}profile.ttl"} in descriptor["hasArtifact"]
 
@@ -208,7 +215,7 @@ class TestTheShapes:
     def test_the_resources_are_all_declared_on_the_root(self, doc):
         assert _node(doc, PROFILE_IRI)["hasResource"] == [
             {"@id": "#hasSpecification"},
-            {"@id": "#hasSHACL"},
+            {"@id": "#hasShape"},
         ]
 
     def test_pages_serves_the_crate_verbatim(self, tmp_path):

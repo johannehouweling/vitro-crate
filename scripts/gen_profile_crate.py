@@ -48,6 +48,9 @@ ORCID = "https://orcid.org/0009-0005-3680-0645"
 CC_BY = "https://creativecommons.org/licenses/by/4.0/"
 MIT = "https://opensource.org/licenses/MIT"
 ROLE = "http://www.w3.org/ns/dx/prof/role/"
+# How RO-Crate 1.2 §Profile Crate says a SHACL artefact declares itself.
+SHACL = "https://www.w3.org/TR/shacl/"
+PRONOM_SHACL = "https://www.nationalarchives.gov.uk/PRONOM/fmt/874"
 
 NAME = "ISA-Tox RO-Crate Profile"
 DESCRIPTION = (
@@ -143,6 +146,13 @@ def build(out: Path) -> dict:
             crate, MIT, properties={"@type": "CreativeWork", "name": "MIT License"}
         )
     )
+    crate.add(
+        ContextEntity(
+            crate,
+            SHACL,
+            properties={"@type": "CreativeWork", "name": "Shapes Constraint Language (SHACL)"},
+        )
+    )
     for iri, label in ((PARENT_IRI, "ISA RO-Crate Profile"), (RO_CRATE, "RO-Crate 1.2")):
         crate.add(
             ContextEntity(
@@ -188,7 +198,8 @@ def build(out: Path) -> dict:
                 validate_url=False,
                 properties={
                     "name": path.stem.replace("_", " "),
-                    "encodingFormat": "text/turtle",
+                    "encodingFormat": ["text/turtle", {"@id": PRONOM_SHACL}],
+                    "conformsTo": {"@id": SHACL},
                     "license": {"@id": MIT},
                 },
             )
@@ -196,7 +207,7 @@ def build(out: Path) -> dict:
         crate.add(
             ContextEntity(
                 crate,
-                "#hasSHACL",
+                "#hasShape",
                 properties={
                     "@type": "ResourceDescriptor",
                     "name": "SHACL shapes",
@@ -216,7 +227,7 @@ def build(out: Path) -> dict:
         )
         root["hasResource"] = [
             {"@id": "#hasSpecification"},
-            {"@id": "#hasSHACL"},
+            {"@id": "#hasShape"},
         ]
 
         out.mkdir(parents=True, exist_ok=True)
