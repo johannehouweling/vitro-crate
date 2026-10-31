@@ -1413,7 +1413,6 @@ class TestLeafModelOverrides:
         assert seen["base_url"] is None
 
 
-<<<<<<< HEAD
 class TestDeriveDepositStructure:
     """One drafter-tier call labels the folder tree as studies and assays (#852)."""
 
@@ -1486,7 +1485,8 @@ class TestDeriveDepositStructure:
         rec["model"] = FakeChatModel(not_a_dict)
 
         assert leaves.derive_deposit_structure(self.SUMMARY) == {}
-=======
+
+
 # ---------------------------------------------------------------------------
 # One question, or nothing (#838). A model once returned its own reasoning
 # inside the question field, and the console showed it verbatim.
@@ -1533,4 +1533,3 @@ class TestTheLeafReturnsOneQuestionOrNothing:
         decision = leaves.interpret_gap_reply("Q?", "the assay", _GAP_CONTEXT)
 
         assert decision == {"action": "skip"}
->>>>>>> origin/main
