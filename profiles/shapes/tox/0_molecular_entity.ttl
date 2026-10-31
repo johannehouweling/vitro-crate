@@ -31,7 +31,7 @@ tox:MolecularEntityShouldHaveIdentity a sh:NodeShape ;
         a sh:PropertyShape ;
         sh:path schema:identifier ;
         sh:minCount 1 ;
-        sh:message "MolecularEntity SHOULD have a schema:identifier (InChIKey, CAS, PubChem CID, ...) resolving the compound" ;
+        sh:message "MolecularEntity SHOULD have a schema:identifier (InChIKey, CAS, PubChem CID, CompoundWiki Q id, ...) resolving the compound" ;
         sh:severity sh:Warning ;
     ] ;
     sh:property [
