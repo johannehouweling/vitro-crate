@@ -9,24 +9,15 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-tox:FindDOIPropertyValues a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify DOI PropertyValues" ;
-    sh:targetClass schema:PropertyValue ;
-    sh:order 12 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:DOIPropertyValue ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:name ; sh:hasValue "DOI" ; sh:minCount 1 ] ;
-        ] ;
-    ] .
 
 tox:DOIPropertyValueMustHaveOBIPropertyID a sh:NodeShape ;
     sh:name "DOI PropertyValue MUST carry the OBI DOI propertyID" ;
-    sh:targetClass tox:DOIPropertyValue ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <http://schema.org/PropertyValue> . ?this <http://schema.org/name> "DOI" }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:propertyID ;

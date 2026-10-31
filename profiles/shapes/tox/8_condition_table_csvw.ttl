@@ -15,7 +15,18 @@
 tox:ExposureShouldHaveCsvwConditionTable a sh:NodeShape ;
     sh:name "Exposure SHOULD have a CSVW condition table" ;
     sh:description "An exposure's exposed Sample SHOULD be described by a CSVW-typed condition table" ;
-    sh:targetClass tox:LabProcessExposure ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003969> }
+                UNION
+                { ?this <http://schema.org/additionalType> "Exposure" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:result ;

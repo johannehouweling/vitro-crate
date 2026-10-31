@@ -9,24 +9,15 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-tox:FindPubMedIDPropertyValues a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify PubMedID PropertyValues" ;
-    sh:targetClass schema:PropertyValue ;
-    sh:order 12 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:PubMedIDPropertyValue ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:name ; sh:hasValue "PubMedID" ; sh:minCount 1 ] ;
-        ] ;
-    ] .
 
 tox:PubMedIDPropertyValueMustHaveOBIPropertyID a sh:NodeShape ;
     sh:name "PubMedID PropertyValue MUST carry the OBI PubMed propertyID" ;
-    sh:targetClass tox:PubMedIDPropertyValue ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <http://schema.org/PropertyValue> . ?this <http://schema.org/name> "PubMedID" }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:propertyID ;

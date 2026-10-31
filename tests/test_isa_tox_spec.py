@@ -40,24 +40,67 @@ _TOX = Namespace("https://w3id.org/ro/crate/isa-tox/1.0/")
 _ISA = Namespace("https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/")
 _BIOSCHEMAS = Namespace("https://bioschemas.org/")
 
-# Spec section title -> the class its rows constrain. Superclasses declared in
-# ontology.ttl (tox:CellLineSample is a subclass of isa-ro-crate:Sample, ...) are
-# followed, so the inherited ISA rows the tables repeat are matched against the
-# ISA shapes that enforce them.
+# Spec section title -> the ISA (or Bioschemas) class whose rows the section
+# inherits. The profile mints no classes of its own, so the rows a section adds
+# come from the shapes listed for it in _SECTION_SHAPES.
 _SECTION_CLASSES: dict[str, URIRef] = {
     "MolecularEntity - Test and Control Chemicals": _BIOSCHEMAS.MolecularEntity,
-    "Sample - Source Cells": _TOX.TestSystemSource,
-    "Source Cells - Cell Line": _TOX.CellLineSample,
-    "Source Cells - Primary Cells": _TOX.PrimaryCellSample,
-    "Sample - Test System": _TOX.CulturedSample,
-    "Test System - Co-Culture": _TOX.CoCultureSample,
+    "Sample - Source Cells": _ISA.Sample,
+    "Source Cells - Cell Line": _ISA.Sample,
+    "Source Cells - Primary Cells": _ISA.Sample,
+    "Sample - Test System": _ISA.Sample,
+    "Test System - Co-Culture": _ISA.Sample,
     "Study - Adverse Outcome Pathway": _ISA.Study,
     "Assay - Key Event": _ISA.Assay,
-    "LabProcess - Test System Preparation": _TOX.LabProcessTestSystemPreparation,
-    "LabProcess - Exposure": _TOX.LabProcessExposure,
-    "LabProcess - Endpoint Readout": _TOX.LabProcessEndpointReadout,
-    "LabProcess - Data Analysis": _TOX.LabProcessDataAnalysis,
+    "LabProcess - Test System Preparation": _ISA.Process,
+    "LabProcess - Exposure": _ISA.Process,
+    "LabProcess - Endpoint Readout": _ISA.Process,
+    "LabProcess - Data Analysis": _ISA.Process,
     "LabProtocol - Protocol record": _ISA.Protocol,
+}
+
+# The tox shapes select their focus node from the data (a sh:SPARQLTarget on a
+# sampleType or a protocol record's intendedUse), so no class reaches them: each
+# section names its own. test_every_data_targeted_shape_belongs_to_a_section
+# keeps this list complete.
+_EVERY_STEP = ("LabProcessExecutesAProtocol", "LabProcessExecutesOneProtocol")
+_SECTION_SHAPES: dict[str, set[str]] = {
+    "Sample - Source Cells": {"CellLineSampleMustHaveSampleType"},
+    "Source Cells - Cell Line": {
+        "CellLineSampleMustHaveSampleType",
+        "CellLineSampleShouldHaveIdentifier",
+    },
+    "Source Cells - Primary Cells": {
+        "CellLineSampleMustHaveSampleType",
+        "PrimaryCellSampleShouldDescribeSource",
+    },
+    "Sample - Test System": {
+        "CulturedSampleDerivesFromOneLine",
+        "CulturedSampleShouldStateItsSource",
+    },
+    "Test System - Co-Culture": {"CoCultureDerivesFromSeveralLines"},
+    "LabProcess - Test System Preparation": {"TestSystemPreparationRequirements", *_EVERY_STEP},
+    "LabProcess - Exposure": {
+        "ExposureRequirements",
+        "ExposureShouldHaveCsvwConditionTable",
+        *_EVERY_STEP,
+    },
+    "LabProcess - Endpoint Readout": {
+        "EndpointReadoutConsumesExposedMaterial",
+        "EndpointReadoutRequirements",
+        *_EVERY_STEP,
+    },
+    "LabProcess - Data Analysis": {
+        "DataAnalysisRequirements",
+        "DataAnalysisShouldFollowAnalysisScript",
+        *_EVERY_STEP,
+    },
+}
+# Data-targeted shapes whose requirements the spec states in an "Expected ...
+# items" table rather than a section's property table.
+_NOT_IN_A_SECTION_TABLE = {
+    "DOIPropertyValueMustHaveOBIPropertyID",
+    "PubMedIDPropertyValueMustHaveOBIPropertyID",
 }
 
 # A step's parameters are written under `parameterValue` (the ISA predicate) and
@@ -123,21 +166,28 @@ def _requires_presence(g: Graph, prop) -> bool:
 
 def _shape_rows(g: Graph) -> dict[tuple[str, str], str]:
     """``(section, property) -> MUST|SHOULD``: the strictest presence constraint any
-    shape targeting the section's class (or a superclass) places on the property."""
+    shape for the section places on the property: the shapes of the class the
+    section inherits from (or a superclass), and the section's own data-targeted
+    shapes."""
     rows: dict[tuple[str, str], str] = {}
     for title, cls in _SECTION_CLASSES.items():
-        for target in _with_superclasses(g, cls):
-            for shape in g.subjects(SH.targetClass, target):
-                for prop in g.objects(shape, SH.property):
-                    path = g.value(prop, SH.path)
-                    if not isinstance(path, URIRef) or not _requires_presence(g, prop):
-                        continue  # sequence/inverse paths are ISA structure, not table rows
-                    name = str(path).rsplit("/", 1)[-1].rsplit("#", 1)[-1]
-                    if title.startswith("LabProcess"):
-                        name = _LABPROCESS_ALIAS.get(name, name)
-                    level = _LEVEL_OF_SEVERITY.get(g.value(prop, SH.severity) or SH.Violation)
-                    if level and (level == "MUST" or (title, name) not in rows):
-                        rows[(title, name)] = level
+        shapes = {
+            shape
+            for target in _with_superclasses(g, cls)
+            for shape in g.subjects(SH.targetClass, target)
+        }
+        shapes |= {_TOX[name] for name in _SECTION_SHAPES.get(title, ())}
+        for shape in shapes:
+            for prop in g.objects(shape, SH.property):
+                path = g.value(prop, SH.path)
+                if not isinstance(path, URIRef) or not _requires_presence(g, prop):
+                    continue  # sequence/inverse paths are ISA structure, not table rows
+                name = str(path).rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+                if title.startswith("LabProcess"):
+                    name = _LABPROCESS_ALIAS.get(name, name)
+                level = _LEVEL_OF_SEVERITY.get(g.value(prop, SH.severity) or SH.Violation)
+                if level and (level == "MUST" or (title, name) not in rows):
+                    rows[(title, name)] = level
     return rows
 
 
@@ -156,3 +206,22 @@ def test_requirement_levels_match_the_shapes() -> None:
         if spec.get(key, "MAY") != shapes.get(key, "MAY")
     }
     assert not drift, f"isa_tox.md (left) and the shapes (right) disagree: {drift}"
+
+
+def test_every_data_targeted_shape_belongs_to_a_section() -> None:
+    """A shape with a sh:SPARQLTarget is reached only through _SECTION_SHAPES.
+
+    One missing from it would have its requirements checked against no table,
+    and a name left behind after a shape is renamed would check nothing.
+    """
+    g = _shapes_graph()
+    targeted = {s for s in set(g.subjects(SH.target)) if str(s).startswith(str(_TOX))}
+    names = {str(s).rsplit("/", 1)[-1] for s in targeted}
+    requiring = {
+        str(s).rsplit("/", 1)[-1]
+        for s in targeted
+        if any(_requires_presence(g, p) for p in g.objects(s, SH.property))
+    }
+    listed = set().union(*_SECTION_SHAPES.values()) | _NOT_IN_A_SECTION_TABLE
+    assert requiring - listed == set(), f"in no section: {sorted(requiring - listed)}"
+    assert listed - names == set(), f"no such shape: {sorted(listed - names)}"

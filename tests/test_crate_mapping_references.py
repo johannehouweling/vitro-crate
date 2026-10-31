@@ -633,8 +633,8 @@ class TestASampleInTheAnalysisSlotIsReported:
     crate conformed. An assertion that cannot fail is not a check (#620).
 
     Reported at **recommended** severity rather than required, deliberately. The
-    shape targets ``tox:LabProcessDataAnalysis`` — a class every already-deposited
-    crate's analyses fall into — so a Violation would retroactively fail crates
+    shape targets every data-analysis step — which every already-deposited
+    crate's analyses are — so a Violation would retroactively fail crates
     that were conformant when they were written. These two tests pin both halves:
     the finding is raised, and conformance is not withdrawn.
 

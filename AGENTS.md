@@ -2802,7 +2802,7 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
   preparation consumes is a source whatever it states, so one with no `sampleType` is
   still reported.
 - A LabProcess step is `@type: "LabProcess"` typed by the `intendedUse` of the protocol
-  record it executes (D17): a term of the ISA-Tox preparation-types set (growth
+  record it executes (D17): a preparation term (growth
   protocol EFO:0003789, transfection OBI:0001152, cell differentiation GO:0030154),
   treatment protocol EFO:0003969, assay protocol BAO:0000523, data transformation
   OBI:0200000. ISA backbone nodes keep the ISA profile's own convention, `@type:
@@ -2813,11 +2813,14 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
   readers (`assessment_graph.with_kinds`) still read them, and a resumed session is
   migrated on load. The build writes none.
 
-The specialized `tox:` class is **inferred by the validator**, not asserted in the crate:
-each tox shape carries a SHACL `TripleRule` that adds `rdf:type tox:CellLineSample` (etc.)
-when the term matches (`FindCellLineSamples`). A generic RO-Crate consumer sees the base
-type; the ISA-Tox validator sees the specialization — this is why `@type` stays the bare
-token. A term outside the profile's closed lists (`sh:in`) is a warning.
+The profile **mints no classes and no terms**: every type and term it names is an
+existing Schema.org, Bioschemas or ontology IRI. Each tox shape selects its focus nodes
+from the data with a SHACL `sh:SPARQLTarget` — a Sample by its `sampleType` term, a step
+by its protocol record's `intendedUse`, either one by its legacy `additionalType` alias —
+so a generic RO-Crate consumer and the ISA-Tox validator see the same types, which is
+why `@type` stays the bare base token. A term outside the profile's closed lists
+(`sh:in`) is a warning. `tests/test_profile_crate.py` fails if anything but a shape is
+declared under the profile's namespace.
 
 Consequences the builder respects: `_crate_mapping` emits the bare base `@type` plus the
 term (never a `@type` array), and a single conceptual entity is ONE node — a
@@ -3013,10 +3016,10 @@ process one protocol. The record sits at `<process @id>_protocol` and states onl
 what the deposit states:
 
 - `intendedUse`, the step's protocol type as an ontology term (a `DefinedTerm`):
-  TestSystemPreparation a term of the profile's preparation-types `DefinedTermSet`
-  (`profiles.models.tox.PREPARATION_TYPES`, published in `shapes/tox/ontology.ttl`),
-  the step's stated `preparation_type` or else EFO:0003789 *growth protocol*, stated
-  with `inDefinedTermSet` (#785); Exposure EFO:0003969 *treatment protocol*,
+  TestSystemPreparation one of the three preparation terms
+  (`profiles.models.tox.PREPARATION_TYPES`: EFO:0003789 *growth protocol*, OBI:0001152
+  *transfection*, GO:0030154 *cell differentiation*), the step's stated
+  `preparation_type` or else EFO:0003789 (#785); Exposure EFO:0003969 *treatment protocol*,
   EndpointReadout BAO:0000523 *assay protocol*, DataAnalysis OBI:0200000 *data
   transformation*;
 - `isBasedOn`, the documents the deposit places on the step; a document the drafter

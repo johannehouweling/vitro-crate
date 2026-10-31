@@ -24,52 +24,16 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-# Type a Sample by the material it declares itself to be — same idiom and same
-# `sh:order 10` tier as `tox:FindCellLineSamples`.
-tox:FindCulturedSamples a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify cultured samples within the RO-Crate" ;
-    sh:description "A Sample whose sampleType is OBI's 'cell culture' holds cultured cells." ;
-    sh:targetClass bioschemas:Sample ;
-    sh:order 10 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:CulturedSample ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path schema:sampleType ;
-                sh:hasValue <http://purl.obolibrary.org/obo/OBI_0001876> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] .
-
-tox:FindCoCultureSamples a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify co-culture samples within the RO-Crate" ;
-    sh:description "A Sample whose sampleType is NCIT's 'Co-Culture' holds cells grown together." ;
-    sh:targetClass bioschemas:Sample ;
-    sh:order 10 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:CoCultureSample ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path schema:sampleType ;
-                sh:hasValue <http://purl.obolibrary.org/obo/NCIT_C93168> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] .
 
 tox:CulturedSampleDerivesFromOneLine a sh:NodeShape ;
     sh:name "A cultured Sample derives from ONE parent Sample" ;
     sh:description "Culturing several sources separately yields one Sample each; one Sample from several sources is a co-culture and must say so." ;
-    sh:targetClass tox:CulturedSample ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <https://bioschemas.org/Sample> . ?this <http://schema.org/sampleType> <http://purl.obolibrary.org/obo/OBI_0001876> }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;
@@ -87,7 +51,12 @@ tox:CulturedSampleDerivesFromOneLine a sh:NodeShape ;
 tox:CulturedSampleShouldStateItsSource a sh:NodeShape ;
     sh:name "A cultured Sample states the Sample it was grown from" ;
     sh:description "Without it the derivation chain from exposed material back to the source cells is broken." ;
-    sh:targetClass tox:CulturedSample ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <https://bioschemas.org/Sample> . ?this <http://schema.org/sampleType> <http://purl.obolibrary.org/obo/OBI_0001876> }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;
@@ -99,7 +68,12 @@ tox:CulturedSampleShouldStateItsSource a sh:NodeShape ;
 tox:CoCultureDerivesFromSeveralLines a sh:NodeShape ;
     sh:name "A co-culture Sample derives from SEVERAL parent Samples" ;
     sh:description "The co-culture type describes a mixture; a single source grown alone is a plain culture." ;
-    sh:targetClass tox:CoCultureSample ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <https://bioschemas.org/Sample> . ?this <http://schema.org/sampleType> <http://purl.obolibrary.org/obo/NCIT_C93168> }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:isBasedOn ;

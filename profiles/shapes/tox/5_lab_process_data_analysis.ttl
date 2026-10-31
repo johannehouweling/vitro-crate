@@ -12,39 +12,22 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-tox:FindDataAnalysisProcesses a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify data analysis processes" ;
-    sh:targetClass bioschemas:LabProcess ;
-    sh:order 11 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessDataAnalysis ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:additionalType ; sh:hasValue "DataAnalysis" ; sh:minCount 1 ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessDataAnalysis ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
-                sh:hasValue <http://purl.obolibrary.org/obo/OBI_0200000> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] .
 
 tox:DataAnalysisRequirements a sh:NodeShape ;
     sh:name "DataAnalysis process requirements" ;
     sh:description "A data analysis process MUST declare its input data, processed output, and parameters" ;
-    sh:targetClass tox:LabProcessDataAnalysis ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0200000> }
+                UNION
+                { ?this <http://schema.org/additionalType> "DataAnalysis" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:object ;
@@ -55,8 +38,8 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
     # The slot above says "the raw/condition data being analysed" and enforced only
     # minCount, so a Sample satisfied it structurally while being wrong
     # scientifically — an assertion that cannot fail is not a check (#620, #650).
-    # Warning rather than Violation because this targets tox:LabProcessDataAnalysis,
-    # a class every already-deposited crate's analyses fall into: as a Violation it
+    # Warning rather than Violation because this targets every data-analysis step,
+    # which every already-deposited crate's analyses are: as a Violation it
     # would retroactively fail crates that were conformant when they were written.
     # Promote once the deposits in circulation have been rebuilt.
     sh:property [
@@ -90,7 +73,18 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
 tox:DataAnalysisShouldFollowAnalysisScript a sh:NodeShape ;
     sh:name "DataAnalysis SHOULD follow an analysis script" ;
     sh:description "A data analysis process's protocol SHOULD be based on the deposited script it ran" ;
-    sh:targetClass tox:LabProcessDataAnalysis ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0200000> }
+                UNION
+                { ?this <http://schema.org/additionalType> "DataAnalysis" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path bioschemas-prop:executesLabProtocol ;

@@ -15,8 +15,41 @@
 tox:LabProcessExecutesAProtocol a sh:NodeShape ;
     sh:name "LabProcess executes a protocol" ;
     sh:description "An ISA-Tox LabProcess MUST execute a LabProtocol" ;
-    sh:targetClass tox:LabProcessTestSystemPreparation , tox:LabProcessExposure ,
-        tox:LabProcessEndpointReadout , tox:LabProcessDataAnalysis ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003789> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0001152> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/GO_0030154> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003969> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.bioassayontology.org/bao#BAO_0000523> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0200000> }
+                UNION
+                { ?this <http://schema.org/additionalType> "TestSystemPreparation" }
+                UNION
+                { ?this <http://schema.org/additionalType> "CellCulture" }
+                UNION
+                { ?this <http://schema.org/additionalType> "Exposure" }
+                UNION
+                { ?this <http://schema.org/additionalType> "EndpointReadout" }
+                UNION
+                { ?this <http://schema.org/additionalType> "DataAnalysis" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path bioschemas-prop:executesLabProtocol ;
@@ -28,8 +61,41 @@ tox:LabProcessExecutesAProtocol a sh:NodeShape ;
 tox:LabProcessExecutesOneProtocol a sh:NodeShape ;
     sh:name "LabProcess SHOULD execute one protocol" ;
     sh:description "An ISA-Tox LabProcess SHOULD execute exactly one LabProtocol" ;
-    sh:targetClass tox:LabProcessTestSystemPreparation , tox:LabProcessExposure ,
-        tox:LabProcessEndpointReadout , tox:LabProcessDataAnalysis ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003789> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0001152> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/GO_0030154> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003969> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.bioassayontology.org/bao#BAO_0000523> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0200000> }
+                UNION
+                { ?this <http://schema.org/additionalType> "TestSystemPreparation" }
+                UNION
+                { ?this <http://schema.org/additionalType> "CellCulture" }
+                UNION
+                { ?this <http://schema.org/additionalType> "Exposure" }
+                UNION
+                { ?this <http://schema.org/additionalType> "EndpointReadout" }
+                UNION
+                { ?this <http://schema.org/additionalType> "DataAnalysis" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path bioschemas-prop:executesLabProtocol ;
@@ -47,15 +113,13 @@ tox:ProtocolRecordTypeIsKnown a sh:NodeShape ;
     sh:property [
         a sh:PropertyShape ;
         sh:path bioschemas-prop:intendedUse ;
-        sh:or (
-            [ sh:path schema:inDefinedTermSet ; sh:hasValue tox:preparation-types ]
-            [ sh:in (
-                <http://www.ebi.ac.uk/efo/EFO_0003789>
-                <http://purl.obolibrary.org/obo/OBI_0001152>
-                <http://www.ebi.ac.uk/efo/EFO_0003969>
-                <http://www.bioassayontology.org/bao#BAO_0000523>
-                <http://purl.obolibrary.org/obo/OBI_0200000>
-            ) ]
+        sh:in (
+            <http://www.ebi.ac.uk/efo/EFO_0003789>
+            <http://purl.obolibrary.org/obo/OBI_0001152>
+            <http://purl.obolibrary.org/obo/GO_0030154>
+            <http://www.ebi.ac.uk/efo/EFO_0003969>
+            <http://www.bioassayontology.org/bao#BAO_0000523>
+            <http://purl.obolibrary.org/obo/OBI_0200000>
         ) ;
         sh:message "A protocol record's intendedUse SHOULD be one of the ISA-Tox protocol types: a test system preparation type, treatment protocol, assay protocol or data transformation" ;
         sh:severity sh:Warning ;

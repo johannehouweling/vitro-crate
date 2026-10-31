@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 # LabProcessTestSystemPreparation — test system preparation (biological model preparation).
 # A bioschemas:LabProcess whose protocol record's intendedUse is a term of the ISA-Tox
-# preparation-types set (ontology.ttl), as the term states with inDefinedTermSet (#785).
+# three terms this profile recognises for it (growth protocol, transfection,
+# cell differentiation), reused from EFO, OBI and GO.
 # Older crates are read by aliases: the additionalType labels "TestSystemPreparation"
 # and "CellCulture", and growth protocol or transfection stated without the set (#799).
 
@@ -13,77 +14,30 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-tox:FindTestSystemPreparationProcesses a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify test system preparation processes" ;
-    sh:targetClass bioschemas:LabProcess ;
-    sh:order 11 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessTestSystemPreparation ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:additionalType ; sh:hasValue "TestSystemPreparation" ; sh:minCount 1 ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessTestSystemPreparation ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:additionalType ; sh:hasValue "CellCulture" ; sh:minCount 1 ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessTestSystemPreparation ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse schema:inDefinedTermSet ) ;
-                sh:hasValue tox:preparation-types ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessTestSystemPreparation ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
-                sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0003789> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessTestSystemPreparation ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
-                sh:hasValue <http://purl.obolibrary.org/obo/OBI_0001152> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] .
 
 tox:TestSystemPreparationRequirements a sh:NodeShape ;
     sh:name "TestSystemPreparation process requirements" ;
     sh:description "A test system preparation process MUST declare its input cells, output cultured sample, and parameters" ;
-    sh:targetClass tox:LabProcessTestSystemPreparation ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003789> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/OBI_0001152> }
+                UNION
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://purl.obolibrary.org/obo/GO_0030154> }
+                UNION
+                { ?this <http://schema.org/additionalType> "TestSystemPreparation" }
+                UNION
+                { ?this <http://schema.org/additionalType> "CellCulture" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:object ;
