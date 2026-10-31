@@ -60,3 +60,24 @@ def test_cellosaurus_recall_panel_live():
     }
 
     assert actual == {name: accession for name, accession in RECALL_PANEL}
+
+
+@live_only
+def test_the_compound_wiki_property_numbers_still_mean_what_they_did():
+    """Wikibase property ids are instance-local and editable.
+
+    `lookups/compoundwiki.py` hard-codes P10 as InChIKey, P12 as SMILES and so
+    on, recorded against this one wiki. The offline contract test replays a
+    recorded payload, so a renumbering there would leave it green while every
+    real lookup silently returned "" for a structure. Only this check notices.
+    """
+    from lookups.compoundwiki import lookup_compound_wiki
+
+    got = lookup_compound_wiki("caffeine")
+    assert got, "caffeine no longer resolves in the Compound Wiki"
+    assert got["compoundwiki_id"].startswith("Q")
+    assert got["@id"] == f"https://compoundcloud.wikibase.cloud/entity/{got['compoundwiki_id']}"
+    assert got["inchikey"] == "RYYVLZVUVIJVGH-UHFFFAOYSA-N", got
+    assert got["formula"] == "C8H10N4O2", got
+    assert got["cas"] == "58-08-2", got
+

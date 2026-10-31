@@ -1010,7 +1010,7 @@ reports (#738). The wiring closes the largest gold-crate fidelity gap.
 `scaffold_isa_backbone`: from the single model-supplied compound `name` it fuses
 the recurring `lookup_compound` → `draft_molecular_entity` → `verify_identifier`
 chain into ONE deterministic call. (1) `lookup_compound` resolves the chemical
-(PubChem, then a ChEBI fallback) — a miss returns `{ok: False, error}` and creates
+(PubChem, then the Compound Wiki, then ChEBI) — a miss returns `{ok: False, error}` and creates
 no entity; (2) `draft_molecular_entity` mints (or, idempotently, reuses) the
 `MolecularEntity` carrying the looked-up `cas` / `pubchem_cid` (and `smiles` /
 `inchikey` / …) — the build's shared `_identifier_pv` path turns `cas` +
@@ -1377,7 +1377,7 @@ shape as `build_and_validate` (#87).
 
 ### Lookup Tools
 ```
-lookup_compound(name: str) → {found, data, error}   # PubChem (→ ChEBI fallback)
+lookup_compound(name: str) → {found, data, error}   # PubChem → Compound Wiki → ChEBI
 lookup_dtxsid(query: str) → {found, data, error}       # EPA CompTox (DTXSID)
 lookup_cell_line(accession: str) → {found, data, error}  # Cellosaurus (accession CVCL_*)
 lookup_cell_line_by_name(name: str) → {found, data, error}  # Cellosaurus name → accession (confidence-gated; found: False on ambiguous/partial, D5)
@@ -1889,9 +1889,14 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 - **Crossref**: DOI → title, authors, journal, year
 
 ### Multi-Strategy Lookups
-For chemicals, `lookup_compound` tries by name, then CAS, then **ChEBI** (via
-OLS4) — a PubChem miss now falls back to resolving a ChEBI IRI rather than a
-hard not-found. If all fail, ask the user for SMILES/InChI. The ChEBI fallback's
+For chemicals, `lookup_compound` tries by name, then CAS, then the
+**VHP4Safety Compound Wiki**, then **ChEBI** (via OLS4), rather than a hard
+not-found. The Compound Wiki is a Wikibase instance curated for the compounds
+these studies test: a hit carries the structure and a dereferenceable entity
+IRI, where a ChEBI hit yields an ontology term and no structure, so it is
+consulted first of the two. Its property numbers are instance-local and only
+`tests/test_lookups_live.py` can catch a renumbering. If all fail, ask the user
+for SMILES/InChI. The ChEBI fallback's
 identity rides on **context-declared keys** so the `MolecularEntity` compacts
 cleanly under RO-Crate 1.2 (Issue #243): the ChEBI CURIE on `chebiId`
 (`schema:identifier`, mirroring `cas`/`pubchemCid`) and the dereferenceable

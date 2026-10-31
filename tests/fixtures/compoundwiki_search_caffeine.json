@@ -1,0 +1,21 @@
+{
+  "searchinfo": {
+    "search": "caffeine"
+  },
+  "search": [
+    {
+      "id": "Q2026",
+      "title": "Item:Q2026",
+      "concepturi": "https://compoundcloud.wikibase.cloud/entity/Q2026",
+      "url": "https://compoundcloud.wikibase.cloud/wiki/Item:Q2026",
+      "label": "Caffeine",
+      "description": "chemical compound",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Caffeine"
+      }
+    }
+  ],
+  "success": 1
+}
