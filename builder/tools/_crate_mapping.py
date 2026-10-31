@@ -1419,7 +1419,7 @@ class _Characteristic:
 
 _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
     _Characteristic(("passage",), "passage", iri("EFO:0007061")),
-    _Characteristic(("growth",), "growth", iri("BAO:0002648")),
+    _Characteristic(("growth",), "growth", iri("EFO:0000523")),
     _Characteristic(("organ",), "Organ", iri("UBERON:0000062")),
     _Characteristic(("tissue",), "Tissue", iri("UBERON:0000479")),
     _Characteristic(("cell_type",), "cell type", iri("EFO:0000324")),

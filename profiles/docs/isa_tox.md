@@ -329,7 +329,7 @@ BioSample `sex` property in the table above, not a characteristic.
 |Organ|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000062`|Value e.g. an UBERON term. Also statable as `anatomicalStructure`.|
 |Tissue|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000479`|Value e.g. an UBERON term. Also statable as `anatomicalStructure`.|
 |passage|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0007061`|The passage number the material was used at.|
-|growth|SHOULD|`http://www.bioassayontology.org/bao#BAO_0002648`|The growth or culture conditions.|
+|growth|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000523`|The growth or culture conditions.|
 |supplier|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C90473`||
 |catalogue number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C99286`||
 |lot number|SHOULD if commercial|`http://purl.obolibrary.org/obo/NCIT_C70848`|The lot, not the catalogue number, fixes the donor.|
