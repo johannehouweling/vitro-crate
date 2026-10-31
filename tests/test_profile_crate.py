@@ -23,25 +23,30 @@ import json
 from pathlib import Path
 
 import pytest
+from rdflib import RDF, Graph, Namespace
 
 from profiles.validator import validate_crate_dict
 from scripts.gen_profile_crate import (
     CC_BY,
     DATE_PUBLISHED,
     KEYWORDS,
+    MIT,
     ORCID,
     PAGES,
     PARENT_IRI,
-    MIT,
     PROFILE_IRI,
+    PRONOM_SHACL,
     RO_CRATE,
     ROLE,
+    SHACL,
+    SHAPES_BASE,
     VERSION,
     build,
 )
 
 REPO = Path(__file__).resolve().parents[1]
 PROF_PROFILE = "http://www.w3.org/ns/dx/prof/Profile"
+SH = Namespace("http://www.w3.org/ns/shacl#")
 
 
 @pytest.fixture(scope="module")
@@ -152,40 +157,72 @@ class TestTheSpecDocument:
 
 
 class TestTheShapes:
-    def test_every_shape_file_is_in_the_crate_as_mit_turtle(self, doc):
-        shipped = {n["@id"] for n in doc["@graph"] if n["@id"].startswith("shapes/")}
+    """The shapes live in one place and the crate points at them.
+
+    Copying them in would leave two versions of every constraint: the one the
+    test suite runs against and the one a reader of the published profile
+    fetches. The CCA profile references its SHACL the same way.
+    """
+
+    def test_every_shape_is_referenced_where_it_lives(self, doc):
+        referenced = {
+            n["@id"] for n in doc["@graph"] if n["@id"].startswith(SHAPES_BASE)
+        }
         on_disk = {
-            f"shapes/{p.name}"
+            f"{SHAPES_BASE}{p.name}"
             for p in (REPO / "profiles" / "shapes" / "tox").glob("*.ttl")
         }
-        assert shipped == on_disk
-        for entity_id in sorted(shipped):
+        assert referenced == on_disk
+        for entity_id in sorted(referenced):
             node = _node(doc, entity_id)
-            assert node["encodingFormat"] == "text/turtle"
+            # RO-Crate 1.2 §Profile Crate: SHACL is text/turtle, PRONOM fmt/874,
+            # conforming to the SHACL recommendation.
+            assert node["encodingFormat"] == ["text/turtle", {"@id": PRONOM_SHACL}], entity_id
+            assert node["conformsTo"] == {"@id": SHACL}, entity_id
             assert node["license"] == {"@id": MIT}, entity_id
+        # What conformsTo names is itself an entity, as RO-Crate expects of it.
+        assert _node(doc, SHACL)["@type"] == "CreativeWork"
+
+    def test_no_copy_of_a_shape_is_shipped(self, doc, tmp_path):
+        assert not [n for n in doc["@graph"] if n["@id"].startswith("shapes/")]
+        build(tmp_path)
+        assert not (tmp_path / "shapes").exists(), "the shapes were copied in again"
 
     def test_the_shapes_have_the_validation_role(self, doc):
-        descriptor = _node(doc, "#hasSHACL")
+        descriptor = _node(doc, "#hasShape")
         assert descriptor["hasRole"] == {"@id": f"{ROLE}validation"}
-        assert {"@id": "shapes/profile.ttl"} in descriptor["hasArtifact"]
+        assert {"@id": f"{SHAPES_BASE}profile.ttl"} in descriptor["hasArtifact"]
 
-    def test_the_ontology_has_the_vocabulary_role(self, doc):
-        descriptor = _node(doc, "#hasVocabulary")
-        assert descriptor["hasRole"] == {"@id": f"{ROLE}vocabulary"}
-        assert descriptor["hasArtifact"] == {"@id": "shapes/ontology.ttl"}
+    def test_the_profile_publishes_no_vocabulary_of_its_own(self, doc):
+        """Reuse only: no vocabulary resource, and no class or term set minted.
+
+        Shape IRIs live in the profile's namespace because SHACL needs a name for
+        each shape; nothing else may.
+        """
+        assert not [n for n in doc["@graph"] if "vocabulary" in str(n.get("hasRole"))]
+        shapes = Graph()
+        for path in (REPO / "profiles" / "shapes" / "tox").glob("*.ttl"):
+            shapes.parse(path)
+        minted = {
+            (s, o)
+            for s, o in shapes.subject_objects(RDF.type)
+            if str(s).startswith(PROFILE_IRI)
+            and str(s) != PROFILE_IRI  # the profile's own identity, prof:Profile
+            and o not in (SH.NodeShape, SH.PropertyShape)
+        }
+        assert not minted, f"terms minted under the profile namespace: {sorted(minted)}"
 
     def test_the_resources_are_all_declared_on_the_root(self, doc):
         assert _node(doc, PROFILE_IRI)["hasResource"] == [
             {"@id": "#hasSpecification"},
-            {"@id": "#hasSHACL"},
-            {"@id": "#hasVocabulary"},
+            {"@id": "#hasShape"},
         ]
 
     def test_pages_serves_the_crate_verbatim(self, tmp_path):
         """Jekyll would rewrite index.html and hide the dotfiles."""
         build(tmp_path)
         assert (tmp_path / ".nojekyll").exists()
-        assert (tmp_path / "shapes" / "profile.ttl").exists()
+        assert (tmp_path / "index.html").exists()
 
 
 def test_nothing_generated_is_committed():

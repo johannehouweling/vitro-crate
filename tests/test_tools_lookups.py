@@ -93,6 +93,43 @@ class TestLookupCompound:
         # The fallback was consulted (and intercepted) — proves no live call.
         assert chebi_calls == [("NonexistentCompoundXYZ", "chebi")]
 
+    def test_falls_back_to_the_compound_wiki_before_chebi(self, monkeypatch):
+        """A VHP4Safety compound PubChem does not index still resolves.
+
+        The Compound Wiki is consulted before ChEBI because it carries the
+        structure and a dereferenceable ``@id``, where a ChEBI hit gives an
+        ontology term and no structure at all.
+        """
+        monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", lambda q: {})
+        chebi_calls: list = []
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_ontology_term_ols",
+            lambda raw, ontology: chebi_calls.append((raw, ontology)) or {},
+        )
+        monkeypatch.setattr(
+            "builder.tools.lookups.lookup_compound_wiki",
+            lambda name: {
+                "compoundwiki_id": "Q2026",
+                "@id": "https://compoundcloud.wikibase.cloud/entity/Q2026",
+                "name": "Caffeine",
+                "inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+                "smiles": "Cn1c(=O)c2c(ncn2C)n(C)c1=O",
+                "formula": "C8H10N4O2",
+                "cas": "58-08-2",
+                "pubchem_cid": "",
+                "inchi": "",
+                "dtxcid": "",
+            },
+        )
+        result = lookup_compound("caffeine")
+        assert result["found"] is True, result
+        data = result["data"]
+        assert data["source"] == "compoundwiki"
+        assert data["sameAs"] == {"@id": "https://compoundcloud.wikibase.cloud/entity/Q2026"}
+        assert data["inchikey"] == "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
+        assert data["cas"] == "58-08-2"
+        assert not chebi_calls, "ChEBI was consulted even though the wiki answered"
+
     def test_falls_back_to_chebi_when_pubchem_misses(self, monkeypatch):
         # When PubChem indexes nothing, lookup_compound resolves a ChEBI IRI via
         # OLS (the AGENTS.md §10 name → CAS → ChEBI multi-strategy). Fully mocked

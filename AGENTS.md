@@ -1010,7 +1010,7 @@ reports (#738). The wiring closes the largest gold-crate fidelity gap.
 `scaffold_isa_backbone`: from the single model-supplied compound `name` it fuses
 the recurring `lookup_compound` → `draft_molecular_entity` → `verify_identifier`
 chain into ONE deterministic call. (1) `lookup_compound` resolves the chemical
-(PubChem, then a ChEBI fallback) — a miss returns `{ok: False, error}` and creates
+(PubChem, then the Compound Wiki, then ChEBI) — a miss returns `{ok: False, error}` and creates
 no entity; (2) `draft_molecular_entity` mints (or, idempotently, reuses) the
 `MolecularEntity` carrying the looked-up `cas` / `pubchem_cid` (and `smiles` /
 `inchikey` / …) — the build's shared `_identifier_pv` path turns `cas` +
@@ -1377,7 +1377,7 @@ shape as `build_and_validate` (#87).
 
 ### Lookup Tools
 ```
-lookup_compound(name: str) → {found, data, error}   # PubChem (→ ChEBI fallback)
+lookup_compound(name: str) → {found, data, error}   # PubChem → Compound Wiki → ChEBI
 lookup_dtxsid(query: str) → {found, data, error}       # EPA CompTox (DTXSID)
 lookup_cell_line(accession: str) → {found, data, error}  # Cellosaurus (accession CVCL_*)
 lookup_cell_line_by_name(name: str) → {found, data, error}  # Cellosaurus name → accession (confidence-gated; found: False on ambiguous/partial, D5)
@@ -1889,9 +1889,14 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 - **Crossref**: DOI → title, authors, journal, year
 
 ### Multi-Strategy Lookups
-For chemicals, `lookup_compound` tries by name, then CAS, then **ChEBI** (via
-OLS4) — a PubChem miss now falls back to resolving a ChEBI IRI rather than a
-hard not-found. If all fail, ask the user for SMILES/InChI. The ChEBI fallback's
+For chemicals, `lookup_compound` tries by name, then CAS, then the
+**VHP4Safety Compound Wiki**, then **ChEBI** (via OLS4), rather than a hard
+not-found. The Compound Wiki is a Wikibase instance curated for the compounds
+these studies test: a hit carries the structure and a dereferenceable entity
+IRI, where a ChEBI hit yields an ontology term and no structure, so it is
+consulted first of the two. Its property numbers are instance-local and only
+`tests/test_lookups_live.py` can catch a renumbering. If all fail, ask the user
+for SMILES/InChI. The ChEBI fallback's
 identity rides on **context-declared keys** so the `MolecularEntity` compacts
 cleanly under RO-Crate 1.2 (Issue #243): the ChEBI CURIE on `chebiId`
 (`schema:identifier`, mirroring `cas`/`pubchemCid`) and the dereferenceable
@@ -2802,7 +2807,7 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
   preparation consumes is a source whatever it states, so one with no `sampleType` is
   still reported.
 - A LabProcess step is `@type: "LabProcess"` typed by the `intendedUse` of the protocol
-  record it executes (D17): a term of the ISA-Tox preparation-types set (growth
+  record it executes (D17): a preparation term (growth
   protocol EFO:0003789, transfection OBI:0001152, cell differentiation GO:0030154),
   treatment protocol EFO:0003969, assay protocol BAO:0000523, data transformation
   OBI:0200000. ISA backbone nodes keep the ISA profile's own convention, `@type:
@@ -2813,11 +2818,14 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
   readers (`assessment_graph.with_kinds`) still read them, and a resumed session is
   migrated on load. The build writes none.
 
-The specialized `tox:` class is **inferred by the validator**, not asserted in the crate:
-each tox shape carries a SHACL `TripleRule` that adds `rdf:type tox:CellLineSample` (etc.)
-when the term matches (`FindCellLineSamples`). A generic RO-Crate consumer sees the base
-type; the ISA-Tox validator sees the specialization — this is why `@type` stays the bare
-token. A term outside the profile's closed lists (`sh:in`) is a warning.
+The profile **mints no classes and no terms**: every type and term it names is an
+existing Schema.org, Bioschemas or ontology IRI. Each tox shape selects its focus nodes
+from the data with a SHACL `sh:SPARQLTarget` — a Sample by its `sampleType` term, a step
+by its protocol record's `intendedUse`, either one by its legacy `additionalType` alias —
+so a generic RO-Crate consumer and the ISA-Tox validator see the same types, which is
+why `@type` stays the bare base token. A term outside the profile's closed lists
+(`sh:in`) is a warning. `tests/test_profile_crate.py` fails if anything but a shape is
+declared under the profile's namespace.
 
 Consequences the builder respects: `_crate_mapping` emits the bare base `@type` plus the
 term (never a `@type` array), and a single conceptual entity is ONE node — a
@@ -3013,10 +3021,10 @@ process one protocol. The record sits at `<process @id>_protocol` and states onl
 what the deposit states:
 
 - `intendedUse`, the step's protocol type as an ontology term (a `DefinedTerm`):
-  TestSystemPreparation a term of the profile's preparation-types `DefinedTermSet`
-  (`profiles.models.tox.PREPARATION_TYPES`, published in `shapes/tox/ontology.ttl`),
-  the step's stated `preparation_type` or else EFO:0003789 *growth protocol*, stated
-  with `inDefinedTermSet` (#785); Exposure EFO:0003969 *treatment protocol*,
+  TestSystemPreparation one of the three preparation terms
+  (`profiles.models.tox.PREPARATION_TYPES`: EFO:0003789 *growth protocol*, OBI:0001152
+  *transfection*, GO:0030154 *cell differentiation*), the step's stated
+  `preparation_type` or else EFO:0003789 (#785); Exposure EFO:0003969 *treatment protocol*,
   EndpointReadout BAO:0000523 *assay protocol*, DataAnalysis OBI:0200000 *data
   transformation*;
 - `isBasedOn`, the documents the deposit places on the step; a document the drafter

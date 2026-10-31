@@ -62,9 +62,15 @@ tox:InvestigationMustIncludeAnExposure a sh:NodeShape ;
         a sh:SPARQLConstraint ;
         sh:select """
             PREFIX schema: <http://schema.org/>
-            PREFIX tox: <https://w3id.org/ro/crate/isa-tox/1.0/>
+            PREFIX bioschemas: <https://bioschemas.org/>
+            PREFIX bioschemas-prop: <https://bioschemas.org/properties/>
             SELECT $this WHERE {
-                FILTER NOT EXISTS { $this (schema:hasPart|schema:about)+ ?e . ?e a tox:LabProcessExposure . }
+                FILTER NOT EXISTS {
+                    $this (schema:hasPart|schema:about)+ ?e .
+                    ?e a bioschemas:LabProcess .
+                    { ?e bioschemas-prop:executesLabProtocol/bioschemas-prop:intendedUse <http://www.ebi.ac.uk/efo/EFO_0003969> }
+                    UNION { ?e schema:additionalType "Exposure" }
+                }
             }
         """ ;
         sh:severity sh:Violation ;

@@ -1,8 +1,8 @@
-"""A preparation step is typed from the ISA-Tox preparation-types term set (#785).
+"""A preparation step is typed by one of three reused ontology terms (#785).
 
-The profile publishes the set (``shapes/tox/ontology.ttl``); a step's protocol record
-carries the type the lab stated as its ``intendedUse``, and the tox pass knows a
-preparation step by that term being in the set.
+A step's protocol record carries the type the lab stated as its ``intendedUse`` —
+EFO:0003789 growth protocol, OBI:0001152 transfection or GO:0030154 cell
+differentiation — and the tox pass knows a preparation step by that term.
 """
 
 from __future__ import annotations
@@ -10,22 +10,19 @@ from __future__ import annotations
 import copy
 import json
 import warnings
-from pathlib import Path
 
 import pytest
-from rdflib import Graph, URIRef
 from rdflib.namespace import Namespace
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.assessment_graph import with_kinds
 from builder.tools.builder import build_crate
-from profiles.models.tox import PREPARATION_TYPES, PREPARATION_TYPES_SET
+from profiles.models.tox import PREPARATION_TYPES
 from profiles.ontology_iris import iri
 from profiles.validator import validate_crate_dict
 
 pytestmark = pytest.mark.timeout(180)
 
-ONTOLOGY = Path(__file__).parents[1] / "profiles" / "shapes" / "tox" / "ontology.ttl"
 SDO = Namespace("http://schema.org/")
 
 
@@ -103,10 +100,11 @@ def test_the_record_carries_the_preparation_type_the_lab_stated(tmp_path_factory
     assert _record_type(_build(tmp_path_factory, stated)) == iri(curie)
 
 
-def test_the_type_is_a_term_of_the_preparation_types_set(differentiated):
+def test_the_type_is_the_ontology_term_itself(differentiated):
     term = _by_id(differentiated, iri("GO:0030154"))
-    assert term["inDefinedTermSet"] == {"@id": PREPARATION_TYPES_SET}
     assert term["termCode"] == "GO:0030154"
+    # No membership claim: the profile mints no term set for these to belong to.
+    assert "inDefinedTermSet" not in term, term
     # The type rides on the record, not on a parameter of the step.
     values = [n.get("value") for n in differentiated["@graph"] if n.get("@type") == "PropertyValue"]
     assert "differentiation" not in values, values
@@ -119,38 +117,35 @@ def _tox_messages(doc) -> list[str]:
     return [i.message for i in result.issues]
 
 
-def _without_parameters(doc, *unset_terms) -> dict:
-    """*doc* with the preparation step's parameters gone and *unset_terms* stating no set."""
+def _without_parameters(doc) -> dict:
+    """*doc* with the preparation step's parameters gone."""
     bare = copy.deepcopy(doc)
     step = next(n for n in bare["@graph"] if n.get("name") == "Differentiate SH-SY5Y")
     for key in ("parameter", "parameterValue"):
         del step[key]
-    for curie in unset_terms:
-        del _by_id(bare, iri(curie))["inDefinedTermSet"]
     return bare
 
 
-def test_a_step_typed_from_the_set_is_validated_as_a_preparation(differentiated):
+def test_a_step_typed_by_its_term_is_validated_as_a_preparation(differentiated):
     assert not any("ISA-Tox protocol types" in m for m in _tox_messages(differentiated))
     # Recognised as a preparation, the step owes its parameters.
     messages = _tox_messages(_without_parameters(differentiated))
     assert any("TestSystemPreparation process MUST have" in m for m in messages), messages
 
 
-def test_a_growth_protocol_stated_without_the_set_still_types_its_step(tmp_path_factory):
-    older = _without_parameters(_build(tmp_path_factory), "EFO:0003789")
-    messages = _tox_messages(older)
+def test_a_growth_protocol_types_its_step(tmp_path_factory):
+    messages = _tox_messages(_without_parameters(_build(tmp_path_factory)))
     assert any("TestSystemPreparation process MUST have" in m for m in messages), messages
     assert not any("ISA-Tox protocol types" in m for m in messages), messages
 
 
-def test_the_profile_publishes_the_set_the_builder_writes():
-    graph = Graph().parse(ONTOLOGY)
-    published = set(graph.objects(URIRef(PREPARATION_TYPES_SET), SDO.hasDefinedTerm))
-    assert published == {URIRef(iri(c)) for c in PREPARATION_TYPES}
+def test_every_preparation_term_is_reused_not_minted():
+    """Each preparation type is an existing ontology term (EFO, OBI, GO)."""
+    for curie in PREPARATION_TYPES:
+        assert not iri(curie).startswith("https://w3id.org/ro/crate/isa-tox"), curie
 
 
-def test_the_readers_name_every_set_member_a_preparation():
+def test_the_readers_name_every_preparation_term_a_preparation():
     for curie in PREPARATION_TYPES:
         nodes = [
             {"@id": "#p", "@type": "LabProcess", "executesLabProtocol": {"@id": "#r"}},

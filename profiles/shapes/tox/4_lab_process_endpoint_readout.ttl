@@ -13,39 +13,22 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-tox:FindEndpointReadoutProcesses a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify endpoint readout processes" ;
-    sh:targetClass bioschemas:LabProcess ;
-    sh:order 11 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessEndpointReadout ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:additionalType ; sh:hasValue "EndpointReadout" ; sh:minCount 1 ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessEndpointReadout ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
-                sh:hasValue <http://www.bioassayontology.org/bao#BAO_0000523> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] .
 
 tox:EndpointReadoutRequirements a sh:NodeShape ;
     sh:name "EndpointReadout process requirements" ;
     sh:description "An endpoint readout MUST declare its measured output and parameters" ;
-    sh:targetClass tox:LabProcessEndpointReadout ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.bioassayontology.org/bao#BAO_0000523> }
+                UNION
+                { ?this <http://schema.org/additionalType> "EndpointReadout" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:result ;
@@ -70,7 +53,18 @@ tox:EndpointReadoutRequirements a sh:NodeShape ;
 tox:EndpointReadoutConsumesExposedMaterial a sh:NodeShape ;
     sh:name "EndpointReadout MUST say what it measured" ;
     sh:description "An endpoint readout declares the material or data it consumed." ;
-    sh:targetClass tox:LabProcessEndpointReadout ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.bioassayontology.org/bao#BAO_0000523> }
+                UNION
+                { ?this <http://schema.org/additionalType> "EndpointReadout" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:object ;

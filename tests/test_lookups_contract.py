@@ -23,6 +23,7 @@ from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop
 from lookups.bao import lookup_bao_term, lookup_ontology_term, lookup_unit
 from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
+from lookups.compoundwiki import lookup_compound_wiki
 from lookups.comptox import lookup_dtxsid
 from lookups.crossref import lookup_doi, search_works_by_title
 from lookups.orcid import lookup_orcid
@@ -50,6 +51,7 @@ def _clear_caches():
     lookup_aop.cache_clear()
     lookup_ontology_term.cache_clear()
     lookup_dtxsid.cache_clear()
+    lookup_compound_wiki.cache_clear()
     lookup_orcid.cache_clear()
     search_ror.cache_clear()
     lookup_doi.cache_clear()
@@ -1250,3 +1252,73 @@ class TestCrossrefContract:
     def test_title_search_blank_title_returns_empty(self):
         """A blank title is a no-op (no request, no candidates)."""
         assert list(search_works_by_title("   ")) == []
+
+
+class TestCompoundWiki:
+    """The VHP4Safety Compound Wiki, a Wikibase instance.
+
+    Two calls: ``wbsearchentities`` for the Q id, then the entity's JSON for
+    its claims. The property numbers are instance-local, so the mapping below
+    is the contract — P10 is InChIKey on *this* Wikibase and nowhere else.
+    """
+
+    @responses.activate
+    def test_a_name_resolves_to_its_record(self):
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/w/api.php",
+            json=_load("compoundwiki_search_caffeine.json"),
+            match=[matchers.query_param_matcher(
+                {"action": "wbsearchentities", "search": "caffeine", "language": "en",
+                 "type": "item", "format": "json", "limit": "1"}
+            )],
+        )
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/wiki/Special:EntityData/Q2026.json",
+            json=_load("compoundwiki_entity_q2026.json"),
+        )
+        got = lookup_compound_wiki("caffeine")
+        assert got["compoundwiki_id"] == "Q2026"
+        assert got["@id"] == "https://compoundcloud.wikibase.cloud/entity/Q2026"
+        assert got["name"] == "Caffeine"
+        assert got["inchikey"] == "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
+        assert got["smiles"] == "Cn1c(=O)c2c(ncn2C)n(C)c1=O"
+        assert got["inchi"].startswith("InChI=1S/C8H10N4O2/")
+        assert got["cas"] == "58-08-2"
+        assert got["pubchem_cid"] == "2519"
+        assert got["dtxcid"] == "DTXCID40232"
+
+    @responses.activate
+    def test_the_formula_is_normalised_to_ascii(self):
+        """Wikibase stores C₈H₁₀N₄O₂; schema:molecularFormula wants C8H10N4O2."""
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/w/api.php",
+            json=_load("compoundwiki_search_caffeine.json"),
+        )
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/wiki/Special:EntityData/Q2026.json",
+            json=_load("compoundwiki_entity_q2026.json"),
+        )
+        assert lookup_compound_wiki("caffeine")["formula"] == "C8H10N4O2"
+
+    @responses.activate
+    def test_an_unknown_name_resolves_to_nothing(self):
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/w/api.php",
+            json={"searchinfo": {"search": "nonesuch"}, "search": [], "success": 1},
+        )
+        assert lookup_compound_wiki("nonesuch") == {}
+
+    @responses.activate
+    def test_a_transient_failure_is_raised_not_swallowed(self):
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/w/api.php",
+            body=Timeout("timed out"),
+        )
+        with pytest.raises(TransientLookupError):
+            lookup_compound_wiki("caffeine")

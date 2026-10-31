@@ -561,3 +561,29 @@ class TestCellLineSampleCellosaurusId:
         nothing, so this fallback is the common case, not an edge case.
         """
         assert _mint_id(self._cell()) == "#CellLineSample_cell_frtl_5"
+
+
+class TestCellLineCharacteristicTerms:
+    """Each characteristic the builder stamps is the term the spec names for it.
+
+    A wrong IRI that still resolves passes every existence check: BAO:0002648
+    is a real term — "one cell type" — and stood in for the growth conditions
+    in both the spec and the builder until #856.
+    """
+
+    def test_growth_conditions_are_efo_growth_condition(self):
+        from builder.tools._crate_mapping import _CELL_LINE_CHARACTERISTICS
+
+        growth = next(c for c in _CELL_LINE_CHARACTERISTICS if c.name == "growth")
+        assert growth.property_id == "http://www.ebi.ac.uk/efo/EFO_0000523"
+
+    def test_every_characteristic_matches_its_spec_row(self):
+        import re
+        from pathlib import Path
+
+        from builder.tools._crate_mapping import _CELL_LINE_CHARACTERISTICS
+
+        spec = (Path(__file__).parents[1] / "profiles" / "docs" / "isa_tox.md").read_text()
+        rows = dict(re.findall(r"^\|([^|]+)\|[^|]*\|`([^`]+)`\|", spec, re.M))
+        for c in _CELL_LINE_CHARACTERISTICS:
+            assert rows.get(c.name) == c.property_id, (c.name, rows.get(c.name), c.property_id)

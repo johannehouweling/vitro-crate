@@ -30,6 +30,13 @@ REPO = Path(__file__).resolve().parents[1]
 SPEC = REPO / "profiles" / "docs" / "isa_tox.md"
 FIGURE = REPO / "profiles" / "docs" / "figures" / "isa-tox-model.svg"
 SHAPES_DIR = REPO / "profiles" / "shapes" / "tox"
+# The shapes are referenced where they live, not copied in: one source of truth,
+# and a reader or a validator fetches the same file the test suite runs against.
+# ponytail: pinned to main; a release should pin this to its tag so a published
+# version's shapes cannot change under it.
+SHAPES_BASE = (
+    "https://raw.githubusercontent.com/johannehouweling/vitro-crate/main/profiles/shapes/tox/"
+)
 
 PROFILE_IRI = "https://w3id.org/ro/crate/isa-tox/1.0"
 VERSION = "1.0.0"
@@ -41,6 +48,9 @@ ORCID = "https://orcid.org/0009-0005-3680-0645"
 CC_BY = "https://creativecommons.org/licenses/by/4.0/"
 MIT = "https://opensource.org/licenses/MIT"
 ROLE = "http://www.w3.org/ns/dx/prof/role/"
+# How RO-Crate 1.2 §Profile Crate says a SHACL artefact declares itself.
+SHACL = "https://www.w3.org/TR/shacl/"
+PRONOM_SHACL = "https://www.nationalarchives.gov.uk/PRONOM/fmt/874"
 
 NAME = "ISA-Tox RO-Crate Profile"
 DESCRIPTION = (
@@ -136,6 +146,13 @@ def build(out: Path) -> dict:
             crate, MIT, properties={"@type": "CreativeWork", "name": "MIT License"}
         )
     )
+    crate.add(
+        ContextEntity(
+            crate,
+            SHACL,
+            properties={"@type": "CreativeWork", "name": "Shapes Constraint Language (SHACL)"},
+        )
+    )
     for iri, label in ((PARENT_IRI, "ISA RO-Crate Profile"), (RO_CRATE, "RO-Crate 1.2")):
         crate.add(
             ContextEntity(
@@ -176,11 +193,13 @@ def build(out: Path) -> dict:
         shape_ids = []
         for path in sorted(SHAPES_DIR.glob("*.ttl")):
             entity = crate.add_file(
-                path,
-                dest_path=f"shapes/{path.name}",
+                f"{SHAPES_BASE}{path.name}",
+                fetch_remote=False,
+                validate_url=False,
                 properties={
                     "name": path.stem.replace("_", " "),
-                    "encodingFormat": "text/turtle",
+                    "encodingFormat": ["text/turtle", {"@id": PRONOM_SHACL}],
+                    "conformsTo": {"@id": SHACL},
                     "license": {"@id": MIT},
                 },
             )
@@ -188,24 +207,12 @@ def build(out: Path) -> dict:
         crate.add(
             ContextEntity(
                 crate,
-                "#hasSHACL",
+                "#hasShape",
                 properties={
                     "@type": "ResourceDescriptor",
                     "name": "SHACL shapes",
                     "hasRole": {"@id": f"{ROLE}validation"},
                     "hasArtifact": shape_ids,
-                },
-            )
-        )
-        crate.add(
-            ContextEntity(
-                crate,
-                "#hasVocabulary",
-                properties={
-                    "@type": "ResourceDescriptor",
-                    "name": "Extension vocabulary",
-                    "hasRole": {"@id": f"{ROLE}vocabulary"},
-                    "hasArtifact": {"@id": "shapes/ontology.ttl"},
                 },
             )
         )
@@ -220,8 +227,7 @@ def build(out: Path) -> dict:
         )
         root["hasResource"] = [
             {"@id": "#hasSpecification"},
-            {"@id": "#hasSHACL"},
-            {"@id": "#hasVocabulary"},
+            {"@id": "#hasShape"},
         ]
 
         out.mkdir(parents=True, exist_ok=True)

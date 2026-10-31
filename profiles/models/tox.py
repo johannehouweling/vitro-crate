@@ -11,10 +11,9 @@ from profiles.models.isa import (
 )
 from profiles.ontology_iris import iri
 
-# The test system preparation types: the DefinedTermSet the ISA-Tox profile publishes
-# (shapes/tox/ontology.ttl), by CURIE and name. A step whose protocol record's
-# intendedUse is one of them is a test system preparation (#785).
-PREPARATION_TYPES_SET = "https://w3id.org/ro/crate/isa-tox/1.0/preparation-types"
+# The test system preparation types, by CURIE and name: existing EFO, OBI and GO
+# terms, not a set the profile mints. A step whose protocol record's intendedUse is
+# one of them is a test system preparation (#785).
 PREPARATION_TYPES: dict[str, str] = {
     "EFO:0003789": "growth protocol",
     "OBI:0001152": "transfection",

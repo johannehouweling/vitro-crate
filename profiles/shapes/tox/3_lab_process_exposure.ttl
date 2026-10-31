@@ -17,39 +17,22 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-tox:FindExposureProcesses a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify exposure processes" ;
-    sh:targetClass bioschemas:LabProcess ;
-    sh:order 11 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessExposure ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:additionalType ; sh:hasValue "Exposure" ; sh:minCount 1 ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:LabProcessExposure ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path ( bioschemas-prop:executesLabProtocol bioschemas-prop:intendedUse ) ;
-                sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0003969> ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] .
 
 tox:ExposureRequirements a sh:NodeShape ;
     sh:name "Exposure process requirements" ;
     sh:description "An exposure process MUST declare its input cells, exposed-sample result, parameters, and the compounds it applied" ;
-    sh:targetClass tox:LabProcessExposure ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/LabProcess> .
+                { ?this <https://bioschemas.org/properties/executesLabProtocol> ?record .
+                  ?record <https://bioschemas.org/properties/intendedUse> <http://www.ebi.ac.uk/efo/EFO_0003969> }
+                UNION
+                { ?this <http://schema.org/additionalType> "Exposure" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:object ;

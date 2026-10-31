@@ -22,6 +22,7 @@ from lookups.bao import lookup_bao_term as lookup_bao_term_ols
 from lookups.bao import lookup_ontology_term as lookup_ontology_term_ols
 from lookups.bao import lookup_unit as lookup_unit_ols
 from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
+from lookups.compoundwiki import lookup_compound_wiki
 from lookups.comptox import lookup_dtxsid as lookup_dtxsid_comptox
 from lookups.crossref import lookup_doi as lookup_doi_crossref
 from lookups.orcid import is_well_formed_orcid
@@ -98,7 +99,7 @@ def lookup_compound(name: str) -> dict[str, Any]:
 
 
 def _lookup_compound_uncached(name: str) -> dict[str, Any]:
-    """Resolve a compound from PubChem (then a ChEBI fallback) with no caching.
+    """Resolve a compound from PubChem, then the Compound Wiki, then ChEBI.
 
     The cache-aware :func:`lookup_compound` wraps this; splitting it out keeps the
     in-process cache concern out of the resolution logic.
@@ -124,7 +125,23 @@ def _lookup_compound_uncached(name: str) -> dict[str, Any]:
             if result and result.get("pubchem_cid"):
                 return _success(result)
 
-        # Multi-strategy fallback: PubChem found nothing, so try ChEBI via OLS
+        # PubChem found nothing. The VHP4Safety Compound Wiki is next: it is
+        # curated for the compounds this profile's studies actually test, and a
+        # hit carries both the structure and a dereferenceable entity IRI, where
+        # the ChEBI fallback below yields an ontology term and no structure.
+        wiki = lookup_compound_wiki(raw)
+        if wiki and wiki.get("compoundwiki_id"):
+            data = {
+                key: value
+                for key, value in wiki.items()
+                if key not in ("@id", "compoundwiki_id", "name") and value
+            }
+            data["iupac_name"] = wiki.get("name") or raw
+            data["source"] = "compoundwiki"
+            data["sameAs"] = {"@id": wiki["@id"]}
+            return _success(data)
+
+        # Multi-strategy fallback: neither indexed it, so try ChEBI via OLS
         # (name → CAS → ChEBI, as documented in AGENTS.md §10). This resolves a
         # ChEBI ontology IRI for compounds PubChem does not index, rather than
         # returning a hard "not found".
@@ -147,7 +164,9 @@ def _lookup_compound_uncached(name: str) -> dict[str, Any]:
                 data["chebiId"] = term_code
             return _success(data)
 
-        return _failure(f"Compound '{name}' not found in PubChem or ChEBI")
+        return _failure(
+            f"Compound '{name}' not found in PubChem, the Compound Wiki or ChEBI"
+        )
     except TransientLookupError as exc:
         return _failure(f"PubChem unavailable (transient): {exc}", transient=True)
     except Exception as exc:

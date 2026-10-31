@@ -37,7 +37,6 @@ from profiles.models.isa import CharacteristicValue, LabProcess, LabProtocol, Sa
 from profiles.models.tox import (
     _PLACEHOLDER_VALUES,
     PREPARATION_TYPES,
-    PREPARATION_TYPES_SET,
     CellLineSample,
     LabProcessDataAnalysis,
     LabProcessEndpointReadout,
@@ -1420,7 +1419,7 @@ class _Characteristic:
 
 _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
     _Characteristic(("passage",), "passage", iri("EFO:0007061")),
-    _Characteristic(("growth",), "growth", iri("BAO:0002648")),
+    _Characteristic(("growth",), "growth", iri("EFO:0000523")),
     _Characteristic(("organ",), "Organ", iri("UBERON:0000062")),
     _Characteristic(("tissue",), "Tissue", iri("UBERON:0000479")),
     _Characteristic(("cell_type",), "cell type", iri("EFO:0000324")),
@@ -1573,8 +1572,6 @@ def _protocol_record(
     intended_use = None
     if curie is not None:
         props = {"@type": "DefinedTerm", "name": term, "termCode": curie}
-        if curie in PREPARATION_TYPES:
-            props["inDefinedTermSet"] = {"@id": PREPARATION_TYPES_SET}
         intended_use = crate.add(ContextEntity(crate, iri(curie), properties=props))
     record_id, n = f"{pid}_protocol", 1
     while record_id in reserved or crate.dereference(record_id) is not None:
@@ -2183,7 +2180,7 @@ _STEP_PROTOCOL_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 _DEFAULT_PROTOCOL_STEP = "EndpointReadout"
 # A preparation step's stated `preparation_type`, by the words it may take, as a term
-# of the profile's preparation-types set (#785). Anything else stays a growth
+# one of the three preparation terms (#785). Anything else stays a growth
 # protocol, "stable transfection" included: a stably transfected line is the source.
 _PREPARATION_TYPE_WORDS: dict[str, str] = {
     **{curie.lower(): curie for curie in PREPARATION_TYPES},

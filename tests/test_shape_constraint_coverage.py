@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,29 +43,20 @@ pytestmark = pytest.mark.timeout(900)
 _SHAPES_DIR = Path(__file__).resolve().parent.parent / "profiles" / "shapes" / "tox"
 _SCHEMA = "http://schema.org/"
 
-CELL_LINE = "http://purl.obolibrary.org/obo/NCIT_C16403"
-PRIMARY_CELL = "http://www.ebi.ac.uk/efo/EFO_0002660"
-CELL_CULTURE = "http://purl.obolibrary.org/obo/OBI_0001876"
 CO_CULTURE = "http://purl.obolibrary.org/obo/NCIT_C93168"
 OBI_DOI = "http://purl.obolibrary.org/obo/OBI_0002110"
 OBI_PUBMED = "http://purl.obolibrary.org/obo/OBI_0001617"
 
-# The protocol types that classify a step (isa_tox.md, "selected by the intendedUse").
-_STEP_TYPES = {
-    "LabProcessTestSystemPreparation": {
-        "http://www.ebi.ac.uk/efo/EFO_0003789",
-        "http://purl.obolibrary.org/obo/OBI_0001152",
-    },
-    "LabProcessExposure": {"http://www.ebi.ac.uk/efo/EFO_0003969"},
-    "LabProcessEndpointReadout": {"http://www.bioassayontology.org/bao#BAO_0000523"},
-    "LabProcessDataAnalysis": {"http://purl.obolibrary.org/obo/OBI_0200000"},
-}
-_SAMPLE_TYPES = {
-    "CellLineSample": CELL_LINE,
-    "TestSystemSource": CELL_LINE,
-    "PrimaryCellSample": PRIMARY_CELL,
-    "CulturedSample": CELL_CULTURE,
-    "CoCultureSample": CO_CULTURE,
+# The protocol types that classify a step (isa_tox.md, "selected by the intendedUse"),
+# each with the legacy additionalType label a step may carry instead.
+EXPOSURE = "http://www.ebi.ac.uk/efo/EFO_0003969"
+_STEP_LABELS = {
+    "http://www.ebi.ac.uk/efo/EFO_0003789": "TestSystemPreparation",
+    "http://purl.obolibrary.org/obo/OBI_0001152": "TestSystemPreparation",
+    "http://purl.obolibrary.org/obo/GO_0030154": "TestSystemPreparation",
+    EXPOSURE: "Exposure",
+    "http://www.bioassayontology.org/bao#BAO_0000523": "EndpointReadout",
+    "http://purl.obolibrary.org/obo/OBI_0200000": "DataAnalysis",
 }
 _SEVERITY = {SH.Violation: "required", SH.Warning: "recommended", SH.Info: "optional"}
 
@@ -120,6 +112,24 @@ def _cases() -> list[Case]:
             target = ("subjectsOf", str(p))
         elif (p := g.value(shape, SH.targetObjectsOf)) is not None:
             target = ("objectsOf", str(p))
+        elif (t := g.value(shape, SH.target)) is not None:
+            # A sh:SPARQLTarget selects the focus node from the data instead of
+            # from an inferred class. Every one here is `?this <pred> <value>`,
+            # so the pair it keys on is recoverable without parsing SPARQL —
+            # without this branch the shape is dropped and goes untested.
+            # Each target states its focus node as concrete <predicate> <value>
+            # pairs; a triple whose object is a variable (the hop to a step's
+            # protocol record) has none and is skipped. The first predicate is the
+            # discriminating one, and a target may offer alternative values for it.
+            pairs = re.findall(
+                r'<([^>]+)> (?:<([^>]+)>|"([^"]+)")',
+                str(g.value(t, SH.select) or ""),
+            )
+            if not pairs:
+                continue
+            pred = pairs[0][0]
+            values = [iri or lit for p, iri, lit in pairs if p == pred]
+            target = ("sparql", f"{_local(URIRef(pred))}={'|'.join(values)}")
         else:
             continue
         for prop in g.objects(shape, SH.property):
@@ -343,25 +353,31 @@ def _step_type(doc: dict, node: dict) -> str | None:
 def _focus(doc: dict, case: Case) -> dict:
     graph = doc["@graph"]
     kind, name = case.target
-    if kind == "subjectsOf":
+    if kind == "sparql":
+        key, _, raw = name.partition("=")
+        wanted = set(raw.split("|"))
+        if key == "intendedUse":  # a step, reached through its protocol record
+            nodes = [n for n in graph if _step_type(doc, n) in wanted]
+        else:
+            nodes = [
+                n
+                for n in graph
+                if wanted & set(_refs(n.get(key)))
+                or (isinstance(n.get(key), str) and n[key] in wanted)
+            ]
+    elif kind == "subjectsOf":
         key = _local(name)
         nodes = [n for n in graph if key in n]
     elif kind == "objectsOf":
         key = _local(name)
         ids = {r for n in graph for r in _refs(n.get(key))}
         nodes = [n for n in graph if n["@id"] in ids]
-    elif name in _STEP_TYPES:
-        nodes = [n for n in graph if _step_type(doc, n) in _STEP_TYPES[name]]
-    elif name in _SAMPLE_TYPES:
-        nodes = [n for n in graph if _SAMPLE_TYPES[name] in _refs(n.get("sampleType"))]
     elif name == "RootDataEntity":
         nodes = [n for n in graph if n["@id"] == "./"]
     elif name in ("Study", "Assay"):
         nodes = [n for n in graph if n["@id"].startswith(f"#{name}_")]
     elif name in ("Table", "Column"):
         nodes = [n for n in graph if f"csvw:{name}" in _refs_types(n)]
-    elif name in ("DOIPropertyValue", "PubMedIDPropertyValue"):
-        nodes = [n for n in graph if n.get("name") == name.removesuffix("PropertyValue")]
     else:
         nodes = [n for n in graph if name in _refs_types(n)]
     assert nodes, f"the fixture reaches no {case.target} for {case}"
@@ -388,16 +404,17 @@ def _keys_for(doc: dict, iri: str) -> set[str]:
 
 def _mutate(doc: dict, case: Case) -> None:
     node = _focus(doc, case)
+    step_term = _step_type(doc, node)  # read before a removal can take the record away
     keys = [k for k in _keys_for(doc, case.path) if k in node] if case.path else []
     if case.kind == "remove":
         assert keys, f"{case}: the focus node carries no {case.path} to remove"
         for key in keys:
             del node[key]
-        if "executesLabProtocol" in keys and case.target[1] in _STEP_TYPES:
-            # A step is classified by its record's intendedUse, so without the
+        if "executesLabProtocol" in keys and step_term in _STEP_LABELS:
+            # A step is selected by its record's intendedUse, so without the
             # record no tox shape targets it. The legacy additionalType label is
-            # the alias the classifier still reads (isa_tox.md, Conformance).
-            node["additionalType"] = case.target[1].removeprefix("LabProcess")
+            # the alias the targets still read (isa_tox.md, Conformance).
+            node["additionalType"] = _STEP_LABELS[step_term]
     elif case.kind == "add_extra":
         assert keys, f"{case}: the focus node carries no {case.path} to duplicate"
         current = node[keys[0]]
@@ -412,7 +429,7 @@ def _mutate(doc: dict, case: Case) -> None:
         assert keys, f"{case}: the focus node carries no {case.path} to replace"
         node[keys[0]] = {"@id": "https://example.org/not-a-known-term"}
     elif case.kind == "sparql":
-        exposure = _focus(doc, Case("", "", "", "", None, ("class", "LabProcessExposure")))
+        exposure = _focus(doc, Case("", "", "", "", None, ("sparql", f"intendedUse={EXPOSURE}")))
         for n in doc["@graph"]:
             for key in ("hasPart", "about"):
                 if key in n:

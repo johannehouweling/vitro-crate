@@ -71,6 +71,24 @@ def _stub_composites_cellosaurus(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stub_compound_wiki(monkeypatch):
+    """Keep ``lookup_compound``'s Compound Wiki fallback offline.
+
+    The fallback sits between PubChem and ChEBI, so every test that stubs PubChem
+    to a miss and expects ChEBI reached compoundcloud.wikibase.cloud instead — and
+    one, resolving doxorubicin, got a live hit and failed. Default it to a MISS.
+
+    Scoped to the symbol bound in ``builder.tools.lookups``, where
+    ``lookup_compound`` calls it: the contract and live tests import
+    ``lookups.compoundwiki.lookup_compound_wiki`` directly and stay untouched.
+    Tests that need a hit re-patch it (a later ``monkeypatch.setattr`` wins).
+    """
+    from builder.tools import lookups
+
+    monkeypatch.setattr(lookups, "lookup_compound_wiki", lambda name: {}, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _stub_file_descriptions(monkeypatch):
     """Keep the pipeline's file-description pass offline.
 

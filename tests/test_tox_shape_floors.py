@@ -383,17 +383,21 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
     back on the false premise.
     """
 
+    # Each step's shapes select it by its protocol record's intendedUse term.
     _SHAPES_DECLARING_REQUIRED_OBJECT = {
         "TestSystemPreparation": (
             "2_lab_process_test_system_preparation.ttl",
-            "LabProcessTestSystemPreparation",
+            "http://www.ebi.ac.uk/efo/EFO_0003789",
         ),
-        "Exposure": ("3_lab_process_exposure.ttl", "LabProcessExposure"),
+        "Exposure": ("3_lab_process_exposure.ttl", "http://www.ebi.ac.uk/efo/EFO_0003969"),
         "EndpointReadout": (
             "4_lab_process_endpoint_readout.ttl",
-            "LabProcessEndpointReadout",
+            "http://www.bioassayontology.org/bao#BAO_0000523",
         ),
-        "DataAnalysis": ("5_lab_process_data_analysis.ttl", "LabProcessDataAnalysis"),
+        "DataAnalysis": (
+            "5_lab_process_data_analysis.ttl",
+            "http://purl.obolibrary.org/obo/OBI_0200000",
+        ),
     }
 
     def test_every_named_shape_declares_a_required_object_at_violation_severity(self):
@@ -403,7 +407,8 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
         appear SOMEWHERE in a file passes on a file where they sit in three
         unrelated property shapes, which is most of them. The claim being pinned
         is that ONE property shape on the process's own target class carries all
-        three, so that is what is queried.
+        three, so that is what is queried — on a shape whose target selects the
+        process by its own protocol type.
         """
         from pathlib import Path
 
@@ -411,15 +416,15 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
         from rdflib.namespace import SH
 
         schema = Namespace("http://schema.org/")
-        tox = Namespace("https://w3id.org/ro/crate/isa-tox/1.0/")
         shapes_dir = Path("profiles/shapes/tox")
 
         unconstrained = {}
-        for ptype, (filename, target) in self._SHAPES_DECLARING_REQUIRED_OBJECT.items():
+        for ptype, (filename, term) in self._SHAPES_DECLARING_REQUIRED_OBJECT.items():
             graph = Graph().parse(shapes_dir / filename, format="turtle")
             floors = [
                 prop
-                for shape in graph.subjects(SH.targetClass, tox[target])
+                for shape, target in graph.subject_objects(SH.target)
+                if f"<{term}>" in str(graph.value(target, SH.select) or "")
                 for prop in graph.objects(shape, SH.property)
                 if (prop, SH.path, schema.object) in graph
                 and (prop, SH.minCount, None) in graph
@@ -430,7 +435,7 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
 
         assert not unconstrained, (
             "these shapes no longer declare a REQUIRED schema:object at Violation "
-            f"severity on their own target class: {unconstrained}"
+            f"severity on the shape that selects their step: {unconstrained}"
         )
 
     def test_the_three_excluded_types_are_floored_by_the_build(self):

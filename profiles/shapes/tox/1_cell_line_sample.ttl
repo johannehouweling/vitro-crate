@@ -13,96 +13,32 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-# Inference: type a Sample as tox:CellLineSample when additionalType == "CellLine".
-tox:FindCellLineSamples a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify cell-line samples within the RO-Crate" ;
-    sh:description "A Sample with additionalType 'CellLine' is the cell-based test system." ;
-    sh:targetClass bioschemas:Sample ;
-    sh:order 10 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:CellLineSample ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path schema:additionalType ;
-                sh:hasValue "CellLine" ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:CellLineSample ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:sampleType ; sh:hasValue <http://purl.obolibrary.org/obo/NCIT_C16403> ; sh:minCount 1 ] ;
-        ] ;
-    ] .
 
-# Inference: type a Sample as tox:PrimaryCellSample when additionalType == "PrimaryCell".
-tox:FindPrimaryCellSamples a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify primary-cell samples within the RO-Crate" ;
-    sh:description "A Sample with additionalType 'PrimaryCell' is a test-system source of primary cells." ;
-    sh:targetClass bioschemas:Sample ;
-    sh:order 10 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:PrimaryCellSample ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path schema:additionalType ;
-                sh:hasValue "PrimaryCell" ;
-                sh:minCount 1 ;
-            ] ;
-        ] ;
-    ] ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:PrimaryCellSample ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [ sh:path schema:sampleType ; sh:hasValue <http://www.ebi.ac.uk/efo/EFO_0002660> ; sh:minCount 1 ] ;
-        ] ;
-    ] .
 
-# Inference: a Sample a test system preparation consumes is a test-system source.
-# Ordered after the process rules (11), which type the preparation step.
-tox:FindTestSystemSources a sh:NodeShape, validator:HiddenShape ;
-    sh:name "Identify test-system sources within the RO-Crate" ;
-    sh:description "A Sample a test system preparation consumes is the test-system source." ;
-    sh:targetClass bioschemas:Sample ;
-    sh:order 12 ;
-    sh:rule [
-        a sh:TripleRule ;
-        sh:subject sh:this ;
-        sh:predicate rdf:type ;
-        sh:object tox:TestSystemSource ;
-        sh:condition [
-            a sh:NodeShape ;
-            sh:property [
-                sh:path [ sh:inversePath schema:object ] ;
-                sh:qualifiedValueShape [ sh:class tox:LabProcessTestSystemPreparation ] ;
-                sh:qualifiedMinCount 1 ;
-            ] ;
-        ] ;
-    ] .
 
 tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
     sh:name "A test-system source Sample MUST have a sampleType" ;
     sh:description "The test-system source (cell line or primary cells) MUST be categorised via sampleType" ;
-    sh:targetClass tox:CellLineSample ;
-    sh:targetClass tox:PrimaryCellSample ;
-    sh:targetClass tox:TestSystemSource ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <https://bioschemas.org/Sample> .
+                { ?this <http://schema.org/sampleType> <http://purl.obolibrary.org/obo/NCIT_C16403> }
+                UNION
+                { ?this <http://schema.org/sampleType> <http://www.ebi.ac.uk/efo/EFO_0002660> }
+                UNION
+                { ?this <http://schema.org/additionalType> "CellLine" }
+                UNION
+                { ?this <http://schema.org/additionalType> "PrimaryCell" }
+                UNION
+                { ?prep <http://schema.org/object> ?this .
+                  ?prep a <https://bioschemas.org/LabProcess> .
+                  { ?prep <https://bioschemas.org/properties/executesLabProtocol> ?record . ?record <https://bioschemas.org/properties/intendedUse> ?use . FILTER (?use IN (<http://www.ebi.ac.uk/efo/EFO_0003789>, <http://purl.obolibrary.org/obo/OBI_0001152>, <http://purl.obolibrary.org/obo/GO_0030154>)) }
+                  UNION { ?prep <http://schema.org/additionalType> ?label . FILTER (?label IN ("TestSystemPreparation", "CellCulture")) } }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:sampleType ;
@@ -115,7 +51,16 @@ tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
 tox:CellLineSampleShouldHaveIdentifier a sh:NodeShape ;
     sh:name "CellLineSample SHOULD have a Cellosaurus identifier" ;
     sh:description "The cell line SHOULD resolve to a Cellosaurus accession" ;
-    sh:targetClass tox:CellLineSample ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <https://bioschemas.org/Sample> .
+                { ?this <http://schema.org/sampleType> <http://purl.obolibrary.org/obo/NCIT_C16403> }
+                UNION
+                { ?this <http://schema.org/additionalType> "CellLine" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:identifier ;
@@ -127,7 +72,16 @@ tox:CellLineSampleShouldHaveIdentifier a sh:NodeShape ;
 tox:PrimaryCellSampleShouldDescribeSource a sh:NodeShape ;
     sh:name "PrimaryCellSample SHOULD state its species and cell type" ;
     sh:description "Primary cells have no Cellosaurus record, so the source is described by the species and the cell type it was isolated as" ;
-    sh:targetClass tox:PrimaryCellSample ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this a <https://bioschemas.org/Sample> .
+                { ?this <http://schema.org/sampleType> <http://www.ebi.ac.uk/efo/EFO_0002660> }
+                UNION
+                { ?this <http://schema.org/additionalType> "PrimaryCell" }
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:taxonomicRange ;
