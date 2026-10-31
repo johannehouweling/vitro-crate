@@ -1,0 +1,82 @@
+Exposure scenarios/Assays/Alamar blue analysis/20240419_ED_prot.docx
+Exposure scenarios/Assays/Alamar blue analysis/README.txt
+Exposure scenarios/Assays/Alamar blue analysis/minimalmetadata_expscen_ablue.xlsx
+Exposure scenarios/Assays/Alamar blue analysis/processed data/20250411_ED_Ablue.xlsx
+Exposure scenarios/Assays/Alamar blue analysis/processed data/README.txt
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20230901_ED1_rec_24h_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20230908_ED1_rep_con_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231006_ED2_rep_24h_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231013_ED2_con_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231020_ED2_rec_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231124_ED3_rec_24h_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231201_ED3_con_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231208_ED3_rep_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20240216_ED1_delay_ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20240223_ED2_delay_ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20240301_ED3_delay_ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/README.txt
+Exposure scenarios/Assays/BMD analysis/Processed data/20240528_proast_modelcomparison.xlsx
+Exposure scenarios/Assays/BMD analysis/Processed data/20260624_PROAST_RPF.xlsx
+Exposure scenarios/Assays/BMD analysis/Processed data/README.txt
+Exposure scenarios/Assays/BMD analysis/README.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250527_PROAST_ROT_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250613_PROAST_DIN_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250613_PROAST_END_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250613_PROAST_MAN_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_DIN_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_END_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_MAN_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_ROT_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_DIN_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_END_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_MAN_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_ROT_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/README.txt
+Exposure scenarios/Assays/BMD analysis/minimalmetadata_expscen_BMD analysis.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/20250404_MCZ_ICPMS.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/20250407_ED_LCMC_DINROTEND.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/20251124_ED_conc.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/README.txt
+Exposure scenarios/Assays/Internal dose/README.txt
+Exposure scenarios/Assays/Internal dose/Raw data/2025-03-12 Julia ED DIN MED-Cells.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/2025-03-12 Julia ED EDF Medium-Cells.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/2025-03-20 Julia ROT.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/Overzicht resultaten Mancozeb onderzoek maart 2025.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/README.txt
+Exposure scenarios/Assays/Internal dose/minimalmetadata_expscen_Internal dose NOG INVULLEN.xlsx
+Exposure scenarios/Assays/LDH analysis/20240419_ED_prot.docx
+Exposure scenarios/Assays/LDH analysis/20250929_LDHprotocol.docx
+Exposure scenarios/Assays/LDH analysis/Processed data/20250129_ED_LDH.xlsx
+Exposure scenarios/Assays/LDH analysis/Processed data/README.txt
+Exposure scenarios/Assays/LDH analysis/README.txt
+Exposure scenarios/Assays/LDH analysis/Raw data/20230905_ED1_rec_24h_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20230908_ED1_rep_con_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231010_ED2_24h_rep_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231017_ED2_con_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231021_ED2_rec_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231125_ED3_24h_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231128_ED3_rec_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231202_ED3_con_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231211_ED3_rep_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20240217_ED1_delay_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20240224_ED2_delay_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20240304_ED3_delay_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/README.txt
+Exposure scenarios/Assays/LDH analysis/minimalmetadata_expscen_LDH.xlsx
+Exposure scenarios/Assays/README.txt
+Exposure scenarios/Metadataveldenlijst_1.2.4_Exposure_scenarios.xlsx
+Exposure scenarios/Protocols/20220912_Cell culture_SHSY5Y_protocol.docx
+Exposure scenarios/Protocols/20230110_differentiation_SHSY5Y_protocol.docx
+Exposure scenarios/Protocols/20240419_Exposure format_protocol.docx
+Exposure scenarios/Protocols/20260317_BMD analysis_protocol.docx
+Exposure scenarios/Protocols/README.txt
+Exposure scenarios/README.txt
+Exposure scenarios/Resources/20240326_Abstractexpscen.docx
+Exposure scenarios/Resources/2025_JMeerman_Exposuremat.pdf
+Exposure scenarios/Resources/README.txt
+Format datastructuur.docx
+Neurodegenerationinaregulatorycontext_full.pdf
+README.txt
+S-VHPS16.json
+S-VHPS16.tsv
+projectplanWP2.3.txt

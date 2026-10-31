@@ -527,8 +527,9 @@ class GeneratorInfo:
             provider=_quiet(_cfg.get_provider),
             model=model,
             drafter_model=drafter if drafter and drafter != model else None,
-            api_host=_host(os.environ.get("VITRO_OPENAI_API_BASE")
-                           or os.environ.get("OPENAI_API_BASE")),
+            api_host=_host(
+                os.environ.get("VITRO_OPENAI_API_BASE") or os.environ.get("OPENAI_API_BASE")
+            ),
             architecture=architecture,
             settings=safe,
         )
@@ -540,8 +541,13 @@ class GeneratorInfo:
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"name": self.name, "version": self.version, "url": self.url}
         for key in (
-            "provider", "model", "drafter_model", "api_host", "architecture",
-            "started_at", "ended_at",
+            "provider",
+            "model",
+            "drafter_model",
+            "api_host",
+            "architecture",
+            "started_at",
+            "ended_at",
         ):
             value = getattr(self, key)
             if value:
@@ -1341,6 +1347,13 @@ class CrateState:
     # "not assessed" rather than defaulting either way.
     dsm_answers: dict[str, bool] = field(default_factory=dict)
 
+    # The deposit's studies and assays as read from its folder tree (#852), the
+    # shape :mod:`builder.tools.deposit_structure` documents, with ``source``
+    # saying whether the model's labelling was accepted or the one-study,
+    # one-assay fallback stands. ``None`` until a build reads it, and on a
+    # session saved before it existed.
+    deposit_structure: dict[str, Any] | None = None
+
     # ------------------------------------------------------------------
     # Entity management
     # ------------------------------------------------------------------
@@ -1659,9 +1672,9 @@ def _migrate_documents(documents: list[Any]) -> list[Any]:
     migrated: list[Any] = []
     for document in documents:
         if isinstance(document, dict) and "role" in document:
-            document = {
-                k: v for k, v in document.items() if k != "role"
-            } | {"classification": document.get("classification") or document["role"]}
+            document = {k: v for k, v in document.items() if k != "role"} | {
+                "classification": document.get("classification") or document["role"]
+            }
         migrated.append(document)
     return migrated
 
@@ -1737,6 +1750,7 @@ class StateSerializer:
             "validation_preferences": dict(state.validation_preferences),
             "user_answers": [dict(a) for a in state.user_answers],
             "dsm_answers": dict(state.dsm_answers),
+            "deposit_structure": state.deposit_structure,
             "iteration_count": state.iteration_count,
             "max_iterations": state.max_iterations,
             "stuck": state.stuck,
@@ -1796,10 +1810,13 @@ class StateSerializer:
             ],
             # bool only: a hand-edited session must not smuggle "yes" in as a pass.
             dsm_answers={
-                str(k): v
-                for k, v in (data.get("dsm_answers") or {}).items()
-                if isinstance(v, bool)
+                str(k): v for k, v in (data.get("dsm_answers") or {}).items() if isinstance(v, bool)
             },
+            deposit_structure=(
+                data["deposit_structure"]
+                if isinstance(data.get("deposit_structure"), dict)
+                else None
+            ),
         )
 
     @classmethod

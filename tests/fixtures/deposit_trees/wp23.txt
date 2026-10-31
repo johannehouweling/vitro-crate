@@ -1,0 +1,277 @@
+AOP/Calciumiskey_full.pdf
+AOP/Metadataveldenlijst_1.2.4_AOP.xlsx
+AOP/PDFs empirical evidence/Ambrosi_2010.pdf
+AOP/PDFs empirical evidence/Azar_2022.pdf
+AOP/PDFs empirical evidence/Bashkatova-2012-Role of metabotropic glutamate.pdf
+AOP/PDFs empirical evidence/Caputi_2015.pdf
+AOP/PDFs empirical evidence/Charli-2016-Alterations in mitochondrial dynam.pdf
+AOP/PDFs empirical evidence/Chen_2008.pdf
+AOP/PDFs empirical evidence/Chinta-2008-Coupling Endoplasmic Reticulum Str.pdf
+AOP/PDFs empirical evidence/Choi-2014-Celastrol from ‘Thunder God Vine’ Pr.pdf
+AOP/PDFs empirical evidence/Choudhary_2001.pdf
+AOP/PDFs empirical evidence/De Simoni-2013-Mitochondrial peroxiredoxin-5 a.pdf
+AOP/PDFs empirical evidence/Dusza_2018.pdf
+AOP/PDFs empirical evidence/El-Horany-2016-Ameliorative Effect of Querceti.pdf
+AOP/PDFs empirical evidence/Emerick_2015.pdf
+AOP/PDFs empirical evidence/Fortalezas-2018-Creatine Protects Against Cyto.pdf
+AOP/PDFs empirical evidence/Fuzzati-Armente-2015-Dual target strategy_ Com.pdf
+AOP/PDFs empirical evidence/Gu_2022.pdf
+AOP/PDFs empirical evidence/Heusinkveld_2010.pdf
+AOP/PDFs empirical evidence/Heusinkveld_2016.pdf
+AOP/PDFs empirical evidence/Hsu_2018.pdf
+AOP/PDFs empirical evidence/Hsu_2019.pdf
+AOP/PDFs empirical evidence/Hsu_2021.pdf
+AOP/PDFs empirical evidence/Huang-2013-RESP18 is involved in the cytotoxi1.pdf
+AOP/PDFs empirical evidence/Jiang-2016-Downregulation of miR-384-5p atten1.pdf
+AOP/PDFs empirical evidence/Kamboj-2007-Perturbed synaptosomal calcium hom.pdf
+AOP/PDFs empirical evidence/Kang-2012-Mechanisms to prevent caspase activa.pdf
+AOP/PDFs empirical evidence/Kang_2017.pdf
+AOP/PDFs empirical evidence/Kaur_2007.pdf
+AOP/PDFs empirical evidence/Kitazawa_2001.pdf
+AOP/PDFs empirical evidence/Knaryan-2014-SNJ-1945, a calpain inhibitor, pr.pdf
+AOP/PDFs empirical evidence/Mader-2012-Rotenone inhibits autophagic flux p.pdf
+AOP/PDFs empirical evidence/Niso-Santano-2011-ASK1 overexpression accelera.pdf
+AOP/PDFs empirical evidence/Pal-2014-Rotenone induces neurotoxicity throug.pdf
+AOP/PDFs empirical evidence/Park-2014-Rutin from Dendropanax morbifera Lev.pdf
+AOP/PDFs empirical evidence/Park_2016.pdf
+AOP/PDFs empirical evidence/Paul-2023-A pesticide and iPSC dopaminergic ne.pdf
+AOP/PDFs empirical evidence/Raheja-2002-Calcium homeostasis and dichlorvos.pdf
+AOP/PDFs empirical evidence/Ramirez-Moreno-2019-Autophagy Stimulation Decr.pdf
+AOP/PDFs empirical evidence/Rekha-2018-Geraniol Protects Against the Prot1.pdf
+AOP/PDFs empirical evidence/Rhodes-2013-Pesticides that inhibit the ubiqu1.pdf
+AOP/PDFs empirical evidence/Rosa_1997.pdf
+AOP/PDFs empirical evidence/Ryu-2002-Endoplasmic reticulum stress and the.pdf
+AOP/PDFs empirical evidence/Sai-2013-Dopamine release suppression dependen.pdf
+AOP/PDFs empirical evidence/Samantaray-2015-Inhibition of Calpain Activati.pdf
+AOP/PDFs empirical evidence/Schmidt_2017.pdf
+AOP/PDFs empirical evidence/Shen_2015.pdf
+AOP/PDFs empirical evidence/Singh_2019.pdf
+AOP/PDFs empirical evidence/Souders_2021.pdf
+AOP/PDFs empirical evidence/Sun_2005.pdf
+AOP/PDFs empirical evidence/Tong-2016-PPARβ_δ Agonist Provides Neuroprotec.pdf
+AOP/PDFs empirical evidence/Tong_2016.pdf
+AOP/PDFs empirical evidence/Wang-2017-Isradipine attenuates MPTP-induced d.pdf
+AOP/PDFs empirical evidence/Wang_2005.pdf
+AOP/PDFs empirical evidence/Wang_2006.pdf
+AOP/PDFs empirical evidence/Watabe_2007.pdf
+AOP/PDFs empirical evidence/Weetman_2013.pdf
+AOP/PDFs empirical evidence/Wu_2013.pdf
+AOP/PDFs empirical evidence/Wu_2014.pdf
+AOP/PDFs empirical evidence/Wu_2015.pdf
+AOP/PDFs empirical evidence/Xia_2015.pdf
+AOP/PDFs empirical evidence/Yang_2009.pdf
+AOP/PDFs empirical evidence/Yu-2020-Identification of Biomolecular Informa.pdf
+AOP/PDFs empirical evidence/Yuan_2015.pdf
+AOP/PDFs empirical evidence/Zaman-2022-Inhibition of Calpain Attenuates De.pdf
+AOP/PDFs empirical evidence/Zhang_2016.pdf
+AOP/README.txt
+Cell model comparison/20250326_abstractCC.docx
+Cell model comparison/Assays/Alamar blue/README.txt
+Cell model comparison/Assays/Alamar blue/SOPs.txt
+Cell model comparison/Assays/Alamar blue/minimalmetadata_CC_ablue.xlsx
+Cell model comparison/Assays/Alamar blue/protocols.txt
+Cell model comparison/Assays/LDH/Protocols.txt
+Cell model comparison/Assays/LDH/README.txt
+Cell model comparison/Assays/LDH/SOPs.txt
+Cell model comparison/Assays/LDH/minimalmetadata_CC_LDH.xlsx
+Cell model comparison/Metadataveldenlijst_1.2.4_Cell_Model_Comparison.xlsx
+Cell model comparison/Protocols/README.txt
+Cell model comparison/Publication.txt
+Cell model comparison/README.txt
+Cell model comparison/S-VHPS27.json
+Cell model comparison/S-VHPS27.tsv
+Exposure scenarios/Assays/Alamar blue analysis/20240419_ED_prot.docx
+Exposure scenarios/Assays/Alamar blue analysis/README.txt
+Exposure scenarios/Assays/Alamar blue analysis/minimalmetadata_expscen_ablue.xlsx
+Exposure scenarios/Assays/Alamar blue analysis/processed data/20250411_ED_Ablue.xlsx
+Exposure scenarios/Assays/Alamar blue analysis/processed data/README.txt
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20230901_ED1_rec_24h_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20230908_ED1_rep_con_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231006_ED2_rep_24h_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231013_ED2_con_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231020_ED2_rec_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231124_ED3_rec_24h_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231201_ED3_con_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20231208_ED3_rep_Ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20240216_ED1_delay_ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20240223_ED2_delay_ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/20240301_ED3_delay_ablue.xls
+Exposure scenarios/Assays/Alamar blue analysis/raw data/README.txt
+Exposure scenarios/Assays/BMD analysis/Processed data/20240528_proast_modelcomparison.xlsx
+Exposure scenarios/Assays/BMD analysis/Processed data/20260624_PROAST_RPF.xlsx
+Exposure scenarios/Assays/BMD analysis/Processed data/README.txt
+Exposure scenarios/Assays/BMD analysis/README.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250527_PROAST_ROT_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250613_PROAST_DIN_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250613_PROAST_END_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250613_PROAST_MAN_Fluo.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_DIN_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_END_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_MAN_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250709_PROAST_ROT_Fluo_2.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_DIN_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_END_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_MAN_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/20250922_PROAST_ROT_single.txt
+Exposure scenarios/Assays/BMD analysis/Raw data/README.txt
+Exposure scenarios/Assays/BMD analysis/minimalmetadata_expscen_BMD analysis.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/20250404_MCZ_ICPMS.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/20250407_ED_LCMC_DINROTEND.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/20251124_ED_conc.xlsx
+Exposure scenarios/Assays/Internal dose/Processed data/README.txt
+Exposure scenarios/Assays/Internal dose/README.txt
+Exposure scenarios/Assays/Internal dose/Raw data/2025-03-12 Julia ED DIN MED-Cells.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/2025-03-12 Julia ED EDF Medium-Cells.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/2025-03-20 Julia ROT.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/Overzicht resultaten Mancozeb onderzoek maart 2025.xlsx
+Exposure scenarios/Assays/Internal dose/Raw data/README.txt
+Exposure scenarios/Assays/Internal dose/minimalmetadata_expscen_Internal dose NOG INVULLEN.xlsx
+Exposure scenarios/Assays/LDH analysis/20240419_ED_prot.docx
+Exposure scenarios/Assays/LDH analysis/20250929_LDHprotocol.docx
+Exposure scenarios/Assays/LDH analysis/Processed data/20250129_ED_LDH.xlsx
+Exposure scenarios/Assays/LDH analysis/Processed data/README.txt
+Exposure scenarios/Assays/LDH analysis/README.txt
+Exposure scenarios/Assays/LDH analysis/Raw data/20230905_ED1_rec_24h_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20230908_ED1_rep_con_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231010_ED2_24h_rep_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231017_ED2_con_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231021_ED2_rec_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231125_ED3_24h_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231128_ED3_rec_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231202_ED3_con_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20231211_ED3_rep_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20240217_ED1_delay_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20240224_ED2_delay_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/20240304_ED3_delay_LDH.xls
+Exposure scenarios/Assays/LDH analysis/Raw data/README.txt
+Exposure scenarios/Assays/LDH analysis/minimalmetadata_expscen_LDH.xlsx
+Exposure scenarios/Assays/README.txt
+Exposure scenarios/Metadataveldenlijst_1.2.4_Exposure_scenarios.xlsx
+Exposure scenarios/Protocols/20220912_Cell culture_SHSY5Y_protocol.docx
+Exposure scenarios/Protocols/20230110_differentiation_SHSY5Y_protocol.docx
+Exposure scenarios/Protocols/20240419_Exposure format_protocol.docx
+Exposure scenarios/Protocols/20260317_BMD analysis_protocol.docx
+Exposure scenarios/Protocols/README.txt
+Exposure scenarios/README.txt
+Exposure scenarios/Resources/20240326_Abstractexpscen.docx
+Exposure scenarios/Resources/2025_JMeerman_Exposuremat.pdf
+Exposure scenarios/Resources/README.txt
+Exposure scenarios/S-VHPS16.json
+Exposure scenarios/S-VHPS16.tsv
+Format datastructuur.docx
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0045692850/Hubble-Gene-toxin interaction as a putative ri.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0053336515/Georgiou-Genetic and environmental factors con.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0280789908/Elbaz-CYP2D6 polymorphism, pesticide exposure.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0388356783/Todorovic-Comprehensive assessment of genetic.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0410851062/Koentjoro-Chronic rotenone exposure increases.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0549993771/Lüth-Interaction of mitochondrial polygenic sc.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0554656251/Zhu-MTERF3 contributes to MPP+-induced mitocho.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0563603800/Ceccarini-The Polyunsaturated Fatty Acid EPA.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0563653072/Liou-Mitochondrial DNA variants as genetic ris.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0571969275/Yan-Overexpression of human E46K mutant α-synu.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0599445520/Taylor-Paraoxonase polymorphisms, pesticide ex.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0629277513/Chen-FBXO7 Y52C polymorphism as a potential pr.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0649538446/Wang-HFE H63D Limits Nigral Vulnerability to P.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0836955031/Thomas-Impaired complex-I mitochondrial biogen.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0883897623/Chung-Genetic susceptibility loci, environment.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0900364837/Momcilovic-Derivation, characterization, and n.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/0908784545/Zhang-ALDH2 genetic variation is associated wi.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1022310547/Ritz-Identifying chemical agents that cause ne.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1076763942/Wang-Peroxiredoxin 5 silencing sensitizes dopa.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1087879890/Sun-Knockdown of small nucleolar RNA host gene.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1207698119/Goldman-Genetic modification of the associatio.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1311486285/Tan-MicroRNA-409-3p Targeting at ATXN3 Reduces.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1416543148/Gallegos-Arreol-Apolipoprotein e genotypes in.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1486660199/Elbaz-S18Y polymorphism in the UCH-L1 gene and.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1510774116/Bos-2020-Towards an animal-free human health a.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1524193864/Le Couteur-Association of a polymorphism in th.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1570466665/Dick-Gene-environment interactions in parkinso.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1578134810/Kim-Identification of genes related to Parkins.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1796083578/Wang-Stress-induced alterations in parkin solu.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1798409737/Algahtani-A novel variant c.3706C_T p.(Avg 123.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1807570831/Xiong-Glucocerebrosidase L444P mutation confer.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1845772355/Richter-Novel mitochondrial DNA mutations in P.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1864345148/Xu-Interaction between genetic variants and se.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/1888698792/Chang-2017-A meta-analysis of genome-wide asso.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2022103706/Zhao-A cell-based model of alpha-synucleinopat.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2193130493/Hernandez-Guill-First clinical and genetic ana.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2215332656/Rösler-K-variant BCHE and pesticide exposure_.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2282020522/Byers-Modeling Parkinson's disease using induc.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2306747320/Zschiedrich-MDR1 variants and risk of Parkinso.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2315712177/Hancock-Nitric oxide synthase genes and their.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2355503229/Zhu-ACO2 deficiency increases vulnerability to.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2399599528/Casazza-A Parkinson’s disease genetic risk sco.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2554238389/Fan-Dysregulated Long Non-coding RNAs in Parki.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2563902125/Pinhel-Nullity of GSTT1_GSTM1 related to pesti.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2667238114/Bulagouda-Variation in Exon 29 of the NOS1 Gen.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2865390745/Martin-Mutated ATP10B increases Parkinson's di.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2910153691/Anwarullah-Further evidence for the associatio.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/2922471350/Alegre-Cortés-Toxicity of Necrostatin-1 in Par.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3029164189/Sanders-Base excision repair variants and pest.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3078718128/Matmurodov-Polymorphism of the genes GSTM1, GS.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3242140907/Reynoso-Gene-environment interactions for Park.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3313764781/Han-Leucine-rich repeat kinase 2 exacerbates n.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3336608237/Stykel-Nitration of microtubules blocks axonal.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3355096250/71cote.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3403863260/Lin-Novel variant Pro143Ala in HTRA2 contribut.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3503659354/Kiyohara-Genetic polymorphisms involved in dop.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3545970627/Wang-A DNA methyltransferase inhibitor, 5-aza-.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3561202187/Sun-ATF4 protects against neuronal death in ce.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3578402820/Kannarkat-Common genetic variant association w.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3601129908/Tran-Genetic predispositions of Parkinson’s di.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3626681635/Swerdlow-Origin and functional consequences of.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3759110926/Barbuti-Gene-corrected p.A30P SNCA patient-der.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3849908958/Carmine-Further evidence for an association of.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/3993995059/Akhmedova-Gln→Arg 191 polymorphism of paraoxon.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4085436727/Gatto-α-synuclein gene may interact with envir.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4144055954/Ma-Genome-wide microarray analysis of the diff.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4211665763/Zhou-A hPSC-based platform to discover gene-en.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4212902165/Jo-Genetic and environmental prognostics of co.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4259570551/Go-Genome-wide epigenetic analyses in Japanese.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4280502755/Xing-Protective effects and mechanisms of Ndfi.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/PDF/4281179506/Yu-Dysbiosis of gut microbiota inhibits NMNAT2.pdf
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/sdb/pdb.eni
+Genetic susceptibility/Literature database/Susceptibility_full text.Data/sdb/sdb.eni
+Genetic susceptibility/Literature database/Susceptibility_full text.enl
+Genetic susceptibility/Meerman et al., 2025 - The NAM journal.pdf
+Genetic susceptibility/Metadataveldenlijst_1.2.4_Genetic_susceptibility.xlsx
+Genetic susceptibility/README.txt
+Neurodegenerationinaregulatorycontext_full.pdf
+README.txt
+projectplanWP2.3.txt
+qAOP/Assays/ATP assay/Processed data/README.txt
+qAOP/Assays/ATP assay/Protocols.txt
+qAOP/Assays/ATP assay/README.txt
+qAOP/Assays/ATP assay/Raw data/README.txt
+qAOP/Assays/ATP assay/SOPs.txt
+qAOP/Assays/ATP assay/minimalmetadata_qAOP_ATP.xlsx
+qAOP/Assays/Alamar blue/Processed data/README.txt
+qAOP/Assays/Alamar blue/Protocols.txt
+qAOP/Assays/Alamar blue/README.txt
+qAOP/Assays/Alamar blue/Raw data/README.txt
+qAOP/Assays/Alamar blue/SOPs.txt
+qAOP/Assays/Alamar blue/minimalmetadata_qAOP_ablue.xlsx
+qAOP/Assays/CFDA/Processed data/README.txt
+qAOP/Assays/CFDA/Protocols.txt
+qAOP/Assays/CFDA/README.txt
+qAOP/Assays/CFDA/Raw data/README.txt
+qAOP/Assays/CFDA/SOPs.txt
+qAOP/Assays/CFDA/minimalmetadata_qAOP_CFDA.xlsx
+qAOP/Assays/Calcium imaging/Processed data/README.txt
+qAOP/Assays/Calcium imaging/Protocols.txt
+qAOP/Assays/Calcium imaging/README.txt
+qAOP/Assays/Calcium imaging/Raw data/README.txt
+qAOP/Assays/Calcium imaging/SOPs.txt
+qAOP/Assays/H2DCFDA/Processed data/README.txt
+qAOP/Assays/H2DCFDA/Protocols.txt
+qAOP/Assays/H2DCFDA/README.txt
+qAOP/Assays/H2DCFDA/Raw data/README.txt
+qAOP/Assays/H2DCFDA/SOPs.txt
+qAOP/Assays/H2DCFDA/minimalmetadata_qAOP_ROS.xlsx
+qAOP/Assays/README.txt
+qAOP/Metadataveldenlijst_1.2.4_qAOP.xlsx
+qAOP/Publication.txt
+qAOP/README.txt
+qAOP/Resources/20250402_abstracteurotox.docx
+qAOP/S-VHPS28.json
+qAOP/S-VHPS28.tsv

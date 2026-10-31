@@ -1,0 +1,19 @@
+Cell model comparison/20250326_abstractCC.docx
+Cell model comparison/Assays/Alamar blue/README.txt
+Cell model comparison/Assays/Alamar blue/SOPs.txt
+Cell model comparison/Assays/Alamar blue/minimalmetadata_CC_ablue.xlsx
+Cell model comparison/Assays/Alamar blue/protocols.txt
+Cell model comparison/Assays/LDH/Protocols.txt
+Cell model comparison/Assays/LDH/README.txt
+Cell model comparison/Assays/LDH/SOPs.txt
+Cell model comparison/Assays/LDH/minimalmetadata_CC_LDH.xlsx
+Cell model comparison/Metadataveldenlijst_1.2.4_Cell_Model_Comparison.xlsx
+Cell model comparison/Protocols/README.txt
+Cell model comparison/Publication.txt
+Cell model comparison/README.txt
+Format datastructuur.docx
+Neurodegenerationinaregulatorycontext_full.pdf
+README.txt
+S-VHPS27.json
+S-VHPS27.tsv
+projectplanWP2.3.txt
