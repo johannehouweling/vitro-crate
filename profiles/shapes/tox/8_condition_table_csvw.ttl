@@ -1,20 +1,18 @@
 # SPDX-License-Identifier: MIT
-# Condition-table CSVW typing (SHOULD).
-# The Exposure's condition table SHOULD be CSV-on-the-Web typed so each column
-# carries a datatype and an ontology propertyUrl (machine-actionable, and the
-# basis of the reproducibility-readiness metric).
+# Condition table: the exposure's per-well design, typed as CSV on the Web.
+# Each column carries a datatype and an ontology propertyUrl, so the table is
+# machine-actionable.
 
 @prefix csvw: <http://www.w3.org/ns/csvw#> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 
-# The Exposure SHOULD have a CSVW-typed condition table about what it produced:
-# the table is the registry of the exposed units, one row per well (#783). Nested,
-# so the finding names schema:result rather than a blank node.
+# The table is the registry of the exposed units, one row per well. Nested, so the
+# finding names schema:result rather than a blank node.
 tox:ExposureShouldHaveCsvwConditionTable a sh:NodeShape ;
-    sh:name "Exposure SHOULD have a CSVW condition table" ;
-    sh:description "An exposure's exposed Sample SHOULD be described by a CSVW-typed condition table" ;
+    sh:name "An exposure SHOULD have a CSVW condition table" ;
+    sh:description "The exposed test system SHOULD be described by a CSVW-typed condition table." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -42,10 +40,9 @@ tox:ExposureShouldHaveCsvwConditionTable a sh:NodeShape ;
         sh:severity sh:Warning ;
     ] .
 
-# Any CSVW data table SHOULD declare a tableSchema typing its columns.
 tox:CsvwTableShouldHaveSchema a sh:NodeShape ;
-    sh:name "CSVW table SHOULD declare a tableSchema" ;
-    sh:description "A CSVW data table SHOULD declare a csvw:tableSchema" ;
+    sh:name "A CSVW table SHOULD declare a table schema" ;
+    sh:description "A CSVW data table SHOULD declare a csvw:tableSchema typing its columns." ;
     sh:targetClass csvw:Table ;
     sh:property [
         a sh:PropertyShape ;
@@ -55,10 +52,9 @@ tox:CsvwTableShouldHaveSchema a sh:NodeShape ;
         sh:severity sh:Warning ;
     ] .
 
-# Each CSVW column SHOULD carry a datatype and an ontology propertyUrl.
 tox:CsvwColumnShouldBeTyped a sh:NodeShape ;
-    sh:name "CSVW column SHOULD be typed and mapped" ;
-    sh:description "A CSVW column SHOULD carry a datatype and an ontology propertyUrl" ;
+    sh:name "A CSVW column SHOULD be typed and mapped to a term" ;
+    sh:description "A CSVW column SHOULD declare a datatype and a propertyUrl naming an ontology term." ;
     sh:targetClass csvw:Column ;
     sh:property [
         a sh:PropertyShape ;

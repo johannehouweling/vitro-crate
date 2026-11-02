@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT
-# LabProcessDataAnalysis — data analysis process (analysis module).
-# A bioschemas:LabProcess whose protocol record's intendedUse is OBI:0200000 data
-# transformation (#799); the additionalType label "DataAnalysis" is an alias.
-# Consumes raw/condition data and produces processed-data outputs.
+# LabProcess - Data Analysis: derives the reported results from the raw measurements.
+# A LabProcess whose protocol record's intendedUse is OBI:0200000 data transformation;
+# the additionalType label "DataAnalysis" is read as an alias.
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix bioschemas-prop: <https://bioschemas.org/properties/> .
@@ -14,8 +13,8 @@
 
 
 tox:DataAnalysisRequirements a sh:NodeShape ;
-    sh:name "DataAnalysis process requirements" ;
-    sh:description "A data analysis process MUST declare its input data, processed output, and parameters" ;
+    sh:name "A data analysis MUST state its input, result and parameters" ;
+    sh:description "A data analysis MUST declare the data it consumes, the processed data it produces and its parameters." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -35,13 +34,9 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
         sh:message "DataAnalysis process MUST have at least one schema:object (the raw/condition data being analysed)" ;
         sh:severity sh:Violation ;
     ] ;
-    # The slot above says "the raw/condition data being analysed" and enforced only
-    # minCount, so a Sample satisfied it structurally while being wrong
-    # scientifically — an assertion that cannot fail is not a check (#620, #650).
-    # Warning rather than Violation because this targets every data-analysis step,
-    # which every already-deposited crate's analyses are: as a Violation it
-    # would retroactively fail crates that were conformant when they were written.
-    # Promote once the deposits in circulation have been rebuilt.
+    # The input SHOULD be data, not a Sample. A warning rather than a violation:
+    # crates deposited before this check would otherwise stop conforming. Promote
+    # it once those deposits have been rebuilt.
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:object ;
@@ -64,15 +59,13 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
         sh:severity sh:Violation ;
     ] .
 
-# The analysis SHOULD follow a deposited script (#786): its protocol record is
-# based on the script, not `instrument`, because the script is the procedure the
-# step follows (#783). Warning, not Violation: an analysis done by hand in Excel or
-# Prism deposits no re-runnable step, which is an action point, not
-# non-conformance, and the retroactivity argument above applies here too. A crate
-# with no DataAnalysis passes vacuously (#781).
+# The analysis SHOULD follow a deposited script: its protocol record is based on the
+# script, because the script is the procedure the step follows. A warning rather
+# than a violation: an analysis done by hand in a spreadsheet deposits no
+# re-runnable step, which is an action point rather than non-conformance.
 tox:DataAnalysisShouldFollowAnalysisScript a sh:NodeShape ;
-    sh:name "DataAnalysis SHOULD follow an analysis script" ;
-    sh:description "A data analysis process's protocol SHOULD be based on the deposited script it ran" ;
+    sh:name "A data analysis SHOULD follow a deposited script" ;
+    sh:description "A data analysis SHOULD execute a protocol record based on the analysis script it ran." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
-# Every ISA-Tox LabProcess executes one LabProtocol: its protocol record, which
-# carries the step's protocol type (intendedUse) and is based on the documents the
-# deposit holds for the step (#783, #799). Bioschemas LabProcess and ISA-JSON both
-# give a process ONE protocol.
+# LabProtocol - Protocol record: every step executes one protocol record.
+# The record carries the step's protocol type (intendedUse) and is based on the
+# documents deposited for the step. Bioschemas LabProcess and ISA-JSON both give a
+# process one protocol.
 #
 # Two node shapes, not one: with the Violation and the Warning on one path in a
 # single node shape, rocrate-validator reports only the Violation.
@@ -13,8 +13,8 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 
 tox:LabProcessExecutesAProtocol a sh:NodeShape ;
-    sh:name "LabProcess executes a protocol" ;
-    sh:description "An ISA-Tox LabProcess MUST execute a LabProtocol" ;
+    sh:name "A step MUST execute a protocol record" ;
+    sh:description "Each ISA-Tox LabProcess MUST execute a LabProtocol, its protocol record." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -59,8 +59,8 @@ tox:LabProcessExecutesAProtocol a sh:NodeShape ;
     ] .
 
 tox:LabProcessExecutesOneProtocol a sh:NodeShape ;
-    sh:name "LabProcess SHOULD execute one protocol" ;
-    sh:description "An ISA-Tox LabProcess SHOULD execute exactly one LabProtocol" ;
+    sh:name "A step SHOULD execute exactly one protocol record" ;
+    sh:description "Each ISA-Tox LabProcess SHOULD execute exactly one LabProtocol." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -104,11 +104,11 @@ tox:LabProcessExecutesOneProtocol a sh:NodeShape ;
         sh:severity sh:Warning ;
     ] .
 
-# The protocol types ISA-Tox knows (#799). A record typed outside them leaves its step
-# unrecognised, so every check for that kind of step is skipped; a warning first.
+# The protocol types the profile recognises. A record typed outside them leaves its
+# step unrecognised, so every check for that kind of step is skipped.
 tox:ProtocolRecordTypeIsKnown a sh:NodeShape ;
-    sh:name "A protocol record SHOULD carry an ISA-Tox protocol type" ;
-    sh:description "The intendedUse of an executed LabProtocol SHOULD be one of the ISA-Tox protocol types" ;
+    sh:name "A protocol type SHOULD be one the profile recognises" ;
+    sh:description "The intendedUse of an executed LabProtocol SHOULD be one of the protocol types the profile lists." ;
     sh:targetObjectsOf bioschemas-prop:executesLabProtocol ;
     sh:property [
         a sh:PropertyShape ;

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
-# LabProcessEndpointReadout — endpoint readout process (endpoint read-out module).
-# A bioschemas:LabProcess whose protocol record's intendedUse is BAO:0000523 assay
-# protocol (#799); the additionalType label "EndpointReadout" is an alias.
-# Measures the exposed Sample (the culture in a characterisation run, a deposited
-# File in a re-analysis) and yields the raw measurement File(s).
+# LabProcess - Endpoint Readout: measures the assay endpoint.
+# A LabProcess whose protocol record's intendedUse is BAO:0000523 assay protocol;
+# the additionalType label "EndpointReadout" is read as an alias. It measures the
+# exposed test system, or a deposited File in a re-analysis, and produces the raw
+# measurement File(s).
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix bioschemas-prop: <https://bioschemas.org/properties/> .
@@ -15,8 +15,8 @@
 
 
 tox:EndpointReadoutRequirements a sh:NodeShape ;
-    sh:name "EndpointReadout process requirements" ;
-    sh:description "An endpoint readout MUST declare its measured output and parameters" ;
+    sh:name "An endpoint readout MUST state its result and parameters" ;
+    sh:description "An endpoint readout MUST declare the measurement File it produces and its parameters." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -44,15 +44,13 @@ tox:EndpointReadoutRequirements a sh:NodeShape ;
         sh:severity sh:Violation ;
     ] .
 
-# What the readout MEASURED. The shape above asks only for a result, so a readout
-# consuming nothing — or the wrong material — validated clean (#650, #678).
-# File OR Sample: a readout measures exposed cells, a re-analysis measures
-# deposited data. That the object should be an EXPOSURE's output is deliberately
-# not asserted here — a characterisation run legitimately measures the culture,
-# and that condition spans two entities, so `_chain_processes` enforces it.
+# What the readout measured, a File or a Sample: a readout measures exposed cells,
+# a re-analysis measures deposited data. That the input is an exposure's result is
+# not asserted here: a characterisation run legitimately measures the culture, and
+# the condition spans two entities.
 tox:EndpointReadoutConsumesExposedMaterial a sh:NodeShape ;
-    sh:name "EndpointReadout MUST say what it measured" ;
-    sh:description "An endpoint readout declares the material or data it consumed." ;
+    sh:name "An endpoint readout MUST state what it measured" ;
+    sh:description "An endpoint readout MUST declare the material or data it measured." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -73,6 +71,6 @@ tox:EndpointReadoutConsumesExposedMaterial a sh:NodeShape ;
             [ sh:class schema:MediaObject ]
             [ sh:class bioschemas:Sample ]
         ) ;
-        sh:message "EndpointReadout process MUST have at least one schema:object naming what it measured — the exposed Sample, or the File it re-analysed" ;
+        sh:message "EndpointReadout process MUST have at least one schema:object naming what it measured: the exposed Sample, or the File it re-analysed" ;
         sh:severity sh:Violation ;
     ] .

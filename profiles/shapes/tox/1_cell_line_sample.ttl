@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
-# CellLineSample — the test-system source (biological model module).
-# A bioschemas:Sample typed by its sampleType: NCIT:C16403 cell line or EFO:0002660
-# primary cell (#799). The additionalType labels "CellLine" and "PrimaryCell" older
-# crates carry are aliases. A Sample a preparation step consumes is a test-system
-# source whatever it states, so a source missing its sampleType is still caught. A cell line carries a Cellosaurus identifier;
-# primary cells have none (Cellosaurus FAQ Q19) and state species and cell type.
+# Sample - Source Cells: the material a test system preparation starts from.
+# A Sample is classified by its sampleType: NCIT:C16403 cell line or EFO:0002660
+# primary cell. The additionalType labels "CellLine" and "PrimaryCell" are read as
+# aliases. A Sample consumed by a preparation step is source cells whatever it
+# states, so one without a sampleType is still reported. A cell line resolves to a
+# Cellosaurus accession; primary cells have none and state species and cell type.
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
@@ -17,8 +17,8 @@
 
 
 tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
-    sh:name "A test-system source Sample MUST have a sampleType" ;
-    sh:description "The test-system source (cell line or primary cells) MUST be categorised via sampleType" ;
+    sh:name "Source cells MUST state a sample type" ;
+    sh:description "Source cells MUST be classified by a sampleType term." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -49,8 +49,8 @@ tox:CellLineSampleMustHaveSampleType a sh:NodeShape ;
     ] .
 
 tox:CellLineSampleShouldHaveIdentifier a sh:NodeShape ;
-    sh:name "CellLineSample SHOULD have a Cellosaurus identifier" ;
-    sh:description "The cell line SHOULD resolve to a Cellosaurus accession" ;
+    sh:name "A cell line SHOULD resolve to a Cellosaurus accession" ;
+    sh:description "A cell line SHOULD carry an identifier resolving to its Cellosaurus record." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -70,8 +70,8 @@ tox:CellLineSampleShouldHaveIdentifier a sh:NodeShape ;
     ] .
 
 tox:PrimaryCellSampleShouldDescribeSource a sh:NodeShape ;
-    sh:name "PrimaryCellSample SHOULD state its species and cell type" ;
-    sh:description "Primary cells have no Cellosaurus record, so the source is described by the species and the cell type it was isolated as" ;
+    sh:name "Primary cells SHOULD state species and cell type" ;
+    sh:description "Primary cells have no Cellosaurus record, so they SHOULD state the species they come from and the cell type they were isolated as." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -100,19 +100,13 @@ tox:PrimaryCellSampleShouldDescribeSource a sh:NodeShape ;
         sh:severity sh:Warning ;
     ] .
 
-# The sample types ISA-Tox knows (#799); a warning first.
-#
-# The list covers the kinds of test system an in vitro study uses, not only the
-# two this profile places extra requirements on (#856): a cell line and primary
-# cells carry their own shapes, while an organoid, a tissue, an organ fragment or
-# a whole organism are recognised and constrained no further. Before #856 those
-# warned, so a crate describing an organoid was told its correct sampleType was
-# unknown. A kind with no term here (a sub-cellular fraction, say) still warns —
-# add its term rather than widening this to anything resolvable, which would stop
-# catching the typo this shape exists for.
+# The sample types the profile recognises: every kind of test system an in vitro
+# study uses, not only the two with requirements of their own. A kind missing from
+# the list is reported, which also catches a mistyped sampleType, so add its term
+# rather than accepting any resolvable IRI.
 tox:SampleTypeIsKnown a sh:NodeShape ;
-    sh:name "A Sample's sampleType SHOULD be an ISA-Tox sample type" ;
-    sh:description "A sampleType SHOULD be one of the ISA-Tox sample types" ;
+    sh:name "A sample type SHOULD be one the profile recognises" ;
+    sh:description "A sampleType SHOULD be one of the sample types the profile lists." ;
     sh:targetSubjectsOf schema:sampleType ;
     sh:property [
         a sh:PropertyShape ;

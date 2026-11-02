@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: MIT
-# Investigation strict descriptors (folded ISA extra).
-# The bundled isa-ro-crate profile leaves name/description/license/datePublished
-# on the root Investigation as commented-out (optional). The ISA-Tox profile
-# re-enables them as required, matching the general-information reporting module.
-# It also requires the Investigation to include an Exposure (#781).
+# Investigation: the root's descriptors, and the requirement to include an exposure.
+# The ISA profile leaves name, description, license and datePublished optional on the
+# root Investigation; this profile requires them, matching the general information
+# module of the reporting standards.
 
 @prefix ro-crate: <https://github.com/crs4/rocrate-validator/profiles/ro-crate/> .
 @prefix schema: <http://schema.org/> .
@@ -12,8 +11,8 @@
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
-    sh:name "Investigation MUST have core descriptors" ;
-    sh:description "The root Investigation MUST carry name, description, license and a published date" ;
+    sh:name "The investigation MUST have a name, description, license and publication date" ;
+    sh:description "The root Investigation MUST carry a name, a description, a license and a publication date." ;
     sh:targetClass ro-crate:RootDataEntity ;
     sh:property [
         a sh:PropertyShape ;
@@ -35,7 +34,7 @@ tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
         a sh:PropertyShape ;
         sh:path schema:license ;
         sh:minCount 1 ;
-        sh:message "Investigation MUST specify a schema:license — the terms under which this crate may be reused, as stated by the depositor" ;
+        sh:message "Investigation MUST specify a schema:license, the terms under which the depositor permits reuse" ;
         sh:severity sh:Violation ;
     ] ;
     sh:property [
@@ -46,17 +45,15 @@ tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
         sh:severity sh:Violation ;
     ] .
 
-# It is not toxicology if nothing is exposed to a chemical (#781). Every other tox
-# shape targets a class, so a crate with no Exposure passed them all vacuously. This
-# one targets the root, which every crate has, and asks whether anything the root
-# reaches along hasPart and about is an Exposure. Whether that Exposure names a
-# compound is tox:ExposureRequirements' question, so a compound-less Exposure is
-# reported once. A SPARQL constraint rather than a property path, because no field
-# on the root answers the finding: it names no property, so the gap engine reports
-# it instead of asking for one.
+# The other tox shapes target entities that may be absent, so a crate with no
+# exposure would pass them vacuously. This shape targets the root, which every crate
+# has, and asks whether anything it reaches along hasPart and about is an exposure.
+# Whether that exposure names a compound is ExposureRequirements' question, so a
+# compound-less exposure is reported once. A SPARQL constraint, because no property
+# of the root answers the finding.
 tox:InvestigationMustIncludeAnExposure a sh:NodeShape ;
-    sh:name "Investigation MUST include an Exposure" ;
-    sh:description "The root Investigation MUST include at least one Exposure process" ;
+    sh:name "The investigation MUST include an exposure" ;
+    sh:description "The root Investigation MUST include at least one Exposure that a Study or Assay is about." ;
     sh:targetClass ro-crate:RootDataEntity ;
     sh:sparql [
         a sh:SPARQLConstraint ;
