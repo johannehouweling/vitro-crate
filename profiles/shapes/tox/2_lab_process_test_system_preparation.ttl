@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: MIT
-# LabProcessTestSystemPreparation — test system preparation (biological model preparation).
-# A bioschemas:LabProcess whose protocol record's intendedUse is a term of the ISA-Tox
-# three terms this profile recognises for it (growth protocol, transfection,
-# cell differentiation), reused from EFO, OBI and GO.
-# Older crates are read by aliases: the additionalType labels "TestSystemPreparation"
-# and "CellCulture", and growth protocol or transfection stated without the set (#799).
+# LabProcess - Test System Preparation: prepares the test system from its source cells.
+# A LabProcess whose protocol record's intendedUse is a preparation term: growth
+# protocol (EFO:0003789), transfection (OBI:0001152) or cell differentiation
+# (GO:0030154). The additionalType labels "TestSystemPreparation" and "CellCulture"
+# are read as aliases.
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix bioschemas-prop: <https://bioschemas.org/properties/> .
@@ -16,8 +15,8 @@
 
 
 tox:TestSystemPreparationRequirements a sh:NodeShape ;
-    sh:name "TestSystemPreparation process requirements" ;
-    sh:description "A test system preparation process MUST declare its input cells, output cultured sample, and parameters" ;
+    sh:name "A test system preparation MUST state its input, result and parameters" ;
+    sh:description "A test system preparation MUST declare the source cells it consumes, the test system it produces and its parameters." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """

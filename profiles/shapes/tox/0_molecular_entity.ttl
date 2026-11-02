@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
-# MolecularEntity — the test/control chemical (material module).
-# Keyed directly by @type bioschemas:MolecularEntity (no additionalType
-# discriminator); chemicals are MolecularEntity, not ChemicalSubstance/Sample.
+# MolecularEntity - Test and Control Chemicals: name and chemical identity.
+# Chemicals are selected by their type, bioschemas:MolecularEntity.
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix schema: <http://schema.org/> .
@@ -10,8 +9,8 @@
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 tox:MolecularEntityMustHaveName a sh:NodeShape ;
-    sh:name "MolecularEntity MUST have a name" ;
-    sh:description "A test/control compound MUST carry a name" ;
+    sh:name "A test or control chemical MUST have a name" ;
+    sh:description "A test or control chemical MUST carry a name." ;
     sh:targetClass bioschemas:MolecularEntity ;
     sh:property [
         a sh:PropertyShape ;
@@ -24,8 +23,8 @@ tox:MolecularEntityMustHaveName a sh:NodeShape ;
     ] .
 
 tox:MolecularEntityShouldHaveIdentity a sh:NodeShape ;
-    sh:name "MolecularEntity SHOULD carry chemical identity" ;
-    sh:description "A compound SHOULD resolve to an authoritative resource and carry its structure" ;
+    sh:name "A test or control chemical SHOULD carry its chemical identity" ;
+    sh:description "A test or control chemical SHOULD carry an identifier resolving to an authoritative record, and its structure." ;
     sh:targetClass bioschemas:MolecularEntity ;
     sh:property [
         a sh:PropertyShape ;

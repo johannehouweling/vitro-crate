@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
-# DOI PropertyValue (folded ISA extra).
-# A PropertyValue named "DOI" MUST pin its propertyID to the OBI DOI term, so the
-# identifier scheme is machine-resolvable rather than a bare string.
+# Identifier PropertyValue: a DOI names its scheme.
+# A PropertyValue named "DOI" MUST set its propertyID to the OBI digital object
+# identifier term, so the scheme is machine-resolvable.
 
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix schema: <http://schema.org/> .
@@ -11,7 +11,8 @@
 
 
 tox:DOIPropertyValueMustHaveOBIPropertyID a sh:NodeShape ;
-    sh:name "DOI PropertyValue MUST carry the OBI DOI propertyID" ;
+    sh:name "A DOI MUST name its identifier scheme" ;
+    sh:description "A PropertyValue named DOI MUST set its propertyID to OBI:0002110." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """

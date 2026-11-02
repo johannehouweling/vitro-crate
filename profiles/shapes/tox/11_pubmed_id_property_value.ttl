@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
-# PubMedID PropertyValue (folded ISA extra).
-# A PropertyValue named "PubMedID" MUST pin its propertyID to the OBI PubMed
+# Identifier PropertyValue: a PubMed ID names its scheme.
+# A PropertyValue named "PubMedID" MUST set its propertyID to the OBI PubMed
 # identifier term.
 
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
@@ -11,7 +11,8 @@
 
 
 tox:PubMedIDPropertyValueMustHaveOBIPropertyID a sh:NodeShape ;
-    sh:name "PubMedID PropertyValue MUST carry the OBI PubMed propertyID" ;
+    sh:name "A PubMed ID MUST name its identifier scheme" ;
+    sh:description "A PropertyValue named PubMedID MUST set its propertyID to OBI:0001617." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """

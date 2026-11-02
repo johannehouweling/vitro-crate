@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
-# LabProcessExposure — exposure process (exposure module).
-# A bioschemas:LabProcess whose protocol record's intendedUse is EFO:0003969 treatment
-# protocol (#799); the additionalType label "Exposure" older crates carry is an alias. Takes the
-# cultured cell Sample as input and emits the EXPOSED Sample as its result.
+# LabProcess - Exposure: exposes the test system to one or more chemicals.
+# A LabProcess whose protocol record's intendedUse is EFO:0003969 treatment protocol;
+# the additionalType label "Exposure" is read as an alias. It consumes the test
+# system and produces the exposed test system.
 #
-# The compounds are the reagents of the protocol record the Exposure executes: ISA
-# restricts schema:object to File/Sample/BioSample, so a MolecularEntity cannot be
-# the process input (#783). The per-well condition table is a data file about the
-# exposed Samples (8_condition_table_csvw.ttl).
+# The compounds are the reagents of the protocol record the step executes: ISA
+# restricts schema:object to File, Sample and BioSample, so a MolecularEntity cannot
+# be the step's input. The per-well condition table is a data file about the exposed
+# Samples (8_condition_table_csvw.ttl).
 
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix bioschemas-prop: <https://bioschemas.org/properties/> .
@@ -19,8 +19,8 @@
 
 
 tox:ExposureRequirements a sh:NodeShape ;
-    sh:name "Exposure process requirements" ;
-    sh:description "An exposure process MUST declare its input cells, exposed-sample result, parameters, and the compounds it applied" ;
+    sh:name "An exposure MUST state its input, result, parameters and compounds" ;
+    sh:description "An exposure MUST declare the test system it consumes, the exposed test system it produces, its parameters and the compounds it applied." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -54,8 +54,8 @@ tox:ExposureRequirements a sh:NodeShape ;
         sh:message "Exposure process MUST have at least one schema:additionalProperty (e.g. Exposure Duration, Cell Seeding Density)" ;
         sh:severity sh:Violation ;
     ] ;
-    # It is not toxicology if nothing was exposed to a chemical. Nested rather than
-    # a sequence path, so the finding names executesLabProtocol, not a blank node.
+    # Nested rather than a sequence path, so the finding names executesLabProtocol
+    # rather than a blank node.
     sh:property [
         a sh:PropertyShape ;
         sh:path bioschemas-prop:executesLabProtocol ;

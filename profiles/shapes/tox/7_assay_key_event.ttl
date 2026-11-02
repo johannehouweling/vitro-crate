@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
-# Assay Key Event annotation (SHOULD).
-# The endpoint measured by each Assay SHOULD be annotated with the corresponding
-# AOP-Wiki Key Event, referenced via schema:mentions.
+# Assay - Key Event: the Key Event the assay's endpoint reads out.
+# An Assay SHOULD reference the AOP-Wiki Key Event it measures via schema:mentions.
 
 @prefix aopo: <http://aopkb.org/aop_ontology#> .
 @prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
@@ -10,8 +9,8 @@
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
 
 tox:AssayShouldReferenceKeyEvent a sh:NodeShape ;
-    sh:name "Assay SHOULD annotate its endpoint with a Key Event" ;
-    sh:description "An Assay SHOULD link its measured endpoint to the corresponding AOP-Wiki Key Event" ;
+    sh:name "An assay SHOULD reference the Key Event it measures" ;
+    sh:description "An Assay SHOULD reference the AOP-Wiki Key Event its endpoint reads out." ;
     sh:targetClass isa-ro-crate:Assay ;
     sh:property [
         a sh:PropertyShape ;
