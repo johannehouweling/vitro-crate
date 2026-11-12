@@ -1,7 +1,7 @@
 # ISA-Tox RO-Crate Profile
 
 * Version: 1.0.0
-* Permalink: <https://w3id.org/ro/crate/isa-tox/1.0>
+* Permalink: <https://w3id.org/ro/crate/isa-tox/1.0> (registration pending)
 * Published at: <https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/>
 * Licence: this text [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the SHACL shapes MIT
 * Profile of: [ISA RO-Crate Profile](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md) (<https://github.com/nfdi4plants/isa-ro-crate-profile>)
@@ -97,7 +97,7 @@ the profile extends. Both referenced profiles are declared as contextual entitie
   "@id": "https://w3id.org/ro/crate/isa-tox/1.0",
   "@type": ["CreativeWork", "Profile"],
   "name": "ISA-Tox RO-Crate Profile",
-  "version": "0.1.0-draft.1"
+  "version": "1.0.0"
 }
 ```
 
@@ -105,8 +105,11 @@ the profile extends. Both referenced profiles are declared as contextual entitie
 > *Root Data Entity* (`./`) and reserving the *Metadata Descriptor*'s `conformsTo` for a single base-specification
 > value — which this profile follows.
 
-A machine-readable [Profile Crate](https://www.researchobject.org/ro-crate/specification/1.2/profiles.html#profile-crate) bundling this
-description with the SHACL shapes MAY additionally be published at the profile URI; this is planned but not yet provided.
+The shapes are open-world: a property this profile does not name is neither required nor forbidden.
+
+The machine-readable [Profile Crate](https://www.researchobject.org/ro-crate/specification/1.2/profiles.html#profile-crate) bundling this
+description with the SHACL shapes is published at
+<https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/ro-crate-metadata.json>.
 
 ## Requirements
 
@@ -472,7 +475,7 @@ this reference is consequently lost on conversion.
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
 |description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
 |url|MAY|URL|Where the lab published the procedure, when it stated one.|
-|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
+|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---test-and-control-chemicals)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
 |isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
 
 | Step | intendedUse |
