@@ -1,7 +1,7 @@
 # ISA-Tox RO-Crate Profile
 
 * Version: 1.0.0
-* Permalink: <https://w3id.org/ro/crate/isa-tox/1.0>
+* Permalink: <https://w3id.org/ro/crate/isa-tox/1.0> (registration pending)
 * Published at: <https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/>
 * Licence: this text [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the SHACL shapes MIT
 * Profile of: [ISA RO-Crate Profile](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md) (<https://github.com/nfdi4plants/isa-ro-crate-profile>)
@@ -22,7 +22,6 @@
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
     * [LabProcess - Data Analysis](#labprocess---data-analysis)
     * [LabProtocol - Protocol record](#labprotocol---protocol-record)
-  * [Example ro-crate-metadata.json](#example-ro-crate-metadatajson)
 
 ## Overview
 
@@ -97,21 +96,19 @@ the profile extends. Both referenced profiles are declared as contextual entitie
   "@id": "https://w3id.org/ro/crate/isa-tox/1.0",
   "@type": ["CreativeWork", "Profile"],
   "name": "ISA-Tox RO-Crate Profile",
-  "version": "0.1.0-draft.1"
+  "version": "1.0.0"
 }
 ```
 
-> **Note on RO-Crate 1.2 placement:** RO-Crate **1.2** recommends declaring the profiles a crate targets on the
-> *Root Data Entity* (`./`) and reserving the *Metadata Descriptor*'s `conformsTo` for a single base-specification
-> value — which this profile follows.
+The shapes are open-world: a property this profile does not name is neither required nor forbidden.
 
-A machine-readable [Profile Crate](https://www.researchobject.org/ro-crate/specification/1.2/profiles.html#profile-crate) bundling this
-description with the SHACL shapes MAY additionally be published at the profile URI; this is planned but not yet provided.
+The machine-readable [Profile Crate](https://www.researchobject.org/ro-crate/specification/1.2/profiles.html#profile-crate) bundling this
+description with the SHACL shapes is published at
+<https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/ro-crate-metadata.json>.
 
 ## Requirements
 
-An Investigation MUST include at least one Exposure referenced by one of its Studies or Assays. A crate that
-records no exposure of a test system to a chemical does not describe an *in vitro* toxicological experiment.
+An Investigation MUST include at least one Exposure referenced by one of its Studies or Assays.
 
 ### Study - Adverse Outcome Pathway
 
@@ -130,7 +127,7 @@ The following rows are those of the ISA Study, reproduced with the requirement l
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Should be a subdirectory corresponding to this study.|
 |@type|MUST|[schema.org/Dataset](https://schema.org/Dataset)|—|
-|additionalType|MUST|Text or URL|'Study' or ontology term to identify it as a Study. It is what selects the entity, so no shape can check it.|
+|additionalType|MUST|Text or URL|'Study' or ontology term to identify it as a Study.|
 |identifier|MUST|Text or URL|Identifying descriptor of the study.|
 |name|MUST|Text|A title of the study.|
 |mentions|SHOULD|[DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The Adverse Outcome Pathway the study addresses, as its AOP-Wiki node.|
@@ -142,8 +139,7 @@ The following rows are those of the ISA Study, reproduced with the requirement l
 |hasPart|SHOULD|[schema.org/Dataset](https://schema.org/Dataset) ([Assay](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#assay)) or [File](https://schema.org/MediaObject)|Assays contained in this study or actual data files resulting from the process sequence.|
 
 **Expected identifier [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) items:** Where a study's `citation` carries its publication's
-identifiers, each identifier is a PropertyValue whose `propertyID` declares the identifier scheme. The
-`propertyID` of each is validated.
+identifiers, each identifier is a PropertyValue whose `propertyID` declares the identifier scheme.
 
 | name | Required | propertyID |
 |------|----------|------------|
@@ -164,7 +160,7 @@ The following rows are those of the ISA Assay, reproduced with the requirement l
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Should be a subdirectory corresponding to this assay.|
 |@type|MUST|[schema.org/Dataset](https://schema.org/Dataset)|—|
-|additionalType|MUST|Text or URL|'Assay' or ontology term to identify it as an Assay. It is what selects the entity, so no shape can check it.|
+|additionalType|MUST|Text or URL|'Assay' or ontology term to identify it as an Assay.|
 |identifier|MUST|Text or URL|Identifying descriptor of the assay.|
 |mentions|SHOULD|[DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The Key Event this assay's endpoint reads out, as its AOP-Wiki node.|
 |name|SHOULD|Text|A title of the assay.|
@@ -178,9 +174,7 @@ The following rows are those of the ISA Assay, reproduced with the requirement l
 ### MolecularEntity - Test and Control Chemicals
 
 Test and control chemicals are represented as [MolecularEntity](https://bioschemas.org/MolecularEntity)
-instances, each denoting a single defined molecule and bearing the structural properties specified below.
-Schema.org's [`ChemicalSubstance`](https://schema.org/ChemicalSubstance) defines no structural property and is
-not used. Test items that are mixtures are outside the scope of this version.
+instances, each denoting a single defined molecule and bearing the structural properties specified below. Test items that are mixtures are outside the scope of this version.
 
 Concentration is **not** a property of the compound. It is recorded per well in the
 [Exposure](#labprocess---exposure)'s condition table.
@@ -204,18 +198,17 @@ the material from which a [Test System Preparation](#labprocess---test-system-pr
 `sampleType` property classifies the material. Cell lines and
 primary cells carry the additional requirements specified below; materials of any other kind are governed by this
 section alone. A Sample consumed by a preparation step is source cells irrespective of its declared `sampleType`.
-The values `"CellLine"` and `"PrimaryCell"` in `additionalType` are retained as aliases.
+The values `"CellLine"` and `"PrimaryCell"` in `additionalType` are also accepted.
 
 Samples are typed as both `Sample` and [BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of
-`Sample`. Validation is performed against `Sample`; a BioSample-aware consumer may read `cellType`,
-`anatomicalStructure` and `sex` directly. These three properties express the same assertions as the corresponding
-Characteristic [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic) items against which conformance is determined,
-and are therefore optional.
+`Sample`; the requirements below are matched on `Sample`. The BioSample properties `cellType`,
+`anatomicalStructure` and `sex` state the same assertions as the corresponding
+Characteristic [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic) items, and are therefore optional.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first; `Sample` MUST be present.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|A categorical annotation of the material as a fixed, resolvable ontology term; see the expected terms below.|
 |cellType|MAY|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|BioSample: the cell line, lineage or biological classification of a cell. Also carried as a cell-type Characteristic (`EFO:0000324`), which is what the shapes check.|
 |anatomicalStructure|MAY|[schema.org/AnatomicalStructure](https://schema.org/AnatomicalStructure), [DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm) or URL|BioSample: the organ or tissue the material was collected from. Also carried as Organ / Tissue Characteristics (`UBERON:0000062`, `UBERON:0000479`).|
@@ -223,8 +216,7 @@ and are therefore optional.
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 
 **Expected `sampleType` terms:** Each is a [DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm) whose `@id` dereferences to the term.
-The sections below are selected by this term. A material whose kind has no corresponding term in this table is
-reported, which also detects a malformed `sampleType`.
+The sections below are selected by this term.
 
 | term | @id | Applies to |
 |------|-----|------------|
@@ -245,7 +237,7 @@ identified by its Cellosaurus accession.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first; `Sample` MUST be present.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
@@ -262,7 +254,7 @@ isolated as instead.
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first; `Sample` MUST be present.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"primary cell" → [EFO:0002660](http://www.ebi.ac.uk/efo/EFO_0002660); its `termCode` also carries the IUCLID OHT 201 test-system type `IUCLID:108175` ("primary cells").|
 |name|MUST|Text|A name identifying the sample, e.g. "kidney tubuloids, donor T19".|
 |taxonomicRange|SHOULD|Text, URL or [schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The species the cells were taken from, e.g. NCBITaxon:9606.|
@@ -271,12 +263,12 @@ isolated as instead.
 |identifier|MAY|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|A BioSamples accession, if the material was deposited. There is no Cellosaurus entry or RRID.|
 
 **Expected `additionalProperty` items:** Each is a Characteristic [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic)
-(`additionalType` `"CharacteristicValue"`). Only the cell type is validated. Donor sex is expressed by the
-BioSample `sex` property in the table above and not as a characteristic.
+(`additionalType` `"CharacteristicValue"`). Donor sex is expressed by the BioSample `sex`
+property in the table above, not as a characteristic.
 
 | name | Required | propertyID | Notes |
 |------|----------|------------|-------|
-|cell type|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000324`|A CL term. The only item in this table that is validated. Also expressible as `cellType`.|
+|cell type|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0000324`|A CL term. Also expressible as `cellType`.|
 |Organ|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000062`|An UBERON term. Also expressible as `anatomicalStructure`.|
 |Tissue|SHOULD|`http://purl.obolibrary.org/obo/UBERON_0000479`|An UBERON term. Also expressible as `anatomicalStructure`.|
 |passage|SHOULD|`http://www.ebi.ac.uk/efo/EFO_0007061`|The passage number the material was used at.|
@@ -298,10 +290,10 @@ The test system a [Test System Preparation](#labprocess---test-system-preparatio
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first; `Sample` MUST be present.|
 |name|MUST|Text|A name identifying the material, e.g. "SK-N-AS, 48 h culture".|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
-|sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876). The term is what makes the Sample a test system: without it these requirements do not apply to it.|
+|sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell culture" → [OBI:0001876](http://purl.obolibrary.org/obo/OBI_0001876).|
 |isBasedOn|SHOULD|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The material this one was grown from — the source cells for a test system, the test system for the exposed material. See the modelling rules below.|
 
 **Modelling rules:**
@@ -317,11 +309,11 @@ or more source cells. One source grown alone is an ordinary test system, not a c
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
 |@id|MUST|Text or URL|Could be the unique sample name.|
-|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first. `Sample` MUST stay in it: every requirement here is matched on that type.|
+|@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first; `Sample` MUST be present.|
 |name|MUST|Text|A name identifying the material, e.g. "hepatocyte / Kupffer co-culture".|
 |isBasedOn|MUST|[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The two or more Samples this material was grown from.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the material, e.g. passage number or growth conditions.|
-|sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"co-culture" → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168). The term is what makes the Sample a co-culture: without it these requirements do not apply to it.|
+|sampleType|MAY|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"co-culture" → [NCIT:C93168](http://purl.obolibrary.org/obo/NCIT_C93168).|
 
 ### Sample - Exposed Test System
 
@@ -355,7 +347,7 @@ terms, reused from EFO, OBI and GO:
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The input source sample(s): a cell line or primary cells. At least one.|
 |result|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The output (cultured) sample(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Process parameter(s); see expected values below. At least one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared.|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following are recommended
@@ -380,10 +372,10 @@ one row per well giving cell line, compound, concentration and exposure duration
 |@id|MUST|Text or URL|Could identify the process using the process name and protocol reference.|
 |@type|MUST|[bioschemas.org/LabProcess](https://bioschemas.org/LabProcess)|—|
 |name|MUST|Text|The name of the process, e.g. "Exposure".|
-|object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one. (A `MolecularEntity` is **not** allowed here — see note above.)|
+|object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
 |result|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|The exposed sample(s) the step produces. At least one. The condition table is **not** a result: it is a `File` + `csvw:Table` `about` the exposed Samples, and each exposure SHOULD have one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD), whose `reagent`s MUST include at least one test or control compound (a MolecularEntity).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared, whose `reagent`s MUST include at least one test or control compound (a MolecularEntity).|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following are recommended
@@ -408,7 +400,7 @@ record, assay protocol (BAO:0000523).
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s) (the cultured Sample in an assay with no exposure), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Measurement parameter(s); see expected values below. At least one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared.|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following are recommended
@@ -432,7 +424,7 @@ for this step:
 A [LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) that derives the reported results from the raw measurements, typed by the
 `intendedUse` of its protocol record, data transformation (OBI:0200000). It consumes the raw-data File(s)
 produced by the [Endpoint Readout](#labprocess---endpoint-readout) and declares the processed-data File(s) as its
-result. It corresponds to the *analysis and statistics* module of [MIT Nanosafety](https://fairsharing.org/5228).
+result.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -442,7 +434,7 @@ result. It corresponds to the *analysis and statistics* module of [MIT Nanosafet
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Analysis parameter(s); see expected values below. At least one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record: exactly one (SHOULD), which SHOULD be `isBasedOn` the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared, and it SHOULD be `isBasedOn` the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`).|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following, drawn from
@@ -461,8 +453,7 @@ Based on the Bioschemas [LabProtocol](https://bioschemas.org/LabProtocol) type
 ([ISA LabProtocol](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprotocol)). Each LabProcess executes exactly one protocol record. The record is present
 whether or not a document was deposited, since its `intendedUse` determines the type of the step. A deposited
 standard operating procedure is a `File` additionally typed `LabProtocol`, referenced by the record through
-`isBasedOn`; one document may therefore serve several steps. ISA-JSON defines no `isBasedOn` on a protocol, and
-this reference is consequently lost on conversion.
+`isBasedOn`; one document may therefore serve several steps.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -472,7 +463,7 @@ this reference is consequently lost on conversion.
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
 |description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
 |url|MAY|URL|Where the lab published the procedure, when it stated one.|
-|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---chemical)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
+|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---test-and-control-chemicals)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
 |isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
 
 | Step | intendedUse |
@@ -481,8 +472,3 @@ this reference is consequently lost on conversion.
 |Exposure|[EFO:0003969](http://www.ebi.ac.uk/efo/EFO_0003969) *treatment protocol*|
 |Endpoint Readout|[BAO:0000523](http://www.bioassayontology.org/bao#BAO_0000523) *assay protocol*|
 |Data Analysis|[OBI:0200000](http://purl.obolibrary.org/obo/OBI_0200000) *data transformation*|
-
-## Example ro-crate-metadata.json
-
-A conforming crate is one produced by the reference implementation,
-[vitro-crate](https://github.com/johannehouweling/vitro-crate).
