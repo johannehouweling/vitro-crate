@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Assay - Key Event: the Key Event the assay's endpoint reads out.
 # An Assay SHOULD mention the Key Event it measures by its AOP-Wiki IRI, https://aopwiki.org/events/<id>.
+# An Assay is selected as the ISA profile defines one: a Dataset whose additionalType
+# is "Assay".
 
-@prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
@@ -10,7 +11,15 @@
 tox:AssayShouldReferenceKeyEvent a sh:NodeShape ;
     sh:name "An assay SHOULD reference the Key Event it measures" ;
     sh:description "An Assay SHOULD reference the AOP-Wiki Key Event its endpoint reads out." ;
-    sh:targetClass isa-ro-crate:Assay ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this <http://schema.org/additionalType> "Assay" .
+                ?this a <http://schema.org/Dataset> .
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:mentions ;

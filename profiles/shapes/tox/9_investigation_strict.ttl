@@ -3,8 +3,9 @@
 # The ISA profile leaves name, description, license and datePublished optional on the
 # root Investigation; this profile requires them, matching the general information
 # module of the reporting standards.
+# The root is selected as RO-Crate defines it: the Dataset the metadata descriptor is
+# about.
 
-@prefix ro-crate: <https://github.com/crs4/rocrate-validator/profiles/ro-crate/> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
@@ -13,7 +14,19 @@
 tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
     sh:name "The investigation MUST have a name, description, license and publication date" ;
     sh:description "The root Investigation MUST carry a name, a description, a license and a publication date." ;
-    sh:targetClass ro-crate:RootDataEntity ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <http://schema.org/Dataset> .
+                ?descriptor <http://schema.org/about> ?this .
+                FILTER(
+                    STRENDS(STR(?descriptor), "ro-crate-metadata.json") ||
+                    STRENDS(STR(?descriptor), "ro-crate-metadata.jsonld")
+                )
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:name ;
@@ -54,7 +67,19 @@ tox:InvestigationMustHaveDescriptors a sh:NodeShape ;
 tox:InvestigationMustIncludeAnExposure a sh:NodeShape ;
     sh:name "The investigation MUST include an exposure" ;
     sh:description "The root Investigation MUST include at least one Exposure that a Study or Assay is about." ;
-    sh:targetClass ro-crate:RootDataEntity ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this a <http://schema.org/Dataset> .
+                ?descriptor <http://schema.org/about> ?this .
+                FILTER(
+                    STRENDS(STR(?descriptor), "ro-crate-metadata.json") ||
+                    STRENDS(STR(?descriptor), "ro-crate-metadata.jsonld")
+                )
+            }
+        """ ;
+    ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
         sh:select """

@@ -12,8 +12,11 @@ conforming crate the way that constraint forbids:
 * the root's SPARQL rule                     -> unlink the Exposure from the chain
 
 and asserts the constraint's own ``sh:message`` is reported, at its declared
-severity, by the production ISA-Tox pass (``validate_crate_dict``). A constraint
-that gains a kind with no recipe here fails loudly rather than going untested.
+severity, twice: by the production ISA-Tox pass (``validate_crate_dict``), and by
+the shape files run alone with pyshacl, which is what anyone outside
+rocrate-validator gets. A shape that selects a class only rocrate-validator infers
+passes the first and finds nothing in the second. A constraint that gains a kind
+with no recipe here fails loudly rather than going untested.
 
 The crate is built by the real builder from a ``CrateState`` that reaches every
 tox class, with three nodes the builder does not write added by hand: a
@@ -28,15 +31,17 @@ import json
 import re
 import warnings
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
+import pyshacl
 import pytest
 from rdflib import Graph, URIRef
 from rdflib.namespace import RDF, SH
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate
-from profiles.validator import validate_crate_dict
+from profiles.validator import _LOCAL_CONTEXTS, validate_crate_dict
 
 pytestmark = pytest.mark.timeout(900)
 
@@ -71,7 +76,9 @@ class Case:
     severity: str
     kind: str
     path: str | None
-    target: tuple[str, str]  # ("class", local name) | ("subjectsOf"|"objectsOf", IRI)
+    # ("class", local name) | ("sparql", "pred=values") | ("root", "./")
+    # | ("subjectsOf"|"objectsOf", IRI)
+    target: tuple[str, str]
 
     def __str__(self) -> str:
         return f"{self.shape}:{(self.path or 'node').rsplit('/', 1)[-1].rsplit('#', 1)[-1]}"
@@ -98,10 +105,16 @@ def _kind(g: Graph, prop) -> str:
     return "unsupported"
 
 
-def _cases() -> list[Case]:
+@cache
+def _shapes() -> Graph:
     g = Graph()
     for ttl in sorted(_SHAPES_DIR.glob("*.ttl")):
         g.parse(ttl, format="turtle")
+    return g
+
+
+def _cases() -> list[Case]:
+    g = _shapes()
     cases: list[Case] = []
     for shape in sorted(g.subjects(RDF.type, SH.NodeShape), key=str):
         if not isinstance(shape, URIRef):
@@ -121,15 +134,17 @@ def _cases() -> list[Case]:
             # pairs; a triple whose object is a variable (the hop to a step's
             # protocol record) has none and is skipped. The first predicate is the
             # discriminating one, and a target may offer alternative values for it.
-            pairs = re.findall(
-                r'<([^>]+)> (?:<([^>]+)>|"([^"]+)")',
-                str(g.value(t, SH.select) or ""),
-            )
-            if not pairs:
+            select = str(g.value(t, SH.select) or "")
+            pairs = re.findall(r'<([^>]+)> (?:<([^>]+)>|"([^"]+)")', select)
+            if "ro-crate-metadata.json" in select:
+                # The root: the Dataset the metadata descriptor is about.
+                target = ("root", "./")
+            elif pairs:
+                pred = pairs[0][0]
+                values = [iri or lit for p, iri, lit in pairs if p == pred]
+                target = ("sparql", f"{_local(URIRef(pred))}={'|'.join(values)}")
+            else:
                 continue
-            pred = pairs[0][0]
-            values = [iri or lit for p, iri, lit in pairs if p == pred]
-            target = ("sparql", f"{_local(URIRef(pred))}={'|'.join(values)}")
         else:
             continue
         for prop in g.objects(shape, SH.property):
@@ -331,10 +346,26 @@ def _tox_issues(doc: dict):
     return result.issues
 
 
+def _standalone_issues(doc: dict) -> list[tuple[str, str]]:
+    """The findings of the shape files run alone: pyshacl over the crate's graph."""
+    context = [_LOCAL_CONTEXTS[c]["@context"] if isinstance(c, str) else c for c in doc["@context"]]
+    data = Graph().parse(
+        data=json.dumps({**doc, "@context": context}),
+        format="json-ld",
+        base="https://example.org/crate/",
+    )
+    _, report, _ = pyshacl.validate(data, shacl_graph=_shapes(), advanced=True)
+    return [
+        (str(report.value(r, SH.resultMessage)), _SEVERITY[report.value(r, SH.resultSeverity)])
+        for r in report.subjects(RDF.type, SH.ValidationResult)
+    ]
+
+
 def test_the_fixture_passes_clean(conforming_doc):
     """Guards every case below: a finding there must be the perturbation."""
     issues = _tox_issues(conforming_doc)
     assert issues == [], [(i.entity_id, i.message) for i in issues]
+    assert _standalone_issues(conforming_doc) == []
 
 
 # --- focus nodes and mutations ----------------------------------------------
@@ -368,6 +399,8 @@ def _focus(doc: dict, case: Case) -> dict:
                 if wanted & set(_refs(n.get(key)))
                 or (isinstance(n.get(key), str) and n[key] in wanted)
             ]
+    elif kind == "root":
+        nodes = [n for n in graph if n["@id"] == name]
     elif kind == "subjectsOf":
         key = _local(name)
         nodes = [n for n in graph if key in n]
@@ -375,10 +408,6 @@ def _focus(doc: dict, case: Case) -> dict:
         key = _local(name)
         ids = {r for n in graph for r in _refs(n.get(key))}
         nodes = [n for n in graph if n["@id"] in ids]
-    elif name == "RootDataEntity":
-        nodes = [n for n in graph if n["@id"] == "./"]
-    elif name in ("Study", "Assay"):
-        nodes = [n for n in graph if n["@id"].startswith(f"#{name}_")]
     elif name in ("Table", "Column"):
         nodes = [n for n in graph if f"csvw:{name}" in _refs_types(n)]
     else:
@@ -452,6 +481,11 @@ def test_each_constraint_fires_on_its_own_violation(conforming_doc, case):
     fired = [(i.message, i.severity) for i in _tox_issues(doc)]
     assert (case.message, case.severity) in fired, (
         f"{case} did not fire after its perturbation; findings were: {fired}"
+    )
+    alone = _standalone_issues(doc)
+    assert (case.message, case.severity) in alone, (
+        f"{case} fires under rocrate-validator but not when the shapes run alone; "
+        f"findings were: {alone}"
     )
 
 
