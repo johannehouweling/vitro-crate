@@ -416,11 +416,12 @@ def _read_declared_licence(engine: AgentEngine) -> None:
     logger.info("Read the licence the deposit declares from %s: %s", path, licence)
 
 
-def _shallowest_declaration(engine: AgentEngine, extract: Any) -> Any:
+def _shallowest_declaration(engine: AgentEngine, extract: Any, describe: Any = str) -> Any:
     """What *extract* reads from the shallowest metadata document declaring anything.
 
     A file at the deposit root describes the deposit, while a bundled record four
     directories down describes itself. ``None`` when no document declares it.
+    *describe* words the value for the console notice.
     """
     from builder.tools.file_readers import read_file
 
@@ -445,7 +446,7 @@ def _shallowest_declaration(engine: AgentEngine, extract: Any) -> Any:
     if not found:
         return None
     _depth, path, value = min(found, key=lambda f: (f[0], f[1]))
-    logger.info("Read %s from %s", value, path)
+    logger.info("Read %s from %s", describe(value), path)
     return value
 
 
@@ -487,6 +488,30 @@ def _read_declared_doi(engine: AgentEngine) -> None:
     metadata = engine.state.metadata
     if not metadata.doi:
         metadata.doi = _shallowest_declaration(engine, extract_deposit_doi)
+
+
+def _funding_text(funding: list[dict[str, str]]) -> str:
+    """Declared funding as one phrase: ``the funding NWO, grant 1292.19.272``."""
+    stated = []
+    for each in funding:
+        number = each.get("identifier")
+        parts = (each.get("funder"), f"grant {number}" if number else None)
+        stated.append(", ".join(part for part in parts if part))
+    return "the funding " + "; ".join(stated)
+
+
+def _read_declared_funding(engine: AgentEngine) -> None:
+    """Read the funder and the grant number the deposit declares, as its DOI is read.
+
+    Nothing read them: a crate named a funder only when a model drafted one, and no
+    crate carried a grant number. Funding a resumed session already holds is left alone.
+    """
+    from builder.tools.file_readers import extract_deposit_funding
+
+    metadata = engine.state.metadata
+    if not metadata.funding:
+        declared = _shallowest_declaration(engine, extract_deposit_funding, _funding_text)
+        metadata.funding = declared or []
 
 
 class AgentEngine:
@@ -600,6 +625,10 @@ class AgentEngine:
                         _read_declared_identity(self)
                     except Exception as exc:  # noqa: BLE001 — best-effort, like the DOI
                         logger.warning("Reading the declared title failed: %s", exc)
+                    try:
+                        _read_declared_funding(self)
+                    except Exception as exc:  # noqa: BLE001 — best-effort, like the DOI
+                        logger.warning("Reading the declared funding failed: %s", exc)
             else:
                 logger.warning(
                     "Refusing to initialize scan on forbidden input path: %s", input_path

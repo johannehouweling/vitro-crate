@@ -663,6 +663,10 @@ class CrateMetadata:
     # inside that repository and ambiguous outside it — so it, not the accession,
     # becomes the crate's `identifier`.
     doi: str | None = None
+    # The funding the deposit declares, as it states it: one ``{"funder": <name>,
+    # "identifier": <grant number>}`` per statement, either key absent when unstated.
+    # The build writes the funder as an Organization and the grant as a Grant.
+    funding: list[dict[str, str]] = field(default_factory=list)
     input_path: str | None = None
     output_path: str | None = None
     # When the crate was last written to ``output_path`` (ISO-8601, local tz).
@@ -698,6 +702,8 @@ class CrateMetadata:
             d["license_from_deposit"] = True
         if self.doi:
             d["doi"] = self.doi
+        if self.funding:
+            d["funding"] = [dict(stated) for stated in self.funding]
         if self.input_path is not None:
             d["input_path"] = self.input_path
         if self.output_path is not None:
@@ -726,6 +732,7 @@ class CrateMetadata:
             license=data.get("license"),
             license_from_deposit=bool(data.get("license_from_deposit", False)),
             doi=data.get("doi"),
+            funding=[dict(f) for f in data.get("funding") or [] if isinstance(f, dict)],
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
             exported_at=data.get("exported_at"),

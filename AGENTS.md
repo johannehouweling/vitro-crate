@@ -105,9 +105,9 @@ The orchestration is **emergent** — the agent dynamically routes itself based 
 Fixed initialization runs before the agent loop, in order:
 1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). The scanner itself does **no role classification** — just a list of what's in the input directory.
 2. Document discovery — stamps **every** scanned file with one classification (`metadata` / `protocol` / `raw_data_file` / `processed_data_file`), decided from content, and ranks the readable scientific documentation into `state.documents`. Classification reads content, so it stays a step beside the scanner and is never folded back into `scan_files`.
-3. The declared-metadata read — the licence, DOI, title and accession the deposit itself states are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
+3. The declared-metadata read — the licence, DOI, title, accession and funding the deposit itself states are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
 
-Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title and accession — it never has to bootstrap those itself. Before either arm starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§14.4, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
+Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title, accession and funding — it never has to bootstrap those itself. Before either arm starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§14.4, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
 
 ### Guard Rails: Approved Scan Roots
 The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. The guard **fails closed** (#197): with no approved roots, *nothing* is scannable. When the agent calls `scan_files(path)`:
@@ -195,6 +195,8 @@ CrateState {
         # a depositor's statement is a fact and outranks a drafted guess, so
         # `set_crate_metadata` will not overwrite it
         license_from_deposit: bool,
+        # the funding the deposit declares, as it states it; either key may be absent
+        funding: [{ funder, identifier }],
         input_path: str | None, output_path: str | None,
         exported_at: str | None,  # None until the crate has been written
         # the export writes no data file (a deposit whose data is not public yet);
@@ -2242,6 +2244,18 @@ conformant, and is machine-readable: a consumer branches on the `@id` rather tha
 prose. A licence the depositor *did* state always wins, and is emitted as a described entity when
 `describe_license` recognises it (never renamed when it does not). The gap engine and MIT scorer
 discount the entity by id, so an unstated licence never reads as filled — see §Gap Analysis.
+
+**Declared funding is read the same way, and the crate states it as a funder and a grant.**
+`extract_deposit_funding` reads who paid and under which grant number from the two conventions that
+give funding a place of its own: the BioStudies `Funding` section (`Agency`, `Grant_id`) and DataCite's
+`fundingReferences` (`funderName`, `awardNumber`). Both values are kept verbatim, since "EU Horizon
+2020" names a programme and the European Commission in its place is a claim the depositor did not make
+(D5), and a sentence about funding is never a source. The build writes the funder as the root's
+`funder`, an Organization: the crate's own when one carries that name, else one that states the name
+and nothing more. A grant number is no property of an organization, so it is a `Grant` the root's
+`funding` references, named after its funder and number, which names that funder. This is also what
+fills the checklist's `Investigation:funder` slot. A funder known only by name is reported by the base
+profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST asks more.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 

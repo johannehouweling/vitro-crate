@@ -571,6 +571,7 @@ def populate_crate(
     _add_generator_provenance(state, crate)
     _wire_mentions(state, idx)
     _wire_dataset_aliases(state, crate, idx)
+    _add_declared_funding(state, crate, idx)
     _preserve_unowned_fields(state, crate, idx)
     _mirror_profile_predicates(crate)
 
@@ -4139,6 +4140,47 @@ def _append_unique_ref(node: Any, prop: str, ref_id: str) -> None:
     """append_to(node, prop, {"@id": ref_id}) but skip if ``ref_id`` already present."""
     if ref_id not in _child_ids(node, prop):
         node.append_to(prop, {"@id": ref_id})
+
+
+def _declared_funder(state: CrateState, crate: ROCrate, idx: dict[str, Any], name: str) -> Any:
+    """The Organization a declared funder names: the crate's own, when it describes one.
+
+    Matched on the name alone, whatever its case, because a name is all a declaration
+    gives. A funder nothing else describes is written as that name and nothing more.
+    """
+    for org in state.list_entities("Organization"):
+        if str(org.fields.get("name") or "").strip().casefold() == name.casefold():
+            if (node := _node_for(idx, org)) is not None:
+                return node
+    properties = {"@type": "Organization", "name": name}
+    return crate.add(ContextEntity(crate, f"#funder_{_slug(name)}", properties=properties))
+
+
+def _add_declared_funding(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> None:
+    """Write the funding the deposit declares: its funder, and the grant it names.
+
+    The funder is the root's ``funder``, an Organization, as RO-Crate asks. A grant
+    number is no property of an organization, so it is a ``Grant`` the root's
+    ``funding`` references, and the grant names its funder.
+    """
+    root = crate.root_dataset
+    for stated in state.metadata.funding:
+        name = str(stated.get("funder") or "").strip()
+        number = str(stated.get("identifier") or "").strip()
+        funder = _declared_funder(state, crate, idx, name) if name else None
+        if funder is not None:
+            _append_unique(root, "funder", funder)
+        if not number:
+            continue
+        properties: dict[str, Any] = {
+            "@type": "Grant",
+            "name": f"{name} grant {number}" if name else f"Grant {number}",
+            "identifier": number,
+        }
+        if funder is not None:
+            properties["funder"] = {"@id": funder.id}
+        grant = crate.add(ContextEntity(crate, f"#grant_{_slug(number)}", properties=properties))
+        _append_unique(root, "funding", grant)
 
 
 # People/organisation references an ISA dataset can carry. Held here (not in
