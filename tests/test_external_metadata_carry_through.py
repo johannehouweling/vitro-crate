@@ -515,6 +515,42 @@ class TestOrganizationsCarryTheirWebsite:
             "addressCountry": "NL",
         }
 
+    def test_the_country_is_stated_once(self):
+        """The country's name is the name of the address, and nothing repeats it."""
+        state = CrateState()
+        _add(
+            state,
+            "org_uu",
+            "Organization",
+            name="Utrecht University",
+            addressCountry="NL",
+            countryName="The Netherlands",
+        )
+        doc = _doc(state)
+        org = next(n for n in doc["@graph"] if n.get("@type") == "Organization")
+        assert "additionalProperty" not in org
+        stating = [n["@id"] for n in doc["@graph"] if "The Netherlands" in json.dumps(n)]
+        assert stating == [org["address"]["@id"]]
+
+    def test_a_country_name_without_its_code_is_kept(self):
+        """No code, no address: the name is then kept the way any unplaced value is."""
+        state = CrateState()
+        _add(
+            state,
+            "org_uu",
+            "Organization",
+            name="Utrecht University",
+            countryName="The Netherlands",
+        )
+        doc = _doc(state)
+        org = next(n for n in doc["@graph"] if n.get("@type") == "Organization")
+        assert "address" not in org
+        kept = org["additionalProperty"]
+        (reference,) = kept if isinstance(kept, list) else [kept]
+        node = _node(doc, reference["@id"])
+        assert node is not None
+        assert node["value"] == "The Netherlands"
+
     def test_two_organizations_in_one_country_share_the_address(self):
         state = CrateState()
         _add(state, "org_uu", "Organization", name="Utrecht University", addressCountry="NL")
