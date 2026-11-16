@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Study - Adverse Outcome Pathway: the pathway the study addresses.
-# A Study SHOULD reference its AOP-Wiki Adverse Outcome Pathway via schema:mentions.
+# A Study SHOULD mention its pathway by its AOP-Wiki IRI, https://aopwiki.org/aops/<id>.
 
-@prefix aopo: <http://aopkb.org/aop_ontology#> .
 @prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -15,8 +14,8 @@ tox:StudyShouldReferenceAOP a sh:NodeShape ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:mentions ;
-        sh:qualifiedValueShape [ sh:class aopo:AdverseOutcomePathway ] ;
+        sh:qualifiedValueShape [ sh:nodeKind sh:IRI ; sh:pattern "^https://aopwiki\\.org/aops/[0-9]+$" ] ;
         sh:qualifiedMinCount 1 ;
-        sh:message "Study SHOULD reference a linked Adverse Outcome Pathway (AOP-Wiki) via schema:mentions" ;
+        sh:message "Study SHOULD reference its Adverse Outcome Pathway via schema:mentions, as its AOP-Wiki IRI https://aopwiki.org/aops/<id>" ;
         sh:severity sh:Warning ;
     ] .

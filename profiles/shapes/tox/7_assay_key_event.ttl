@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Assay - Key Event: the Key Event the assay's endpoint reads out.
-# An Assay SHOULD reference the AOP-Wiki Key Event it measures via schema:mentions.
+# An Assay SHOULD mention the Key Event it measures by its AOP-Wiki IRI, https://aopwiki.org/events/<id>.
 
-@prefix aopo: <http://aopkb.org/aop_ontology#> .
 @prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
@@ -15,8 +14,8 @@ tox:AssayShouldReferenceKeyEvent a sh:NodeShape ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:mentions ;
-        sh:qualifiedValueShape [ sh:class aopo:KeyEvent ] ;
+        sh:qualifiedValueShape [ sh:nodeKind sh:IRI ; sh:pattern "^https://aopwiki\\.org/events/[0-9]+$" ] ;
         sh:qualifiedMinCount 1 ;
-        sh:message "Assay SHOULD annotate its measured endpoint with the corresponding AOP-Wiki Key Event via schema:mentions" ;
+        sh:message "Assay SHOULD reference the Key Event its endpoint reads out via schema:mentions, as its AOP-Wiki IRI https://aopwiki.org/events/<id>" ;
         sh:severity sh:Warning ;
     ] .
