@@ -37,6 +37,9 @@ from builder.tools.assessment_graph import (
     is_external_iri as _is_external_iri,
 )
 from builder.tools.assessment_graph import (
+    is_payload_file as _is_payload_file,
+)
+from builder.tools.assessment_graph import (
     needs_graph as _needs_graph,
 )
 from builder.tools.assessment_graph import (
@@ -114,7 +117,7 @@ def _payload_files(graph: Graph) -> tuple[list[dict[str, Any]], set[str]]:
             child = by_id.get(part_id)
             if child is None:
                 continue
-            if "File" in _node_types(child):
+            if _is_payload_file(child):
                 found.append(child)
             if "Dataset" in _node_types(child):
                 queue.append(child)
@@ -1563,7 +1566,7 @@ def _check_cross_dataset_refs(state: CrateState, graph: Graph = None) -> Verdict
     def holds_deposited_data(node: dict[str, Any]) -> bool:
         return any(
             (child := by_id.get(rid)) is not None
-            and "File" in _node_types(child)
+            and _is_payload_file(child)
             and not _minted_by_the_builder(child)
             for rid in _ids(node.get("hasPart"))
         )
@@ -1757,7 +1760,7 @@ def _check_data_structured(state: CrateState, graph: Graph = None) -> Verdict | 
                 child = by_id.get(ident)
                 if child is None:
                     continue
-                if "File" in _node_types(child):
+                if _is_payload_file(child):
                     found.append(child)
                 if "Dataset" in _node_types(child):
                     queue.append(child)

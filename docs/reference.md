@@ -318,10 +318,11 @@ Options:
                          overwrites a previous export. With no --input it is the
                          session working_crate/
       --metadata-only, --no-metadata-only
-                         Write the crate without its data files, for a deposit
-                         whose data is not public yet. The crate keeps the study,
-                         its steps, materials, people and protocol records, and
-                         the report inside it describes the crate as written.
+                         Write the crate without its payload, for a deposit
+                         whose data is not public yet. The metadata is that of
+                         the full crate: each file stays described, under a
+                         local identifier with its path, and is not included.
+                         The report inside it describes the crate as written.
                          The output folder must not hold other files. Kept with
                          the session; --no-metadata-only turns it off
       --profile {isa-tox,isa}

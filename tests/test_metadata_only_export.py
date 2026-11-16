@@ -1,10 +1,11 @@
-"""A crate whose data is not public is written without its files.
+"""A crate whose data is not public is the same crate, written without its payload.
 
 The deposit of an embargoed study is built like any other: its files are what
 the metadata is read from, and the session keeps them. ``metadata_only`` changes
-what the EXPORT writes — the study, its assays, steps, compounds, cells, people
-and protocol records, and no file. The verdict and the report inside the written
-crate describe that crate, so a readout without its result file says so.
+what the EXPORT writes: the same metadata, and no payload file. Each file stays
+described, in the form RO-Crate 1.2 gives a file that is deliberately not
+present: a local ``#`` identifier and a ``localPath``. Every reference to it is
+kept, so a readout still names its result.
 """
 
 from __future__ import annotations
@@ -133,16 +134,25 @@ def exported(tmp_path_factory):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = export_crate(state, str(root / "public"))
-        full = export_crate(_state(root / "deposit_full"), str(root / "full"), validate=False)
+        full = export_crate(_state(root / "deposit_full"), str(root / "full"))
     assert result["success"] is True, result
     assert full["success"] is True, full
     return {
         "state": state,
         "validation_before": before,
         "result": result,
+        "full_result": full,
         "public": root / "public",
         "full": root / "full",
     }
+
+
+def _nodes(crate_dir: Path) -> dict[str, dict]:
+    return {node["@id"]: node for node in _graph(crate_dir)}
+
+
+def _ids(value) -> list[str]:
+    return [ref["@id"] for ref in (value if isinstance(value, list) else [value])]
 
 
 class TestTheWrittenCrate:
@@ -155,17 +165,45 @@ class TestTheWrittenCrate:
         for rel in DEPOSIT_FILES:
             assert (exported["full"] / rel).is_file()
 
-    def test_no_deposit_file_is_described(self, exported):
-        graph = _graph(exported["public"])
-        assert not {node["@id"] for node in graph} & set(DEPOSIT_FILES)
-        assert {node["@id"] for node in graph if "File" in _types(node)} <= GENERATED
+    def test_each_deposit_file_is_described_as_a_file_that_is_not_present(self, exported):
+        nodes = _nodes(exported["public"])
+        for rel in DEPOSIT_FILES:
+            assert rel not in nodes, "a relative @id says the file is in the crate"
+            assert "File" in _types(nodes["#" + rel])
+            assert nodes["#" + rel]["localPath"] == rel
 
-    def test_no_condition_table_is_described(self, exported):
-        graph = _graph(exported["public"])
-        assert not [node["@id"] for node in graph if "condition_table" in node["@id"]]
-        assert not [n["@id"] for n in graph if any(t.startswith("csvw:") for t in _types(n))]
+    def test_a_file_keeps_what_the_full_crate_says_of_it(self, exported):
+        public, full = _nodes(exported["public"]), _nodes(exported["full"])
+        for rel in DEPOSIT_FILES:
+            told = {k: v for k, v in public["#" + rel].items() if k not in ("@id", "localPath")}
+            assert told == {k: v for k, v in full[rel].items() if k != "@id"}
+            assert told.get("name") and told.get("contentSize")
 
-    def test_nothing_points_at_a_file_that_was_left_out(self, exported):
+    def test_the_steps_keep_their_files(self, exported):
+        nodes = _nodes(exported["public"])
+        readout, analysis = nodes["#LabProcess_proc_read"], nodes["#LabProcess_proc_ana"]
+        assert _ids(readout["output"]) == ["#raw/readout.csv"]
+        assert _ids(analysis["input"]) == ["#raw/readout.csv"]
+        assert _ids(analysis["output"]) == ["#processed/ic50.csv"]
+        record = nodes[_ids(analysis["executesLabProtocol"])[0]]
+        assert _ids(record["isBasedOn"]) == ["#scripts/analysis.R"]
+
+    def test_the_root_and_the_assay_still_list_them(self, exported):
+        public, full = _nodes(exported["public"]), _nodes(exported["full"])
+        for holder in ("./", "#Assay_assay_1"):
+            listed = [i for i in _ids(public[holder]["hasPart"]) if i.lstrip("#") in DEPOSIT_FILES]
+            assert listed == ["#" + i for i in _ids(full[holder]["hasPart"]) if i in DEPOSIT_FILES]
+            assert listed
+
+    def test_the_condition_table_stays_described_with_its_columns(self, exported):
+        public, full = _nodes(exported["public"]), _nodes(exported["full"])
+        (table,) = [n for n in full.values() if "csvw:Table" in _types(n)]
+        left_out = public["#" + table["@id"]]
+        assert left_out["localPath"] == table["@id"]
+        assert left_out["tableSchema"] == table["tableSchema"]
+        assert _ids(left_out["tableSchema"])[0] in public
+
+    def test_nothing_points_at_an_entity_that_is_not_there(self, exported):
         graph = _graph(exported["public"])
         ids = {node["@id"] for node in graph}
         dangling = {
@@ -189,15 +227,41 @@ class TestTheWrittenCrate:
 
 
 class TestTheVerdict:
-    def test_it_is_the_verdict_of_the_written_crate(self, exported):
-        """A readout whose result file is left out has no result, and the crate says so."""
-        validation = exported["result"]["validation"]
+    def test_it_is_the_verdict_the_crate_gets_with_its_files(self, exported):
+        """A step still names its files, so no profile finds one missing."""
+        validation, full = exported["result"]["validation"], exported["full_result"]["validation"]
         assert validation["ran"] is True
-        assert validation["ok"] is False
+        assert validation["ok"] is full["ok"] is True
+        assert validation["issue_counts"]["required"] == 0
         page = exported["public"] / "ro-crate-metadata-maturity.html"
-        assert "EndpointReadout process MUST have at least one schema:result" in page.read_text(
-            encoding="utf-8"
-        )
+        assert "MUST have at least one schema:result" not in page.read_text(encoding="utf-8")
+
+    def test_the_report_counts_no_file_as_data_the_crate_carries(self, exported):
+        """A file that is described and not present is not data a reader receives."""
+        from builder.tools import fair_assessment as fa
+
+        assert fa._deposited_files(_graph(exported["public"]))[0] == []
+        carried = {f["@id"] for f in fa._deposited_files(_graph(exported["full"]))[0]}
+        assert carried == set(DEPOSIT_FILES)
+
+    def test_the_only_file_whose_integrity_is_asked_about_is_the_crate_s_own(self, exported):
+        from builder.tools import air_assessment as air
+
+        def asked_about(crate_dir: Path) -> int:
+            checked = air._check_payload_checksums(exported["state"], _graph(crate_dir))
+            assert checked is not None
+            return int(checked.evidence.split("/")[1].split()[0])
+
+        assert asked_about(exported["public"]) == 1, "the maturity report it carries"
+        assert asked_about(exported["full"]) == 1 + len(DEPOSIT_FILES) + 1, "and a condition table"
+
+    def test_ro_crate_py_opens_it(self, exported):
+        from rocrate.rocrate import ROCrate
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            crate = ROCrate(str(exported["public"]))
+        assert crate.dereference("#raw/readout.csv")["localPath"] == "raw/readout.csv"
 
     def test_the_result_says_what_was_left_out(self, exported):
         assert exported["result"]["metadata_only"] is True
@@ -225,6 +289,22 @@ def test_a_folder_that_holds_other_files_is_refused(tmp_path):
     assert result["success"] is False
     assert "raw/readout.csv" in result["error"]
     assert not (out / "ro-crate-metadata.json").exists()
+
+
+def test_a_local_path_is_the_path_as_it_is_on_disk(tmp_path):
+    """The identifier is a URI and escapes a space; the path a file belongs at does not."""
+    state = _state(tmp_path / "deposit")
+    plate = tmp_path / "deposit" / "Raw data" / "plate 1.csv"
+    plate.parent.mkdir()
+    plate.write_text("well,value\nA1,1\n", encoding="utf-8")
+    state.add_entity(_ent("raw_2", "File", name="plate 1.csv", path="Raw data/plate 1.csv"))
+    state.metadata.metadata_only = True
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert export_crate(state, str(tmp_path / "crate"), validate=False)["success"] is True
+    assert _nodes(tmp_path / "crate")["#Raw%20data/plate%201.csv"]["localPath"] == (
+        "Raw data/plate 1.csv"
+    )
 
 
 def test_no_condition_table_is_written_for_a_metadata_only_session(tmp_path):

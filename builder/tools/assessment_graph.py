@@ -146,6 +146,17 @@ def node_types(node: dict[str, Any]) -> set[str]:
     return {str(v).split(":")[-1] for v in values if v}
 
 
+def is_payload_file(node: dict[str, Any]) -> bool:
+    """A File a reader of the crate receives: one it carries, or points at on the web.
+
+    To RO-Crate a ``File`` with a local ``#`` identifier is no data entity. It
+    describes a file that is deliberately not present, which is how a crate
+    written without its payload describes each of its files: such a file is
+    described, and it is no data the crate holds.
+    """
+    return "File" in node_types(node) and not str(node.get("@id") or "").startswith("#")
+
+
 def ref_id(value: Any) -> str:
     """The ``@id`` a property points at, whether wrapped or bare."""
     if isinstance(value, dict):
