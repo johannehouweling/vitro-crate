@@ -722,6 +722,9 @@ _COLUMNS_KEYS = ("columns", "column", "http://www.w3.org/ns/csvw#column")
 _VALUEURL_KEYS = ("valueUrl", "http://www.w3.org/ns/csvw#valueUrl")
 _CONFORMSTO_KEYS = ("conformsTo", "http://purl.org/dc/terms/conformsTo")
 _CITATION_KEYS = ("citation", "funder", "publisher")
+# The grant the Root Data Entity names. Its funder is reached through the grant
+# too, but without this edge the grant itself hangs off the funder alone.
+_FUNDING_KEYS = ("funding", "http://schema.org/funding")
 # An entity's identifier PropertyValues (a compound's CAS / PubChem CID / DTXSID,
 # a person's ORCID). The compound DOES reference them — `identifier` is how the
 # link is expressed — so leaving the predicate out of the vocabulary reported 71
@@ -821,6 +824,7 @@ _SECONDARY_RELATIONS: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (_VALUEURL_KEYS, "valueUrl", False),
     (_CONFORMSTO_KEYS, "conformsTo", False),
     (_CITATION_KEYS, "citation", False),
+    (_FUNDING_KEYS, "funding", False),
     (_LICENSE_KEYS, "license", False),
     (_ROLE_KEYS, "jobTitle", False),
     (_MEASTECH_KEYS, "measurementTechnique", False),

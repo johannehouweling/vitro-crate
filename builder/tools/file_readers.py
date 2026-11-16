@@ -1215,6 +1215,72 @@ def extract_deposit_identity(text: str) -> tuple[str | None, str | None] | None:
     return (title or None, accession or None) if title or accession else None
 
 
+# What each convention calls the two facts of a funding statement, and the property
+# the crate states it under. BioStudies gives funding a SECTION of its own, typed
+# ``Funding``, whose attributes name the agency and the grant; DataCite gives it a
+# FIELD, a list of funding references.
+_FUNDING_ATTRIBUTES = {"agency": "funder", "grant_id": "identifier"}
+_FUNDING_FIELDS = {"fundername": "funder", "awardnumber": "identifier"}
+
+
+def extract_deposit_funding(text: str) -> list[dict[str, str]]:
+    """The funding a structured metadata document declares: who paid, under which grant.
+
+    One ``{"funder": <name>, "identifier": <grant number>}`` per statement, in document
+    order, each holding only what was stated: a funder named without a grant number is
+    still a funder. A BioStudies descriptor states it as
+
+    .. code-block:: json
+
+        {"type": "Funding", "attributes": [{"name": "Agency", "value": "EU Horizon 2020"},
+                                           {"name": "Grant_id", "value": "825161"}]}
+
+    and a DataCite record as ``fundingReferences[]`` with ``funderName`` and
+    ``awardNumber``. Both values are kept **verbatim**: "EU Horizon 2020" names a
+    programme, and writing the European Commission in its place would state something
+    the depositor did not (D5).
+
+    A funder given only by reference, as an RO-Crate ``funder`` ``@id`` is, names nobody
+    in the document itself and is not read. Nor is a sentence about funding: only a
+    document whose top level is a mapping is a metadata record.
+    """
+    parsed = _parse_structured(text)
+    if parsed is None:
+        return []
+
+    found: list[dict[str, str]] = []
+
+    def _state(pairs: Any, names: dict[str, str]) -> None:
+        stated: dict[str, str] = {}
+        for name, value in pairs:
+            key = names.get(str(name or "").strip().casefold())
+            if key and isinstance(value, str) and value.strip():
+                stated.setdefault(key, value.strip())
+        if stated and stated not in found:
+            found.append(stated)
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if str(node.get("type") or "").strip().casefold() == "funding":
+                attributes = node.get("attributes")
+                named = [a for a in attributes or [] if isinstance(a, dict)]
+                _state(((a.get("name"), a.get("value")) for a in named), _FUNDING_ATTRIBUTES)
+                return
+            for key, child in node.items():
+                if str(key).strip().casefold() == "fundingreferences":
+                    for reference in child if isinstance(child, list) else []:
+                        if isinstance(reference, dict):
+                            _state(reference.items(), _FUNDING_FIELDS)
+                else:
+                    _walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                _walk(child)
+
+    _walk(parsed)
+    return found
+
+
 def extract_deposit_licence(text: str, *, filename: str = "") -> str | None:
     """The licence a structured metadata document declares (#535).
 
