@@ -317,6 +317,13 @@ Options:
                          stripped — versioned _v2/_v3… so a rebuild never
                          overwrites a previous export. With no --input it is the
                          session working_crate/
+      --metadata-only, --no-metadata-only
+                         Write the crate without its data files, for a deposit
+                         whose data is not public yet. The crate keeps the study,
+                         its steps, materials, people and protocol records, and
+                         the report inside it describes the crate as written.
+                         The output folder must not hold other files. Kept with
+                         the session; --no-metadata-only turns it off
       --dsm-answers PATH
                          YAML answering the FAIRplus DSM indicators no crate can
                          evidence — hosting environment and enterprise

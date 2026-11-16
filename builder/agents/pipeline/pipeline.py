@@ -1374,6 +1374,12 @@ def _populate_condition_tables(engine: AgentEngine) -> dict[str, Any]:
     kept so ``builder/agents/build.py``'s condition-table line and #422's posture
     reporting go on working unchanged.
     """
+    if engine.state.metadata.metadata_only:
+        return {
+            "populated": False,
+            "reason": "the crate is written without files",
+            "per_exposure": [],
+        }
     exposures = [
         e
         for e in engine.state.list_entities("LabProcess")

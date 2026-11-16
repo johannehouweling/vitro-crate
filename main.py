@@ -182,6 +182,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path for the output RO-Crate directory",
     )
     parser.add_argument(
+        "--metadata-only",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Write the crate without its data files, for a deposit whose data is "
+            "not public yet. Kept with the session; --no-metadata-only turns it off"
+        ),
+    )
+    parser.add_argument(
         "--dsm-answers",
         type=str,
         default=None,
@@ -656,6 +665,9 @@ def main(argv: list[str] | None = None) -> int:
 
         engine.state.dsm_answers = load_dsm_answers(args.dsm_answers)
         logger.info("Read %d DSM answers from %s", len(engine.state.dsm_answers), args.dsm_answers)
+
+    if args.metadata_only is not None:
+        engine.state.metadata.metadata_only = args.metadata_only
 
     if args.output:
         engine.state.metadata.output_path = args.output
