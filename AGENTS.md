@@ -1118,7 +1118,8 @@ author's family name + given/initial (affiliation-preferred) — this resolves t
 gold case where citation `Fabian Wagenaars` reuses root `F.M.A. Wagenaars`'s ORCID
 `0000-0003-4766-7358`; **(c)** a public ORCID search
 (`lookups.orcid.lookup_orcid_by_name`, the `/v3.0/expanded-search` endpoint via the
-shared rate-limited HTTP layer); **(d)** fallback to a synthesized
+shared rate-limited HTTP layer; a search that cannot be reached is no answer, so
+the author falls through to (d)); **(d)** fallback to a synthesized
 `#CitationAuthor_<Given>_<Family>` Person (the legacy behavior). **Confidence rule
 for (c):** auto-accept **only** a *single* candidate that is a STRONG match (family
 + full — not initial-only — given name) and that passes name verification;

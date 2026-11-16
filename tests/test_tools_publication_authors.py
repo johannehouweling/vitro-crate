@@ -420,6 +420,34 @@ class TestFallbackAndD5:
         assert person.entity_id == "#CitationAuthor_Fabian_Wagenaars"
         assert not person.fields.get("orcid")
 
+    def test_an_unreachable_orcid_search_still_leaves_the_article_its_authors(self, monkeypatch):
+        """An outage is not an answer: the author is kept as a plain entry, without an ORCID."""
+        from lookups._http import TransientLookupError
+
+        def unreachable(given, family, affiliation=None):
+            raise TransientLookupError("request error for https://pub.orcid.org/v3.0/expanded-search/")
+
+        state = CrateState()
+        _patch(
+            monkeypatch,
+            doi=lambda d: _doi_result(
+                {"givenName": "Fabian", "familyName": "Wagenaars"},
+                {"givenName": "Timo", "familyName": "Hamers"},
+            ),
+            by_name=unreachable,
+            orcid=lambda o: {"found": False, "data": {}, "error": "x"},
+        )
+
+        result = draft_publication_with_authors(state, "10.1234/example")
+
+        assert [a["resolution"] for a in result["authors"]] == ["synthesized", "synthesized"]
+        pub = next(e for e in state.list_entities() if e.type == "Publication")
+        assert _author_ids(state, pub) == {
+            "#CitationAuthor_Fabian_Wagenaars",
+            "#CitationAuthor_Timo_Hamers",
+        }
+        assert not [p for p in _person_nodes(state) if p.fields.get("orcid")]
+
     def test_d5_uncertain_and_human_skip_attaches_no_orcid(self, monkeypatch):
         """Ambiguous candidates + human SKIP => no ORCID, synthesized fallback used."""
         state = CrateState()
