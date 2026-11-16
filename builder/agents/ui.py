@@ -45,7 +45,7 @@ from rich.text import Text
 # A pure helper over three booleans, not a coupling to the engine: the renderers
 # stay unit-testable, and the one rule for what "conforms" means lives in one
 # place rather than being restated at every surface that paints it.
-from builder.state import conformance_by_layer
+from builder.state import DEFAULT_PROFILE, LAYER_LABELS, PROFILE_LAYERS, conformance_by_layer
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -218,6 +218,8 @@ class UiSnapshot:
     isa_passed: bool
     tox_passed: bool
     required_issue_count: int
+    # The layers the crate claims: a layer it does not claim is not shown.
+    layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE]
     entity_counts: dict[str, int] = field(default_factory=dict)
     mit_score: float | None = None
     mit_assessed: bool = False
@@ -393,6 +395,7 @@ def snapshot_from_engine(engine: AgentEngine) -> UiSnapshot:
         isa_passed=val.isa_passed,
         tox_passed=val.tox_passed,
         required_issue_count=len(val.required_issues),
+        layers=state.layers,
         entity_counts=counts,
         mit_score=mit_score,
         mit_assessed=mit_assessed,
@@ -563,19 +566,26 @@ def render_status_markup(snap: UiSnapshot, *, highlight: dict[str, str] | None =
             )
         )
 
-    # Cumulative, never the raw per-pass flags: a layer cannot pass where the
-    # layer it extends fails, and `● base ○ ISA ● Tox` said exactly that.
-    conforms = conformance_by_layer(
-        base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed
+    dots = "  ".join(
+        f"{_dot(ok)} {field(layer, LAYER_LABELS[layer])}" for layer, ok in _conforms(snap).items()
     )
     return (
         f"{field('session', snap.session_id)}  {_SEP}  "
         f"{field('entities', f'{snap.entity_count} entities')}  {_SEP}  "
         f"{field(*_work_field(snap))}  {_SEP}  "
-        f"{_dot(conforms['base'])} {field('base', 'base')}  "
-        f"{_dot(conforms['isa'])} {field('isa', 'ISA')}  "
-        f"{_dot(conforms['tox'])} {field('tox', 'Tox')}"
+        f"{dots}"
         f"{token_str}"
+    )
+
+
+def _conforms(snap: UiSnapshot) -> dict[str, bool]:
+    """Conformance to each layer the crate claims.
+
+    Cumulative, never the raw per-pass flags: a layer cannot pass where the
+    layer it extends fails, and `● base ○ ISA ● Tox` said exactly that.
+    """
+    return conformance_by_layer(
+        base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed, layers=snap.layers
     )
 
 
@@ -752,13 +762,10 @@ def render_resume_summary(snap: UiSnapshot, *, resumed: bool) -> RenderableType:
         mit_text, mit_color = format_mit_coverage(snap.mit_score, assessed=True)
         summary.add_row("MIT score:", f"[{mit_color}]{mit_text}[/{mit_color}]")
 
-    conforms = conformance_by_layer(
-        base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed
-    )
     val_status = [
-        f"[{'green' if conforms[layer] else 'red'}]{label}"
-        f"[/{'green' if conforms[layer] else 'red'}]"
-        for layer, label in (("base", "base"), ("isa", "ISA"), ("tox", "ISA-Tox"))
+        f"[{'green' if ok else 'red'}]{'ISA-Tox' if layer == 'tox' else LAYER_LABELS[layer]}"
+        f"[/{'green' if ok else 'red'}]"
+        for layer, ok in _conforms(snap).items()
     ]
     summary.add_row("Validation:", "  ".join(val_status))
 
@@ -816,13 +823,9 @@ def render_goodbye(
 
         # Only report a tier that actually ran: "0 recommended issues" would
         # otherwise claim a clean bill of health for checks nobody performed.
-        composed = conformance_by_layer(
-            base=snap.base_passed, isa=snap.isa_passed, tox=snap.tox_passed
-        )
         conformance = "  ".join(
-            f"[{'green' if composed[layer] else 'red'}]{label}"
-            f"[/{'green' if composed[layer] else 'red'}]"
-            for layer, label in (("base", "base"), ("isa", "ISA"), ("tox", "Tox"))
+            f"[{'green' if ok else 'red'}]{LAYER_LABELS[layer]}[/{'green' if ok else 'red'}]"
+            for layer, ok in _conforms(snap).items()
         )
         open_counts: list[str] = [
             f"[red]{snap.required_issue_count} required[/red]"

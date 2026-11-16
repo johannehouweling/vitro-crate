@@ -79,6 +79,7 @@ Both modes use the same tools and are maintained in parallel.
 | Explore an existing crate | `uv run python -m main --graph -i path/to/crate` |
 | Override the model for one run | `--model`, `--provider`, `--api-base` |
 | Write a crate without its data files | `--metadata-only` |
+| Build a crate for a study without an exposure | `--profile isa` |
 | Show the configuration | `uv run python -m main --show-config` |
 
 The session identifier is printed at the start and end of each run.

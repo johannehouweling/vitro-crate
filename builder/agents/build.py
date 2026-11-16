@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from builder.agents.llm import ModelOverrides, UsageSink, make_usage_logger
 from builder.agents.progress_spinner import ProgressSpinner
 from builder.config import get_provider
+from builder.state import DEFAULT_PROFILE, PROFILE_LAYERS
 from builder.tools.deposit_structure import (
     check_structure,
     describe_structure,
@@ -702,6 +703,12 @@ def format_unresolved_compounds(pipeline_result: dict[str, Any] | None) -> str |
     )
 
 
+def _layers(conformance: dict[str, Any]) -> list[str]:
+    """The layers a verdict covers, base first; every layer when it covers none."""
+    every = PROFILE_LAYERS[DEFAULT_PROFILE]
+    return [layer for layer in every if layer in conformance] or list(every)
+
+
 def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
     """Render a concise, human-readable summary of a guidance run.
 
@@ -736,7 +743,7 @@ def format_guidance_summary(guidance_result: dict[str, Any] | None) -> str:
         f"  resolved: {len(resolved)} gap(s)",
         f"  asked:    {len(asked)} gap(s)",
         f"  remaining gaps: {must} MUST / {should} SHOULD / {may} MAY",
-        (f"  conformance: base={_mark('base')} isa={_mark('isa')} tox={_mark('tox')}"),
+        "  conformance: " + " ".join(f"{layer}={_mark(layer)}" for layer in _layers(conformance)),
         f"  rounds: {rounds}",
     ]
 
@@ -785,7 +792,7 @@ def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
     lines = [
         "Headless build complete (no interactive guidance):",
         f"  open gaps: {must_open} MUST (SHOULD/MAY not assessed on the fast build)",
-        (f"  conformance: base={_mark('base')} isa={_mark('isa')} tox={_mark('tox')}"),
+        "  conformance: " + " ".join(f"{layer}={_mark(layer)}" for layer in _layers(conformance)),
     ]
 
     # Condition-table posture (#422): the central domain table staying empty used

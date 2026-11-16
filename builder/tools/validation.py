@@ -86,7 +86,7 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
 
     base_passed = True
     isa_passed = True
-    tox_passed = True
+    tox_passed = "tox" in state.layers
 
     def _record(profile: str, severity: str, text: str) -> dict[str, str]:
         # The disk path has no per-issue entity routing; the "[Required] " style
@@ -100,6 +100,8 @@ def validate(state: CrateState, crate_path: str) -> ValidationReport:
 
     for result in results:
         profile_key = _profile_key(result.profile)
+        if profile_key not in state.layers:
+            continue  # a layer the crate does not claim (``metadata.profile``)
         required_issues.extend(result.required_issues)
         issue_records.extend(_record(profile_key, "required", i) for i in result.required_issues)
 
@@ -492,7 +494,9 @@ def _assemble_and_validate(
         include_all_scanned=False,
     )
     metadata_doc = crate.metadata.generate()
-    return metadata_doc, validate_crate_dict(metadata_doc, severity=severity, profile=profile)
+    return metadata_doc, validate_crate_dict(
+        metadata_doc, severity=severity, profile=profile, layers=state.layers
+    )
 
 
 # Properties whose value is a term the crate POINTS AT rather than describes.
@@ -681,18 +685,22 @@ def _findings(
 
 
 def validate_document(
-    metadata_doc: dict[str, Any], severity: str = "required", profile: str = "all"
+    metadata_doc: dict[str, Any],
+    severity: str = "required",
+    profile: str = "all",
+    layers: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Validate an assembled metadata document: the verdict of exactly these statements.
 
     :func:`build_and_validate` answers for a state, and assembles it to do so. A
     caller that changed the crate after assembly holds a document no state
     assembles to, and asks here. The result has the same shape; nothing is
-    remembered, because no state stands behind the answer.
+    remembered, because no state stands behind the answer. *layers* are the
+    layers the crate claims, which ``profile="all"`` then means.
     """
     from profiles.validator import validate_crate_dict
 
-    results = validate_crate_dict(metadata_doc, severity=severity, profile=profile)
+    results = validate_crate_dict(metadata_doc, severity=severity, profile=profile, layers=layers)
     conformance, issues, citations = _findings(metadata_doc, results)
     return _sweep_scoped(conformance, issues, profile, severity, citations)
 
@@ -746,7 +754,7 @@ def build_and_validate(
     # same unchanged state at OPTIONAL.
     memo_key = _sweep_memo_key(state)
     cached = _SWEEP_MEMO.get(memo_key) if memo_key else None
-    if cached is not None and _sweep_covers(cached, profile, severity):
+    if cached is not None and _sweep_covers(cached, profile, severity, state.layers):
         logger.debug(
             "Reusing the (%s, %s) sweep already computed for this state",
             cached[0],
@@ -767,7 +775,9 @@ def build_and_validate(
     conformance, issues, citations = _findings(metadata_doc, results)
 
     if memo_key:
-        _remember_sweep(memo_key, profile, severity, conformance, issues, citations)
+        _remember_sweep(
+            memo_key, profile, severity, conformance, issues, citations, state.layers
+        )
 
     # Keep the original routable tool shape stable. The engine receives the
     # requested severity/profile as call arguments and routes writeback from
@@ -816,20 +826,26 @@ def _gate_covers(have: str, want: str) -> bool:
     return bool(want_tiers) and want_tiers <= have_tiers
 
 
-def _scope_covers(have: str, want: str) -> bool:
+def _scope_covers(
+    have: str, want: str, layers: tuple[str, ...] = _PROFILE_SCOPES["all"]
+) -> bool:
     """Whether a sweep over *have* already ran the passes *want* asks for.
 
-    "all" is base + isa + tox, so it answers any single-profile question by
-    filtering; the single profiles are disjoint and answer only themselves. This
-    is the same containment the severity gate has, in the other dimension — and
-    leaving it out is why a profiled session paid for six consecutive
-    ``profile="base"`` sweeps after an ``profile="all"`` sweep of the identical
-    state: the memo was keyed on the profile, so "all" and "base" looked like
-    unrelated questions and not one of the six could hit.
+    "all" is every layer the crate claims (*layers*), so it answers a
+    single-profile question about one of them by filtering; the single profiles
+    are disjoint and answer only themselves. This is the same containment the
+    severity gate has, in the other dimension — and leaving it out is why a
+    profiled session paid for six consecutive ``profile="base"`` sweeps after an
+    ``profile="all"`` sweep of the identical state: the memo was keyed on the
+    profile, so "all" and "base" looked like unrelated questions and not one of
+    the six could hit. An "all" sweep of an ISA crate ran base and ISA, so it
+    does not answer a question about ISA-Tox.
     """
     if want not in _PROFILE_SCOPES:
         return False  # a typo re-runs rather than matching every cached sweep
-    return have == want or have == "all"
+    ran = layers if have == "all" else _PROFILE_SCOPES.get(have, ())
+    wanted = layers if want == "all" else _PROFILE_SCOPES[want]
+    return set(wanted) <= set(ran)
 
 
 def _remember_sweep(
@@ -839,12 +855,13 @@ def _remember_sweep(
     conformance: dict[str, bool],
     issues: list[dict[str, Any]],
     citations: list[dict[str, Any]],
+    layers: tuple[str, ...] = _PROFILE_SCOPES["all"],
 ) -> None:
     """Record a sweep, keeping the widest (profile, gate) seen for this state."""
     existing = _SWEEP_MEMO.get(key)
     if (
         existing is not None
-        and _scope_covers(existing[0], profile)
+        and _scope_covers(existing[0], profile, layers)
         and _gate_covers(existing[1], severity)
     ):
         return  # what we already hold answers strictly more
@@ -857,9 +874,10 @@ def _sweep_covers(
     cached: tuple[str, str, dict[str, bool], list[dict[str, Any]], list[dict[str, Any]]],
     profile: str,
     severity: str,
+    layers: tuple[str, ...],
 ) -> bool:
     """Whether a cached sweep answers this (profile, severity) question outright."""
-    return _scope_covers(cached[0], profile) and _gate_covers(cached[1], severity)
+    return _scope_covers(cached[0], profile, layers) and _gate_covers(cached[1], severity)
 
 
 def _sweep_scoped(

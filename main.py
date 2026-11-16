@@ -191,6 +191,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--profile",
+        choices=("isa-tox", "isa"),
+        default=None,
+        help=(
+            "The profile the crate claims: isa-tox (the default), or isa for a study "
+            "without an exposure, whose crate is judged on RO-Crate and ISA alone. "
+            "Kept with the session"
+        ),
+    )
+    parser.add_argument(
         "--dsm-answers",
         type=str,
         default=None,
@@ -668,6 +678,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.metadata_only is not None:
         engine.state.metadata.metadata_only = args.metadata_only
+    if args.profile is not None:
+        engine.state.metadata.profile = args.profile
 
     if args.output:
         engine.state.metadata.output_path = args.output

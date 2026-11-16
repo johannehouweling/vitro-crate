@@ -42,6 +42,7 @@ from builder.agents.progress_spinner import ProgressSpinner
 from builder.agents.react.system_prompt import SYSTEM_PROMPT
 from builder.agents.react.tools_spec import TOOL_SPECS, assert_tool_spec_parity
 from builder.engine import AgentEngine
+from builder.state import LAYER_LABELS
 from builder.tools.document_discovery import looks_like_publication
 from builder.tools.hitl import (
     CONVERSATION_FIELD_TYPE,
@@ -874,6 +875,17 @@ def _continuing_line(engine: AgentEngine) -> str:
     return f"· Continuing on my own — {why} · Ctrl+C to step in"
 
 
+def _passes(state: CrateState) -> dict[str, bool]:
+    """What the pass of each layer the crate claims said, base first."""
+    report = state.validation
+    return {layer: bool(getattr(report, f"{layer}_passed")) for layer in state.layers}
+
+
+def _pass_line(state: CrateState) -> str:
+    """Those verdicts as the model and the user are told them: ``base=pass, isa=fail``."""
+    return ", ".join(f"{layer}={'pass' if ok else 'fail'}" for layer, ok in _passes(state).items())
+
+
 def _crate_is_complete(engine: AgentEngine) -> bool:
     """Return True when the crate passes REQUIRED and has nothing left to do.
 
@@ -895,9 +907,7 @@ def _crate_is_complete(engine: AgentEngine) -> bool:
         if not engine.state.list_entities():
             return False
         val = engine.state.validation
-        gates_pass = bool(
-            val.base_passed and val.isa_passed and val.tox_passed and not val.required_issues
-        )
+        gates_pass = all(_passes(engine.state).values()) and not val.required_issues
         if not gates_pass:
             return False
         return not open_items(engine.state, actionable_only=True)
@@ -1955,12 +1965,8 @@ def _format_compact_state_summary(engine: AgentEngine, *, limit: int = 8) -> str
             )
             or "none"
         )
-        validation = engine.state.validation
         status = (
-            f"base={'pass' if validation.base_passed else 'fail'}, "
-            f"isa={'pass' if validation.isa_passed else 'fail'}, "
-            f"tox={'pass' if validation.tox_passed else 'fail'}, "
-            f"required={len(validation.required_issues)}"
+            f"{_pass_line(engine.state)}, required={len(engine.state.validation.required_issues)}"
         )
         return f"[Live state | counts: {count_text} | recent: {recent_text} | validation: {status}]"
     except Exception:  # noqa: BLE001 — context must never break tool execution.
@@ -2337,7 +2343,6 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                                 strikes,
                             )
                         issue_text = _format_validation_issues_summary(engine)
-                        v = engine.state.validation
                         opener = (
                             f"build_and_validate({bv_sig[0]}, {bv_sig[1]}) has already run "
                             "against this exact crate state — no state change since, and "
@@ -2351,9 +2356,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                                 "no state change, so no new result is possible. "
                             )
                         corrective = (
-                            opener + f"Conformance: base={'pass' if v.base_passed else 'fail'}, "
-                            f"isa={'pass' if v.isa_passed else 'fail'}, "
-                            f"tox={'pass' if v.tox_passed else 'fail'}. "
+                            opener + f"Conformance: {_pass_line(engine.state)}. "
                             f"{_validation_tier_counts(engine)} "
                             "Use the existing validation result and address the "
                             "reported issues instead of re-validating."
@@ -3256,7 +3259,14 @@ def _completeness_nudge(state: CrateState) -> str:
             next_action = "build_and_validate then export_crate"
 
     present_str = ", ".join(present) if present else "nothing yet"
-    return f"[Completeness: {present_str}; missing: {', '.join(missing)} → next: {next_action}]"
+    line = f"[Completeness: {present_str}; missing: {', '.join(missing)} → next: {next_action}]"
+    if "tox" not in state.layers:
+        # The depositor said so when the build started (--profile isa).
+        line += (
+            "\n[Profile: ISA. This study exposes nothing: draft no Exposure step and no "
+            "test chemical. Validation covers RO-Crate and ISA.]"
+        )
+    return line
 
 
 def _build_system_prompt_with_state(
@@ -3486,8 +3496,7 @@ def _handback_panel(engine: AgentEngine, *, headline: str, handing_back: bool = 
         top = ", ".join(f"{k} {n}" for k, n in ranked) or "nothing drafted yet"
         v = state.validation
         marks = " ".join(
-            f"{'✓' if ok else '✗'} {name}"
-            for name, ok in (("base", v.base_passed), ("ISA", v.isa_passed), ("Tox", v.tox_passed))
+            f"{'✓' if ok else '✗'} {LAYER_LABELS[layer]}" for layer, ok in _passes(state).items()
         )
         required = len(v.required_issues or [])
         # An unvalidated crate has no known blockers, which is NOT the same as
@@ -4420,9 +4429,7 @@ def run_interactive_agent(
             greeting_prompt = (
                 f"The user has resumed a session with {entity_count} entities and "
                 f"{file_count} scanned files. "
-                f"Validation: base={'pass' if val.base_passed else 'fail'}, "
-                f"ISA={'pass' if val.isa_passed else 'fail'}, "
-                f"Tox={'pass' if val.tox_passed else 'fail'}. "
+                f"Validation: {_pass_line(engine.state)}. "
                 f"{_validation_tier_counts(engine)} "
                 f"Entity breakdown: {counts}. "
                 "Briefly welcome them back and summarise what has been done "
@@ -4475,8 +4482,9 @@ def run_interactive_agent(
                     f"{blocking} block conformance"
                 )
                 lines.append("  • [cyan]fix the required issues[/cyan] — I'll work through them")
-            elif not (val.base_passed and val.isa_passed and val.tox_passed):
-                nxt = "base" if not val.base_passed else "ISA" if not val.isa_passed else "ISA-Tox"
+            elif not all(_passes(engine.state).values()):
+                failing = next(layer for layer, ok in _passes(engine.state).items() if not ok)
+                nxt = "ISA-Tox" if failing == "tox" else LAYER_LABELS[failing]
                 lines.append(f"  • [cyan]validate[/cyan] — {nxt} does not pass yet")
             else:
                 lines.append("  • [cyan]export the crate[/cyan] — all three profiles pass")

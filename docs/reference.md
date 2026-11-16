@@ -324,6 +324,12 @@ Options:
                          the report inside it describes the crate as written.
                          The output folder must not hold other files. Kept with
                          the session; --no-metadata-only turns it off
+      --profile {isa-tox,isa}
+                         The profile the crate claims. isa-tox is the default.
+                         isa is for a study without an exposure: the crate
+                         states the ISA profile alone, is judged on RO-Crate
+                         and ISA, and gets no exposure step. Kept with the
+                         session
       --dsm-answers PATH
                          YAML answering the FAIRplus DSM indicators no crate can
                          evidence — hosting environment and enterprise

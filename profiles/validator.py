@@ -542,6 +542,7 @@ def validate_crate_dict(
     *,
     severity: str = "required",
     profile: str = "all",
+    layers: tuple[str, ...] | None = None,
 ) -> list[DictValidationResult]:
     """Validate an in-memory RO-Crate metadata document — no disk round-trip.
 
@@ -558,6 +559,8 @@ def validate_crate_dict(
         profile: "all" runs the base -> isa -> tox passes; "base"/"isa"/"tox"
             runs a single pass (the tox pass dominates wall-clock, so scoping the
             inner loop is the main speed lever).
+        layers: The layers the crate claims, when that is fewer than all three:
+            "all" then runs those. A pass asked for by name runs either way.
 
     Returns:
         One :class:`DictValidationResult` per pass run, in dependency order.
@@ -571,7 +574,7 @@ def validate_crate_dict(
         )
     gate = _SEVERITY_BY_NAME[severity]
     if profile == "all":
-        passes = ["base", "isa", "tox"]
+        passes = [key for key in ("base", "isa", "tox") if layers is None or key in layers]
     elif profile in _PROFILE_PASSES:
         passes = [profile]
     else:
