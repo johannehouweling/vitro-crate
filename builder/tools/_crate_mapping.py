@@ -728,6 +728,8 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
         consumed = _process_constructor_fields() if entity.type == "LabProcess" else frozenset()
         if node is root and _is_root_contact(root, entity.fields.get("contact"), idx):
             consumed = frozenset({"contact"})  # the sole Investigation's, stated once
+        if entity.type == "Organization" and str(entity.fields.get("addressCountry") or "").strip():
+            consumed = frozenset(_COUNTRY_FIELDS)  # stated once, on its address (_attach_country)
         leftovers = {
             key: value
             for key, value in entity.fields.items()
