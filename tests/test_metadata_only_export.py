@@ -307,6 +307,21 @@ def test_a_local_path_is_the_path_as_it_is_on_disk(tmp_path):
     )
 
 
+def test_a_file_named_like_another_entity_does_not_take_its_place(tmp_path):
+    """A deposit names its files as it likes, and the local identifier of one is taken."""
+    state = _state(tmp_path / "deposit")
+    (tmp_path / "deposit" / "Assay_assay_1").write_text("notes\n", encoding="utf-8")
+    state.add_entity(_ent("notes_1", "File", name="Assay notes", path="Assay_assay_1"))
+    state.metadata.metadata_only = True
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert export_crate(state, str(tmp_path / "crate"), validate=False)["success"] is True
+    nodes = _nodes(tmp_path / "crate")
+    assert nodes["#Assay_assay_1"]["additionalType"] == "Assay"
+    (notes,) = [n for n in nodes.values() if n.get("localPath") == "Assay_assay_1"]
+    assert notes["name"] == "Assay notes" and notes["@id"] in _ids(nodes["./"]["hasPart"])
+
+
 def test_no_condition_table_is_written_for_a_metadata_only_session(tmp_path):
     state = _state(tmp_path / "deposit")
     state.metadata.metadata_only = True
