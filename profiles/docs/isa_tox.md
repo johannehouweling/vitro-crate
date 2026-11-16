@@ -112,10 +112,8 @@ An Investigation MUST include at least one Exposure referenced by one of its Stu
 
 ### Study - Adverse Outcome Pathway
 
-Is based on the [ISA Study](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#study). A study should address one Adverse Outcome Pathway via `schema:mentions`;
-its assays annotate the Key Events ([Assay - Key Event](#assay---key-event)). The reference is the pathway's
-AOP-Wiki IRI, `https://aopwiki.org/aops/<id>`, described as a [DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm).
-The adverse outcome belongs to the pathway on AOP-Wiki and is not named on the Study.
+Is based on the [ISA Study](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#study). A study links the Adverse Outcome Pathway it addresses
+via `schema:mentions`, by its AOP-Wiki IRI `https://aopwiki.org/aops/<id>`.
 
 The following rows are those of the ISA Study, reproduced with the requirement levels this profile assigns.
 `mentions` is introduced by this profile.
@@ -127,7 +125,7 @@ The following rows are those of the ISA Study, reproduced with the requirement l
 |additionalType|MUST|Text or URL|'Study' or ontology term to identify it as a Study.|
 |identifier|MUST|Text or URL|Identifying descriptor of the study.|
 |name|MUST|Text|A title of the study.|
-|mentions|SHOULD|[DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The Adverse Outcome Pathway the study addresses, by its AOP-Wiki IRI.|
+|mentions|SHOULD|URL|The AOP-Wiki IRI of the Adverse Outcome Pathway the study addresses.|
 |about|SHOULD|[bioschemas.org/LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess)|The experimental processes performed in this study.|
 |creator|SHOULD|[schema.org/Person](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#person)|The performer of the study.|
 |dateCreated|SHOULD|DateTime|When the Study was created.|
@@ -145,9 +143,8 @@ identifiers, each identifier is a PropertyValue whose `propertyID` declares the 
 
 ### Assay - Key Event
 
-Is based on the [ISA Assay](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#assay). An assay measures one endpoint and names the Key Event it
-reads out via `schema:mentions`, by its AOP-Wiki IRI `https://aopwiki.org/events/<id>`, described as a
-[DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm). What it measures is named in
+Is based on the [ISA Assay](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#assay). An assay measures one endpoint and links the Key Event it
+reads out via `schema:mentions`, by its AOP-Wiki IRI `https://aopwiki.org/events/<id>`. What it measures is named in
 [BAO](https://bioassayontology.org/) terms through `measurementMethod` and `measurementTechnique`.
 
 The following rows are those of the ISA Assay, reproduced with the requirement levels this profile assigns.
@@ -159,7 +156,7 @@ The following rows are those of the ISA Assay, reproduced with the requirement l
 |@type|MUST|[schema.org/Dataset](https://schema.org/Dataset)|—|
 |additionalType|MUST|Text or URL|'Assay' or ontology term to identify it as an Assay.|
 |identifier|MUST|Text or URL|Identifying descriptor of the assay.|
-|mentions|SHOULD|[DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The Key Event this assay's endpoint reads out, by its AOP-Wiki IRI.|
+|mentions|SHOULD|URL|The AOP-Wiki IRI of the Key Event this assay's endpoint reads out.|
 |name|SHOULD|Text|A title of the assay.|
 |description|SHOULD|Text|A short description of the assay (e.g. an abstract).|
 |about|SHOULD|[bioschemas.org/LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess)|The experimental processes performed in this assay.|
