@@ -2198,7 +2198,7 @@ _CELL_LINE_REFUSED_HINTS: frozenset[str] = frozenset(
 # Fields copied from the `lookup_cell_line` record onto the CellLineSample.
 # Deliberately short — see `_CELL_LINE_DROPPED_FIELDS` for what the record also
 # offers and why each of those stays off the entity.
-_CELL_LINE_DATA_FIELDS: tuple[str, ...] = ("alternateName", "url", "sameAs")
+_CELL_LINE_DATA_FIELDS: tuple[str, ...] = ("alternateName", "url", "sameAs", "taxonomicRange")
 
 # Everything the Cellosaurus record carries that must NOT be persisted, each with
 # the failure it causes. Written out rather than left implicit because every one
@@ -2219,12 +2219,12 @@ _CELL_LINE_DROPPED_FIELDS: tuple[tuple[str, str], ...] = (
         "alternateName; clobbering `name` would rewrite the study's own wording.",
     ),
     (
-        "taxonomicRange",
-        "A DefinedTerm NODE object. _scalar_props emits it inline, producing an "
-        "un-flattened nested entity that fails base conformance. Promoting these "
-        "to real DefinedTerm entities is its own lane.",
+        "disease",
+        "A list of DefinedTerm NODE objects. _scalar_props emits them inline, "
+        "producing un-flattened nested entities that fail base conformance. The "
+        "build writes `taxonomicRange` as a real DefinedTerm entity; these are "
+        "not yet.",
     ),
-    ("disease", "A list of DefinedTerm node objects — same un-flattening failure."),
     ("anatomicalSite", "A DefinedTerm node object — same un-flattening failure."),
     (
         "donorSex",

@@ -1829,19 +1829,31 @@ def _add_leaves(
     for cl in state.list_entities("CellLineSample"):
         sample_type = _source_term(crate, str(cl.fields.get("source_kind")))
         characteristics = _cell_line_characteristics(crate, cl)
-        _idx_add(
-            idx,
-            cl,
-            CellLineSample(
-                crate,
-                identifier=_mint_id(cl),
-                name=str(cl.fields.get("name", "")),
-                sample_type=sample_type,
-                accession=cl.fields.get("accession"),
-                additionalProperty=characteristics or None,
-                properties=_scalar_props(cl, skip=("name", "accession")) or None,
-            ),
+        # The organism a lookup returned is a term: written as its own
+        # DefinedTerm entity and referenced. A species given in words stays a string.
+        organism = cl.fields.get("taxonomicRange")
+        taxon = organism if isinstance(organism, dict) and organism.get("@id") else None
+        node = CellLineSample(
+            crate,
+            identifier=_mint_id(cl),
+            name=str(cl.fields.get("name", "")),
+            sample_type=sample_type,
+            accession=cl.fields.get("accession"),
+            additionalProperty=characteristics or None,
+            properties=_scalar_props(
+                cl, skip=("name", "accession", *(("taxonomicRange",) if taxon else ()))
+            )
+            or None,
         )
+        if taxon:
+            node["taxonomicRange"] = crate.dereference(taxon["@id"]) or crate.add(
+                ContextEntity(
+                    crate,
+                    taxon["@id"],
+                    properties={"@type": "DefinedTerm", "name": taxon.get("name", "")},
+                )
+            )
+        _idx_add(idx, cl, node)
 
     # A Sample's declared lineage is a REFERENCE field, so `_scalar_props` drops
     # it, and nothing wired it afterwards: `derives_from` is a documented `link`

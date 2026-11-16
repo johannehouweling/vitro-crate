@@ -11,7 +11,7 @@
           {"type": "synonym", "value": "HEPG2"}
         ],
         "species-list": [
-          {"label": "Homo sapiens", "iri": "http://purl.obolibrary.org/obo/NCBITaxon_9606"}
+          {"label": "Homo sapiens (Human)", "iri": "http://purl.obolibrary.org/obo/NCBITaxon_9606"}
         ],
         "disease-list": [
           {"label": "Hepatoblastoma", "iri": "http://purl.obolibrary.org/obo/NCIT_C3728"}
