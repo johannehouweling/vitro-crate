@@ -748,7 +748,9 @@ def _export_metadata_only(
         "issue_counts": {},
     }
     try:
-        result = validate_document(crate.metadata.generate(), severity="optional")
+        result = validate_document(
+            crate.metadata.generate(), severity="optional", layers=state.layers
+        )
     except Exception as exc:  # noqa: BLE001 — export must still write the crate
         logger.warning("Export-time validation failed: %s", exc)
         return crate, view, {**info, "error": str(exc)}, left_out

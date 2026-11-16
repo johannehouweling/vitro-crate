@@ -1874,7 +1874,7 @@ def _check_standard_field_metadata(state: CrateState, graph: Graph = None) -> Ve
     *some* field name maps to an ontology, and stricter than DSM-2-C6, which may credit a
     locally declared schema.
 
-    Not evidence: the root always declares ``conformsTo`` both profile IRIs, so "a
+    Not evidence: the root always declares ``conformsTo`` the profiles it claims, so "a
     standard has been adopted" is a constant and cannot be part of the answer.
 
     Reachable by data alone, and measured: every one of the 274 schema-bearing tables on

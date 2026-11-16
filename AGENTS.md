@@ -200,6 +200,9 @@ CrateState {
         # the export writes no data file (a deposit whose data is not public yet);
         # read by `export_crate` alone, so the session keeps its files
         metadata_only: bool,
+        # the profile the crate claims: "isa-tox", or "isa" for a study without an
+        # exposure (D18); decides the root's conformsTo and which layers are judged
+        profile: str,
     },
     # what produced this crate: application, provider, model(s), architecture,
     # and the run's token / cost / duration usage. Captured through an
@@ -303,7 +306,8 @@ perfectly detailed crate that doesn't build at all.
 ### 4.1 Validation Gate Ordering
 
 The three profile passes in `profiles/validator.py` are **independent**: a
-`profile="all"` sweep always runs base, ISA and ISA-Tox, fanned out to a process
+`profile="all"` sweep runs the pass of every layer the crate claims (base, ISA and
+ISA-Tox, or base and ISA for an ISA crate, D18), fanned out to a process
 pool unless `VITRO_VALIDATE_SERIAL=1` forces the serial path. The ordering below
 is a **fix priority for the agent**, not a gate in the validator:
 - **Base RO-Crate 1.2** issues are structural — clearing them is what makes the
@@ -1496,8 +1500,8 @@ a fix to a specific field:
 }
 ```
 
-`conformance` is keyed to the passes actually run: all three layers for
-`profile="all"`, or just the scoped layer when a single `profile` is given.
+`conformance` is keyed to the passes actually run: every layer the crate claims for
+`profile="all"` (D18), or just the scoped layer when a single `profile` is given.
 Whenever the ISA pass runs, `issues` and `conformance["isa"]` also carry
 `verify_isa_reachability`'s findings (`property: None`; §11).
 
@@ -2274,7 +2278,7 @@ reader who cannot see it cannot question it. `set_crate_metadata` tests a value'
 one compact token, no whitespace, no longer than a DOI URL) and warns rather than refusing: the crate carries the
 value as `schema:identifier` whatever its shape, and the tool cannot tell a weak identifier from a
 real one it has never heard of. Then a **KPI grid**: a profile ×
-requirement-level conformance **matrix** (rows the three layers linked to their specs — IRIs pinned
+requirement-level conformance **matrix** (rows the layers the crate claims, D18, linked to their specs — IRIs pinned
 to `_crate_mapping`'s `conformsTo` constants by test — cells ✓/✗/– with counts on `title`; the
 Required column is the report's one headline verdict). A `–` carries two different sentences:
 *not assessed* where the sweep did not reach that tier, and *no checks defined at this level*
@@ -2886,6 +2890,29 @@ array; it does not forbid a node being genuinely two things:
 
 The domain type stays FIRST in every case: it is the specific, meaningful one, and
 the rest are what a generic consumer can follow.
+
+### D18: A crate claims the profile its study can meet
+
+ISA-Tox requires an Investigation to include an Exposure, so a study that exposes
+nothing (culture conditions, the characterisation of a cell model) cannot conform to
+it and must not claim to. `--profile isa` is the depositor saying so:
+`metadata.profile`, kept with the session, `isa-tox` unless stated. The claim decides
+three things, and nothing else decides them:
+
+- **what the crate states**: the root's `conformsTo` lists the ISA profile alone, and
+  the ISA-Tox profile is not described in the crate;
+- **what is judged**: `CrateState.layers` is what `profile="all"` means in every
+  validation call, so the verdict, the gap engine and the fix loop cover RO-Crate and
+  ISA. A pass asked for by name (`profile="tox"`) still runs;
+- **what is shown**: `CrateState.conformance()` reports the claimed layers, and the
+  report's matrix and cards, the TUI, the dashboard, the session status and the build
+  summaries list those layers and no other.
+
+The pipeline lays no Exposure step for such a crate, and the ReAct brief tells the
+agent there is none. The claim is never inferred from the crate: in an ISA-Tox build
+a missing Exposure is a gap the deposit has to answer (#781), and a crate that
+dropped the claim by itself would read as conformant exactly when its evidence is
+thinnest.
 
 ## 12. Project Structure
 
@@ -3703,7 +3730,7 @@ halves into the end-to-end sequence a real user runs. It:
    **iff the engine's `HumanInterface` is interactive**;
 3. surfaces a concise summary of the guidance results
    (`format_guidance_summary` — gaps resolved / asked / remaining per tier, plus
-   final base/isa/tox conformance) via the injected `output` channel (e.g. the
+   final conformance of each claimed layer) via the injected `output` channel (e.g. the
    CLI's `print` / console writer);
 4. **exports the crate to disk LAST** (`export_crate(engine.state)`, #233) — after
    guidance, so the *enriched* crate is what lands — and surfaces the resolved
@@ -3816,7 +3843,7 @@ no LLM / no disk / no network (`tests/test_agents_build.py`).
 is never invoked, so without this the user would never see the build's posture.
 After the pipeline build + export, `run_interactive_build` emits a single,
 **non-blocking** summary line via the `output` channel — `format_gap_summary`
-renders the count of open **MUST** issues plus base/isa/tox conformance.
+renders the count of open **MUST** issues plus the conformance of each claimed layer.
 **It REUSES the validation result the pipeline already computed** (`run_pipeline`
 returns `{conformance, issues, …}` from its required-severity fix loop) rather
 than calling `assess_gaps` afresh: a fresh `assess_gaps` re-runs the heaviest

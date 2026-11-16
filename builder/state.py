@@ -634,6 +634,8 @@ class CrateMetadata:
         input_path: Path to the input directory (if applicable).
         output_path: Path where the crate will be written.
         metadata_only: The export leaves the data files out.
+        profile: The profile the crate claims: ``"isa-tox"``, or ``"isa"`` for a
+            study without an exposure.
     """
 
     title: str | None = None
@@ -671,6 +673,10 @@ class CrateMetadata:
     # is not public yet. Read by ``export_crate`` alone — the session keeps its
     # files, because they are what the metadata is built and judged from.
     metadata_only: bool = False
+    # The profile the crate claims. ISA-Tox requires an Exposure, so a study that
+    # exposes nothing is an ISA crate: the depositor says so, and the root, the
+    # verdict and every report then cover the layers of that claim alone.
+    profile: str = "isa-tox"
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {}
@@ -700,6 +706,8 @@ class CrateMetadata:
             d["exported_at"] = self.exported_at
         if self.metadata_only:
             d["metadata_only"] = True
+        if self.profile != DEFAULT_PROFILE:
+            d["profile"] = self.profile
         return d
 
     @classmethod
@@ -722,6 +730,7 @@ class CrateMetadata:
             output_path=data.get("output_path"),
             exported_at=data.get("exported_at"),
             metadata_only=bool(data.get("metadata_only", False)),
+            profile=str(data.get("profile") or DEFAULT_PROFILE),
         )
 
 
@@ -741,18 +750,35 @@ PROFILE_LAYER_CHAIN: dict[str, tuple[str, ...]] = {
 }
 
 
-def conformance_by_layer(*, base: bool, isa: bool, tox: bool) -> dict[str, bool]:
+# The profile a crate claims, and the layers that claim stands on. A crate claims
+# ISA-Tox unless its depositor says the study has no exposure (``--profile isa``).
+DEFAULT_PROFILE = "isa-tox"
+PROFILE_LAYERS: dict[str, tuple[str, ...]] = {
+    "isa-tox": PROFILE_LAYER_CHAIN["tox"],
+    "isa": PROFILE_LAYER_CHAIN["isa"],
+}
+# How each layer is named where there is room for one word.
+LAYER_LABELS: dict[str, str] = {"base": "base", "isa": "ISA", "tox": "Tox"}
+
+
+def layers_claimed(profile: str | None) -> tuple[str, ...]:
+    """The layers a crate claiming *profile* is judged on, base first."""
+    return PROFILE_LAYERS.get(profile or "", PROFILE_LAYERS[DEFAULT_PROFILE])
+
+
+def conformance_by_layer(
+    *, base: bool, isa: bool, tox: bool, layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE]
+) -> dict[str, bool]:
     """Each layer's conformance, INCLUDING every layer it is adopted on top of.
 
     The arguments are the raw per-pass verdicts — what each layer's own checks
     said. The result is what "this crate conforms to X" actually means, and it
     is monotone by construction: nothing passes where a layer beneath it fails.
+    *layers* are the layers the crate claims; a layer it does not claim is not
+    reported at all, because nothing was asked of it.
     """
     own = {"base": base, "isa": isa, "tox": tox}
-    return {
-        layer: all(own[beneath] for beneath in chain)
-        for layer, chain in PROFILE_LAYER_CHAIN.items()
-    }
+    return {layer: all(own[beneath] for beneath in PROFILE_LAYER_CHAIN[layer]) for layer in layers}
 
 
 @dataclass
@@ -1525,6 +1551,21 @@ class CrateState:
                 info.cost_usd = None
         self.generator = info
         return info
+
+    @property
+    def layers(self) -> tuple[str, ...]:
+        """The profile layers this crate claims, base first."""
+        return layers_claimed(self.metadata.profile)
+
+    def conformance(self) -> dict[str, bool]:
+        """Whether the crate conforms to each layer it claims, as last validated."""
+        report = self.validation
+        return conformance_by_layer(
+            base=report.base_passed,
+            isa=report.isa_passed,
+            tox=report.tox_passed,
+            layers=self.layers,
+        )
 
     def validation_fingerprint(self) -> str:
         """Hash of what ``build_and_validate`` consumes: entities + metadata.

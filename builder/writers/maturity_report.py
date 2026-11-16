@@ -52,7 +52,9 @@ from pathlib import Path
 from typing import Any
 
 from builder.state import (
+    DEFAULT_PROFILE,
     PROFILE_LAYER_CHAIN,
+    PROFILE_LAYERS,
     AIRReport,
     CrateState,
     FAIRReport,
@@ -142,14 +144,17 @@ def _plural_issues(n: int) -> str:
     return f"{n} issue" if n == 1 else f"{n} issues"
 
 
-def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
+def _severity_tiers(
+    val: ValidationReport, layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE]
+) -> list[dict[str, str]]:
     """Profile-adherence severity tiers rendered from existing validation (#306).
 
     Returns one dict per tier: ``{tier, state, summary, note}`` where ``state`` is
     ``"ok"`` | ``"no"`` | ``"na"``.
 
     REQUIRED is the build gate, so it is assessed whenever validation has run; it
-    passes only when all three profiles pass with no REQUIRED issues. The SHOULD
+    passes only when every profile the crate claims (*layers*) passes with no
+    REQUIRED issues. The SHOULD
     and MAY tiers are populated only by a full validation sweep — the fast in-loop
     path stops at REQUIRED and leaves them empty. Emptiness is not the test:
     ``assessed_tiers`` is. A tier the sweep reached and found clean renders a green
@@ -159,14 +164,14 @@ def _severity_tiers(val: ValidationReport) -> list[dict[str, str]]:
     Called only when :func:`_validation_has_signal` is True (otherwise the whole
     section renders the "not yet validated" branch).
     """
-    n_pass = sum((val.base_passed, val.isa_passed, val.tox_passed))
-    req_ok = n_pass == 3 and not val.required_issues
+    n_pass = sum(bool(getattr(val, f"{layer}_passed")) for layer in layers)
+    req_ok = n_pass == len(layers) and not val.required_issues
     tiers: list[dict[str, str]] = [
         {
             "key": "required",
             "tier": "Required",
             "state": "ok" if req_ok else "no",
-            "summary": f"{n_pass} / 3 profiles",
+            "summary": f"{n_pass} / {len(layers)} profiles",
             "note": "",
         }
     ]
@@ -720,10 +725,13 @@ def _profile_tier_counts(val: ValidationReport | None) -> dict[str, dict[str, in
 
 
 def _profile_matrix_tile(
-    val: ValidationReport | None, tiers: list[dict[str, str]] | None, stale: bool
+    val: ValidationReport | None,
+    tiers: list[dict[str, str]] | None,
+    stale: bool,
+    layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE],
 ) -> str:
     """Profile conformance as a profile × requirement-level matrix: rows the
-    three layers (each linked to its spec), columns the severity tiers, cells a
+    layers the crate claims (each linked to its spec), columns the severity tiers, cells a
     mark with the finding count on its ``title``. An unassessed tier — and every
     cell of a stale or never-run verdict — is the neutral mark, never a green.
 
@@ -748,6 +756,8 @@ def _profile_matrix_tile(
         "tox": val.tox_passed if val else False,
     }
     for key, label in _PROFILE_LAYERS:
+        if key not in layers:
+            continue
         chain = PROFILE_LAYER_CHAIN[key]
         cells = ""
         for tier in _TIER_KEYS:
@@ -1087,12 +1097,13 @@ def _render_kpis(
     ceiling: dict[str, Any] | None = None,
     grid: dict[int, dict[str, Any]] | None = None,
     stale: bool = False,
+    layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE],
 ) -> str:
     """The KPI grid: the profile × tier conformance matrix, FAIR maturity, the
     domain-coverage rose (spanning both rows), the graph tile (where the
     entities live, only when a graph was supplied) and the AI-readiness
     profile."""
-    tiles = _profile_matrix_tile(val, tiers, stale)
+    tiles = _profile_matrix_tile(val, tiers, stale, layers)
     tiles += _fair_tile(fair, blockers, ceiling, grid)
     tiles += _mit_rose_tile(mit)
     if residence is not None:
@@ -1382,7 +1393,11 @@ def _backbone_caveat(val: ValidationReport) -> str:
 
 
 def _render_profile_section(
-    val: ValidationReport, tiers: list[dict[str, str]] | None, *, stale: bool = False
+    val: ValidationReport,
+    tiers: list[dict[str, str]] | None,
+    *,
+    stale: bool = False,
+    layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE],
 ) -> str:
     esc = html.escape
     if stale:
@@ -1414,6 +1429,7 @@ def _render_profile_section(
         f"{_mk(_kind(all(passed_by_layer[layer] for layer in PROFILE_LAYER_CHAIN[key])))}"
         f"<span>{esc(name)}</span><em>REQUIRED</em></div>"
         for key, name in _PROFILE_LAYERS
+        if key in layers
     )
     severity_detail = _render_severity_detail(val, tiers)
     # Every finding lives in the severity row it belongs to, so the only thing
@@ -2998,7 +3014,7 @@ def build_maturity_html(
     fair = assess_fair_maturity(state, mit=mit, graph=graph)
     val = validation if validation is not None else state.validation
 
-    tiers = _severity_tiers(val) if _validation_has_signal(val) else None
+    tiers = _severity_tiers(val, state.layers) if _validation_has_signal(val) else None
     # Does the recorded verdict still describe THIS state? `export_crate`
     # re-validates when it does not, so a stale banner here means the report was
     # built directly from a state that outran its last validation.
@@ -3101,8 +3117,9 @@ def build_maturity_html(
         ceiling=dsm_reach,
         grid=dsm_cells,
         stale=stale,
+        layers=state.layers,
     )
-    prof_section = _render_profile_section(val, tiers, stale=stale)
+    prof_section = _render_profile_section(val, tiers, stale=stale, layers=state.layers)
     mit_section = _render_mit_section(mit)
     air_section = _render_air_section(air)
 

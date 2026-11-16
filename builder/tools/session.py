@@ -13,7 +13,7 @@ import os
 import tempfile
 
 import builder.config as _config
-from builder.state import CrateState, conformance_by_layer
+from builder.state import CrateState
 
 logger = logging.getLogger(__name__)
 
@@ -150,11 +150,7 @@ def get_status(state: CrateState) -> dict:
         "total_entities": total_entities,
         "mit_score": state.mit_assessment.overall_score,
         # Cumulative: a layer cannot conform where the layer it extends does not.
-        "validation_status": conformance_by_layer(
-            base=state.validation.base_passed,
-            isa=state.validation.isa_passed,
-            tox=state.validation.tox_passed,
-        ),
+        "validation_status": state.conformance(),
         "iteration_count": state.iteration_count,
         "stuck": state.stuck,
         "last_action": last_action,
@@ -189,11 +185,7 @@ def get_hint(state: CrateState) -> str:
         return "Start by drafting an Investigation"
 
     # Check for validation failures
-    if (
-        not state.validation.base_passed
-        or not state.validation.isa_passed
-        or not state.validation.tox_passed
-    ):
+    if not all(state.conformance().values()):
         if state.validation.required_issues:
             issues = "; ".join(state.validation.required_issues[:3])
             return f"Fix REQUIRED validation issues: {issues}"

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import builder.config as _config
-from builder.state import conformance_by_layer
+from builder.state import LAYER_LABELS, conformance_by_layer, layers_claimed
 
 logger = logging.getLogger(__name__)
 
@@ -380,15 +380,14 @@ def _build_cratestate_panel(
         base=val.get("base_passed", False),
         isa=val.get("isa_passed", False),
         tox=val.get("tox_passed", False),
+        layers=layers_claimed((state.get("metadata") or {}).get("profile")),
     )
-    base_ok, isa_ok, tox_ok = conforms["base"], conforms["isa"], conforms["tox"]
     required_count = len(val.get("required_issues", []))
     val_parts = [
-        f"{'✓' if base_ok else '✗'} Base",
-        f"{'✓' if isa_ok else '✗'} ISA",
-        f"{'✓' if tox_ok else '✗'} Tox",
+        f"{'✓' if ok else '✗'} {LAYER_LABELS[layer][:1].upper()}{LAYER_LABELS[layer][1:]}"
+        for layer, ok in conforms.items()
     ]
-    if base_ok and isa_ok and tox_ok:
+    if all(conforms.values()):
         val_color = OK_STYLE
     elif required_count > 0:
         val_color = ERR_STYLE

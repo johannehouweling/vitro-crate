@@ -1380,34 +1380,23 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     # build_and_validate (#87) + the golden fixtures (#97) stay green — Issue #110.
     crate.metadata["conformsTo"] = {"@id": ROCRATE_SPEC}
 
-    # Profiles the crate TARGETS, declared on ./ unconditionally — the three-layer
-    # (RO-Crate → ISA → ISA-Tox) duck-typing architecture rests on this
-    # declaration and validation should be able to see the profiles a crate claims
-    # (#89, "guidance over strictness"), independent of any prior validation pass;
-    # conformance is reported separately via build_and_validate (#87).
-    for pid in (PROFILE_ISA, PROFILE_ISATOX):
+    # Profiles the crate TARGETS, declared on ./ whatever a validation pass later
+    # says: the three-layer (RO-Crate → ISA → ISA-Tox) duck-typing architecture
+    # rests on this declaration and validation should be able to see the profiles
+    # a crate claims (#89, "guidance over strictness"); conformance is reported
+    # separately via build_and_validate (#87). The claim is the session's
+    # (``metadata.profile``): a study without an exposure claims ISA alone.
+    profiles = {
+        "isa": (PROFILE_ISA, {"name": "ISA RO-Crate Profile"}),
+        "tox": (PROFILE_ISATOX, {"name": "ISA-Tox RO-Crate Profile", "version": "1.0.0"}),
+    }
+    for layer in state.layers:
+        if layer not in profiles:
+            continue
+        pid, described = profiles[layer]
         crate.root_dataset.append_to("conformsTo", {"@id": pid})
-    crate.add(
-        ContextEntity(
-            crate,
-            PROFILE_ISA,
-            properties={
-                "@type": ["CreativeWork", "Profile"],
-                "name": "ISA RO-Crate Profile",
-            },
-        )
-    )
-    crate.add(
-        ContextEntity(
-            crate,
-            PROFILE_ISATOX,
-            properties={
-                "@type": ["CreativeWork", "Profile"],
-                "name": "ISA-Tox RO-Crate Profile",
-                "version": "1.0.0",
-            },
-        )
-    )
+        properties = {"@type": ["CreativeWork", "Profile"], **described}
+        crate.add(ContextEntity(crate, pid, properties=properties))
 
 
 # CellLineSample fields promoted to schema:additionalProperty Characteristic

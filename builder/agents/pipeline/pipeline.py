@@ -67,6 +67,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from builder.agents.llm import ModelOverrides, UsageSink, _as_int
 from builder.agents.llm import make_usage_logger as _make_usage_logger
 from builder.config import get_provider
+from builder.state import DEFAULT_PROFILE, PROFILE_LAYERS
 from builder.tools.composites import prefetch_compound_lookups
 from builder.tools.document_discovery import (
     DocumentationCandidate,
@@ -972,9 +973,13 @@ _STANDARD_CHAIN: tuple[dict[str, str], ...] = (
 
 def _merge_plan_chain_names(
     plan: dict[str, Any] | None,
+    layers: tuple[str, ...] = PROFILE_LAYERS[DEFAULT_PROFILE],
 ) -> list[dict[str, Any]]:
     """Build the chain spec: the standard 4 steps, overlaid with plan step names
     and the experimental parameters the plan states (#379).
+
+    A crate that does not claim ISA-Tox (*layers* without ``"tox"``) is of a
+    study that exposes nothing, so its chain has no Exposure step.
 
     Always returns the full canonical chain (so the no-provider crate is never
     hollow), but when *plan* carries a ``process_chain`` each plan step's ``name``
@@ -1028,6 +1033,8 @@ def _merge_plan_chain_names(
     chain: list[dict[str, Any]] = []
     for std in _STANDARD_CHAIN:
         ptype = std["process_type"]
+        if ptype == "Exposure" and "tox" not in layers:
+            continue
         hints: dict[str, Any] = {"name": plan_names.get(ptype, std["name"])}
         hints.update(plan_parameters.get(ptype, {}))
         chain.append({"process_type": ptype, "hints": hints})
@@ -1053,7 +1060,7 @@ def _draft_standard_chain(
         logger.warning("The crate has no assay yet, so its process steps were not built.")
         return 0, []
 
-    chain = _merge_plan_chain_names(plan)
+    chain = _merge_plan_chain_names(plan, engine.state.layers)
     try:
         chain_result = engine.run_tool("draft_process_chain", assay_id=assay_id, chain=chain)
     except Exception as exc:  # noqa: BLE001 - a chain failure must not break the spine
@@ -1063,7 +1070,7 @@ def _draft_standard_chain(
     process_ids = list(chain_result.get("process_ids") or [])
     logger.info(
         "Process steps built for the assay: %s.",
-        " → ".join(s["process_type"] for s in _STANDARD_CHAIN),
+        " → ".join(step["process_type"] for step in chain),
     )
     return len(process_ids), list(chain_result.get("steps") or [])
 
