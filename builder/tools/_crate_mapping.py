@@ -307,6 +307,7 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "name": "Organization name (passed as the `name` argument).",
             "ror": "ROR id (resolves the entity @id when present).",
             "url": "Organization website URL.",
+            "addressCountry": "Country, as an ISO 3166-1 alpha-2 code (e.g. NL).",
         },
     ),
     "Publication": EntityDraftSchema(
@@ -1497,6 +1498,33 @@ def _attach_contact_point(crate: ROCrate, node: Any, entity: Entity) -> None:
     node.append_to("contactPoint", contact)
 
 
+# An Organization's country: the ISO code and the name it is printed under. Held
+# back from the node's scalar properties and re-emitted as a PostalAddress.
+_COUNTRY_FIELDS: tuple[str, ...] = ("addressCountry", "countryName")
+
+
+def _attach_country(crate: ROCrate, node: Any, org: Entity) -> None:
+    """Emit an Organization's country as a PostalAddress, referenced from *node*.
+
+    schema.org puts ``addressCountry`` on a PostalAddress. The address states the
+    country and nothing else, so organizations in one country share one node.
+    """
+    country = str(org.fields.get("addressCountry") or "").strip()
+    if not country:
+        return
+    node["address"] = crate.add(
+        ContextEntity(
+            crate,
+            f"#address_{_slug(country)}",
+            properties={
+                "@type": "PostalAddress",
+                "name": str(org.fields.get("countryName") or country),
+                "addressCountry": country,
+            },
+        )
+    )
+
+
 def _source_term(crate: ROCrate, kind: str) -> ContextEntity:
     """A test-system source's shared, resolvable sampleType DefinedTerm, which types
     it (D16) — one node per kind, referenced by every source of that kind."""
@@ -1618,10 +1646,14 @@ def _add_leaves(
             ContextEntity(
                 crate,
                 _mint_id(org),
-                properties={"@type": "Organization", **_scalar_props(org, skip=_CONTACT_FIELDS)},
+                properties={
+                    "@type": "Organization",
+                    **_scalar_props(org, skip=(*_CONTACT_FIELDS, *_COUNTRY_FIELDS)),
+                },
             )
         )
         _attach_contact_point(crate, org_node, org)
+        _attach_country(crate, org_node, org)
         _idx_add(idx, org, org_node)
 
     for person in state.list_entities("Person"):

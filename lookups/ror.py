@@ -37,13 +37,20 @@ def _extract(record: dict, fallback_name: str = "") -> dict:
         "",
     )
     url = website or (links[0] if links and isinstance(links[0], str) else "")
-    return {
+    out = {
         "@id": ror_id,
         "@type": "Organization",
         "name": org_name,
         "url": url,
         "identifier": ror_id,
     }
+    # The country of the first location ROR lists: its ISO 3166-1 alpha-2 code
+    # and the name ROR prints for it.
+    place = (record.get("locations") or [{}])[0].get("geonames_details") or {}
+    if place.get("country_code"):
+        out["addressCountry"] = place["country_code"]
+        out["countryName"] = place.get("country_name") or place["country_code"]
+    return out
 
 
 @functools.lru_cache(maxsize=256)
@@ -84,7 +91,8 @@ def search_ror(name: str) -> dict:
         name: organization name, e.g. "Maastricht University"
 
     Returns:
-        dict with keys: @id (ROR URL), @type, name, url.
+        dict with keys: @id (ROR URL), @type, name, url, and, when ROR lists a
+        location, addressCountry (the ISO country code) and countryName.
         Returns {} on no match. Raises TransientLookupError on a transient API
         failure (timeout / connection / 429 / 5xx).
     """

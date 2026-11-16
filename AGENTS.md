@@ -1886,7 +1886,8 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
   `lookup_unit` (UO units), and `lookup_ontology_term` for any OLS-hosted
   vocabulary (EFO/OBI/NCIT/UBERON/ChEBI/…).
 - **ORCID**: ORCID iD → name, affiliation, affiliation ROR
-- **ROR**: Organization name → ROR ID, website URL
+- **ROR**: Organization name → ROR ID, website URL, country. The build writes the
+  country as a `PostalAddress` the Organization's `address` references, one per country
 - **Crossref**: DOI → title, authors, journal, year
 
 ### Multi-Strategy Lookups

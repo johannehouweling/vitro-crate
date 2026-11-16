@@ -1263,14 +1263,16 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
             if ror_value and not org.fields.get("ror"):
                 patch["ror"] = ror_value
             known_ror = ror_value or str(org.fields.get("ror") or "")
-            if known_ror and not org.fields.get("url"):
-                patch.update(_ror_website(known_ror))
+            if known_ror:
+                patch.update(
+                    {k: v for k, v in _ror_facts(known_ror).items() if not org.fields.get(k)}
+                )
             if patch:
                 org.set_fields_from_dict(patch, source="lookup")
             return org.entity_id
     hints: dict[str, Any] = {"ror": ror_value} if ror_value else {}
     if ror_value:
-        hints.update(_ror_website(ror_value))
+        hints.update(_ror_facts(ror_value))
     org = draft_organization(state, name, hints)
     return org.entity_id
 
@@ -1355,24 +1357,25 @@ def _same_institution(ror_name: str, printed: str) -> bool:
     return bool(left) and bool(right) and left == right
 
 
-def _ror_website(ror_id: str) -> dict[str, str]:
-    """``{"url": ...}`` for a known ROR id, or ``{}`` — never raises.
+def _ror_facts(ror_id: str) -> dict[str, str]:
+    """The website and country ROR states for a known id — never raises.
 
-    ROR states the organization's website on the record the id already names, so
-    the profile's "organization SHOULD have a URL" is answerable from a registry
-    rather than from a human. This is an exact by-id fetch, not a name search:
-    the id is already established (ORCID's employment record, or a human), so no
-    guess is involved and D5 holds.
+    ROR states the organization's website and country on the record the id
+    already names, so the profile's "organization SHOULD have a URL" is
+    answerable from a registry rather than from a human. This is an exact by-id
+    fetch, not a name search: the id is already established (ORCID's employment
+    record, or a human), so no guess is involved and D5 holds.
 
     Failure is silent by design. An organization without a website is a
     recommendation-level finding; an author cascade that dies because ROR is
     briefly down is a broken build.
     """
     try:
-        return {"url": url} if (url := (fetch_ror_by_id(ror_id) or {}).get("url")) else {}
+        record = fetch_ror_by_id(ror_id) or {}
     except Exception:
-        logger.debug("ROR website lookup failed for %s", ror_id, exc_info=True)
+        logger.debug("ROR lookup failed for %s", ror_id, exc_info=True)
         return {}
+    return {k: record[k] for k in ("url", "addressCountry", "countryName") if record.get(k)}
 
 
 def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entity:

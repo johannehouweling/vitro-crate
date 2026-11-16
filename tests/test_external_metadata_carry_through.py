@@ -452,6 +452,76 @@ class TestOrganizationsCarryTheirWebsite:
         node = next(n for n in _doc(state)["@graph"] if n.get("@type") == "Organization")
         assert node["url"] == "https://www.uu.nl"
 
+    def test_a_known_ror_brings_the_country(self, monkeypatch):
+        monkeypatch.setattr(
+            "builder.tools.composites.fetch_ror_by_id",
+            lambda rid: {
+                "url": "https://www.uu.nl",
+                "addressCountry": "NL",
+                "countryName": "The Netherlands",
+            },
+        )
+        state = CrateState()
+        org_id = _find_or_draft_organization(
+            state, "Utrecht University", "https://ror.org/04pp8hn57"
+        )
+        assert org_id is not None
+        org = state.get_entity(org_id)
+        assert org is not None
+        assert org.fields["addressCountry"] == "NL"
+        assert org.fields["countryName"] == "The Netherlands"
+
+    def test_a_late_ror_backfills_the_country(self, monkeypatch):
+        monkeypatch.setattr(
+            "builder.tools.composites.fetch_ror_by_id",
+            lambda rid: {"url": "https://vu.nl/", "addressCountry": "NL"},
+        )
+        state = CrateState()
+        _add(
+            state,
+            "org_vu",
+            "Organization",
+            name="Vrije Universiteit Amsterdam",
+            url="https://vu.nl/",
+        )
+        org_id = _find_or_draft_organization(
+            state, "Vrije Universiteit Amsterdam", "https://ror.org/008xxew50"
+        )
+        assert org_id == "org_vu"
+        org = state.get_entity("org_vu")
+        assert org is not None
+        assert org.fields["addressCountry"] == "NL"
+
+    def test_the_country_reaches_the_crate_as_an_address(self):
+        """schema.org puts ``addressCountry`` on a PostalAddress, not an Organization."""
+        state = CrateState()
+        _add(
+            state,
+            "org_uu",
+            "Organization",
+            name="Utrecht University",
+            addressCountry="NL",
+            countryName="The Netherlands",
+        )
+        doc = _doc(state)
+        org = next(n for n in doc["@graph"] if n.get("@type") == "Organization")
+        assert "addressCountry" not in org
+        assert "countryName" not in org
+        address = _node(doc, org["address"]["@id"])
+        assert address == {
+            "@id": org["address"]["@id"],
+            "@type": "PostalAddress",
+            "name": "The Netherlands",
+            "addressCountry": "NL",
+        }
+
+    def test_two_organizations_in_one_country_share_the_address(self):
+        state = CrateState()
+        _add(state, "org_uu", "Organization", name="Utrecht University", addressCountry="NL")
+        _add(state, "org_vu", "Organization", name="Vrije Universiteit", addressCountry="NL")
+        doc = _doc(state)
+        assert len([n for n in doc["@graph"] if n.get("@type") == "PostalAddress"]) == 1
+
     def test_a_ror_outage_never_breaks_the_cascade(self, monkeypatch):
         """A missing website is a recommendation; a failed build is not."""
 

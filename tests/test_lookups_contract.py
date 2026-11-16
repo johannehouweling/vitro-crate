@@ -1063,6 +1063,8 @@ class TestRORContract:
         assert result["name"] == "Maastricht University"
         assert result["url"] == "https://www.maastrichtuniversity.nl"
         assert result["identifier"] == "https://ror.org/02jz4aj89"
+        assert result["addressCountry"] == "NL"
+        assert result["countryName"] == "The Netherlands"
 
     @responses.activate
     def test_no_results_returns_empty(self):
