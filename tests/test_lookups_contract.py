@@ -23,7 +23,7 @@ from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop
 from lookups.bao import lookup_bao_term, lookup_ontology_term, lookup_unit
 from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
-from lookups.compoundwiki import lookup_compound_wiki
+from lookups.compoundwiki import compound_wiki_id, lookup_compound_wiki
 from lookups.comptox import lookup_dtxsid
 from lookups.crossref import lookup_doi, search_works_by_title
 from lookups.orcid import lookup_orcid
@@ -52,6 +52,7 @@ def _clear_caches():
     lookup_ontology_term.cache_clear()
     lookup_dtxsid.cache_clear()
     lookup_compound_wiki.cache_clear()
+    compound_wiki_id.cache_clear()
     lookup_orcid.cache_clear()
     search_ror.cache_clear()
     lookup_doi.cache_clear()
@@ -1290,6 +1291,39 @@ class TestCompoundWiki:
         assert got["cas"] == "58-08-2"
         assert got["pubchem_cid"] == "2519"
         assert got["dtxcid"] == "DTXCID40232"
+
+    _BY_INCHIKEY = {
+        "action": "query",
+        "list": "search",
+        "srnamespace": "120",
+        "srsearch": "haswbstatement:P10=RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+        "srlimit": "2",
+        "format": "json",
+    }
+
+    @responses.activate
+    def test_an_inchikey_finds_the_item_that_states_it(self):
+        """An exact statement search, so the id is the wiki's answer, not a guess."""
+        responses.add(
+            responses.GET,
+            "https://compoundcloud.wikibase.cloud/w/api.php",
+            json=_load("compoundwiki_inchikey_caffeine.json"),
+            match=[matchers.query_param_matcher(self._BY_INCHIKEY)],
+        )
+        assert compound_wiki_id("RYYVLZVUVIJVGH-UHFFFAOYSA-N") == "Q2026"
+
+    @responses.activate
+    def test_two_items_stating_one_inchikey_name_neither(self):
+        hit = _load("compoundwiki_inchikey_caffeine.json")
+        hit["query"]["search"].append({"ns": 120, "title": "Item:Q9999"})
+        responses.add(
+            responses.GET, "https://compoundcloud.wikibase.cloud/w/api.php", json=hit
+        )
+        assert compound_wiki_id("RYYVLZVUVIJVGH-UHFFFAOYSA-N") == ""
+
+    @responses.activate
+    def test_no_inchikey_asks_nothing(self):
+        assert compound_wiki_id("") == ""
 
     @responses.activate
     def test_the_formula_is_normalised_to_ascii(self):

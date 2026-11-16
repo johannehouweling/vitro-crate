@@ -1,0 +1,19 @@
+{
+    "batchcomplete": "",
+    "query": {
+        "searchinfo": {
+            "totalhits": 1
+        },
+        "search": [
+            {
+                "ns": 120,
+                "title": "Item:Q2026",
+                "pageid": 2002,
+                "size": 18860,
+                "wordcount": 3,
+                "snippet": "Caffeine\nchemical compound",
+                "timestamp": "2026-07-04T12:35:48Z"
+            }
+        ]
+    }
+}

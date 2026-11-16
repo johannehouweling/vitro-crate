@@ -106,3 +106,39 @@ def lookup_compound_wiki(name: str) -> dict:
         raise
     except Exception:
         return {}
+
+
+@functools.lru_cache(maxsize=512)
+def compound_wiki_id(inchikey: str) -> str:
+    """The ``Q`` id of the one item that states *inchikey*, or "".
+
+    An exact statement search (``haswbstatement``) over the item namespace, so
+    the id is the wiki's own answer for that structure and never a name match.
+    Two items stating one InChIKey name neither. Raises TransientLookupError on
+    a transient API failure.
+    """
+    key = (inchikey or "").strip()
+    if not key:
+        return ""
+    try:
+        found = http_get_json(
+            _SEARCH,
+            params={
+                "action": "query",
+                "list": "search",
+                "srnamespace": 120,  # Item:
+                "srsearch": f"haswbstatement:{_CLAIMS['inchikey']}={key}",
+                "srlimit": 2,
+                "format": "json",
+            },
+        )
+        if found is NOT_FOUND:
+            return ""
+        hits = ((found or {}).get("query") or {}).get("search") or []
+        if len(hits) != 1:
+            return ""
+        return str(hits[0].get("title") or "").removeprefix("Item:")
+    except TransientLookupError:
+        raise
+    except Exception:
+        return ""
