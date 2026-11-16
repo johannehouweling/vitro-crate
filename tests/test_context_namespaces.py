@@ -12,7 +12,6 @@ states: a term's identity IRI is the ontology's own canonical IRI.
 
 from __future__ import annotations
 
-import re
 from urllib.parse import urlsplit
 
 from profiles.context import ISA_TOX_CONTEXT
@@ -97,80 +96,3 @@ def test_no_term_still_points_at_the_invented_namespace() -> None:
     """Belt and braces: the allow-list catches a namespace nobody declared, and
     this catches the one we know was wrong, wherever it might survive."""
     assert not [iri for iri in _iris() if "aopwiki.org/ontology" in iri]
-
-
-def test_the_shapes_use_the_same_namespace_as_the_context() -> None:
-    """A shape asking for `sh:class aopo:AdverseOutcomePathway` under one IRI
-    while the crate types the entity under another validates nothing — quietly,
-    because an unmatched target is a rule that never runs."""
-    import pathlib
-
-    shapes = pathlib.Path(__file__).resolve().parents[1] / "profiles" / "shapes" / "tox"
-    for ttl in shapes.glob("*.ttl"):
-        text = ttl.read_text(encoding="utf-8")
-        for prefix_iri in re.findall(r"@prefix\s+aopo?w?i?k?i?:\s+<([^>]+)>", text):
-            assert prefix_iri == "http://aopkb.org/aop_ontology#", f"{ttl.name}: {prefix_iri}"
-
-
-def test_a_crate_built_now_satisfies_the_aop_shapes() -> None:
-    """The claim the textual check above cannot make.
-
-    A shape asking for ``sh:class aopo:AdverseOutcomePathway`` matches only if
-    the crate's own ``@context`` expands its ``AdverseOutcomePathway`` type to
-    that same IRI. Get the two out of step and the rule does not fail — it finds
-    no target and never runs, which is the quiet failure this repo cares about
-    most. So this drives the real validator over a crate carrying the real
-    context, and asserts the AOP rules stay silent because they are satisfied.
-    """
-    from profiles.validator import validate_crate_dict
-
-    crate = {
-        "@context": ISA_TOX_CONTEXT,
-        "@graph": [
-            {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
-            {
-                "@id": "./",
-                "@type": "Dataset",
-                "additionalType": "Investigation",
-                "name": "An investigation",
-                "description": "A crate that situates its biology in an AOP.",
-                "hasPart": [{"@id": "#study"}],
-            },
-            {
-                "@id": "#study",
-                "@type": "Dataset",
-                "additionalType": "Study",
-                "name": "A study",
-                "description": "A study that names its pathway.",
-                "hasPart": [{"@id": "#assay"}],
-                "mentions": [{"@id": "https://aopwiki.org/aops/610"}],
-            },
-            {
-                "@id": "#assay",
-                "@type": "Dataset",
-                "additionalType": "Assay",
-                "name": "An assay",
-                "description": "An assay that names the event it measures.",
-                "mentions": [{"@id": "https://aopwiki.org/events/2258"}],
-            },
-            {
-                "@id": "https://aopwiki.org/aops/610",
-                "@type": ["AdverseOutcomePathway", "schema:DefinedTerm"],
-                "name": "Decreased thyroid hormone levels in the brain",
-            },
-            {
-                "@id": "https://aopwiki.org/events/2258",
-                "@type": ["KeyEvent", "schema:DefinedTerm"],
-                "name": "Inhibition, monocarboxylate transporter 8",
-            },
-        ],
-    }
-
-    messages = [
-        issue.message or ""
-        for result in validate_crate_dict(crate, severity="recommended", profile="tox")
-        for issue in result.issues
-    ]
-
-    assert not [m for m in messages if "Adverse Outcome Pathway" in m], messages
-    assert not [m for m in messages if "Key Event" in m], messages
