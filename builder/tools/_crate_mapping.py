@@ -235,6 +235,18 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             ),
             "taxonomicRange": "Species the cells come from, e.g. 'Homo sapiens'.",
             "cell_type": "Cell type, e.g. 'hepatocyte'.",
+            "organ": "Organ the cells come from, e.g. 'liver'.",
+            "tissue": "Tissue the cells come from, e.g. 'epithelium'.",
+            "passage": "Passage number the cells were used at.",
+            "growth": "Growth or culture conditions, e.g. 'adherent'.",
+            "supplier": "Who supplied the cells, e.g. 'ATCC'.",
+            "catalogue_number": "The supplier's catalogue number, as the documents state it.",
+            "lot_number": "The supplier's lot number, as the documents state it.",
+            "donor_code": "Primary cells: the code the documents give the donor.",
+            "number_of_donors": "Primary cells: how many donors the cells come from.",
+            "donor_age": "Primary cells: the donor's age as a reported band, never a birth date.",
+            "donor_health_status": "Primary cells: the donor's health status.",
+            "sex": "Primary cells: the biological sex of the donor.",
         },
     ),
     "LabProcess": EntityDraftSchema(
@@ -730,6 +742,10 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
             consumed = frozenset({"contact"})  # the sole Investigation's, stated once
         if entity.type == "Organization" and str(entity.fields.get("addressCountry") or "").strip():
             consumed = frozenset(_COUNTRY_FIELDS)  # stated once, on its address (_attach_country)
+        if entity.type == "CellLineSample":
+            # Stated once, as characteristics. Scoped to the source of cells: a
+            # chemical's supplier and lot number are no characteristic of cells.
+            consumed = frozenset(a for c in _CELL_LINE_CHARACTERISTICS for a in c.aliases)
         leftovers = {
             key: value
             for key, value in entity.fields.items()
@@ -1434,20 +1450,29 @@ _CELL_LINE_CHARACTERISTICS: tuple[_Characteristic, ...] = (
     _Characteristic(("organ",), "Organ", iri("UBERON:0000062")),
     _Characteristic(("tissue",), "Tissue", iri("UBERON:0000479")),
     _Characteristic(("cell_type",), "cell type", iri("EFO:0000324")),
+    # Commercially sourced material, then the donor of primary cells: the names and
+    # terms the specification lists for source cells, which a test holds these to.
+    _Characteristic(("supplier",), "supplier", iri("NCIT:C90473")),
+    _Characteristic(("catalogue_number", "catalog_number"), "catalogue number", iri("NCIT:C99286")),
+    _Characteristic(("lot_number",), "lot number", iri("NCIT:C70848")),
+    _Characteristic(("donor_code",), "donor code", None),
+    _Characteristic(("number_of_donors",), "number of donors", None),
+    _Characteristic(("donor_age",), "donor age", iri("EFO:0000246")),
+    _Characteristic(("donor_health_status",), "donor health status", None),
 )
-# NB: the field names above (passage/growth/organ/tissue/cell_type) are also listed in
-# _STRUCT_FIELDS so _scalar_props strips them from the Sample node — they round-trip
-# only as additionalProperty PropertyValue characteristics, never as raw literals.
+# NB: passage/growth/organ/tissue/cell_type are also listed in _STRUCT_FIELDS, so
+# _scalar_props strips them from every node. The others are held back for a source
+# of cells alone (_preserve_unowned_fields): a chemical has a supplier and a lot too.
 
 
 def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
     """Build CharacteristicValue (PropertyValue) nodes for a CellLineSample.
 
-    Promotes recognised culture-characteristic fields (``passage``, ``growth``,
-    ``organ``, ``tissue``, ``cell_type``) to ISA Sample Characteristics — schema:additionalProperty
-    PropertyValue nodes carrying the value and, when known, the property's ontology
-    IRI as ``propertyID``. Returns an empty list when none are present (D5: a field
-    that is absent is never fabricated).
+    Promotes each field :data:`_CELL_LINE_CHARACTERISTICS` names to an ISA Sample
+    Characteristic — a schema:additionalProperty PropertyValue carrying the value
+    and, when known, the property's ontology IRI as ``propertyID``. Returns an
+    empty list when none are present (D5: a field that is absent is never
+    fabricated).
     """
     out: list[Any] = []
     for char in _CELL_LINE_CHARACTERISTICS:

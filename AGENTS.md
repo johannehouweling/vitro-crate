@@ -1165,7 +1165,14 @@ ISA Sample Characteristics — `schema:additionalProperty` PropertyValue nodes
 carrying the value and, when known, the property's ontology IRI (`organ` / `tissue`
 mirror the gold crate's `Organ` / `Tissue` characteristics with the ISA-Tox
 `param/{organ,tissue}` `propertyID`, Issue #180; `cell_type` carries EFO:0000324
-"cell type", which the primary-cell shape asks for). A `LabProcess`'s
+"cell type", which the primary-cell shape asks for). So are the `supplier`,
+`catalogue_number` and `lot_number` of commercially sourced cells and the `donor_code`,
+`number_of_donors`, `donor_age` and `donor_health_status` of primary cells: the builder
+writes exactly the characteristics the specification lists for source cells, under its
+names and terms, and a test holds the two lists to each other. They are characteristics of
+a source of cells only: the same field on a chemical stays that chemical's own. Donor
+`sex` is the BioSample's own property. The hint schema names every one of them, which is
+how the agent and the pipeline's drafter learn that a source can state it. A `LabProcess`'s
 `additionalProperty` field is likewise resolved to its in-state PropertyValue
 reference(s) at build time (gold `#report_analysis` → `[#pv_repro_score]`) — only
 PropertyValues already present in state (or bare IRIs) are wired; a score is never
