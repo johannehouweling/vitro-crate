@@ -39,11 +39,14 @@ _ISA_SHAPES = Path(DEFAULT_PROFILES_PATH) / "isa-ro-crate"
 _TOX = Namespace("https://w3id.org/ro/crate/isa-tox/1.0/")
 _ISA = Namespace("https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/")
 _BIOSCHEMAS = Namespace("https://bioschemas.org/")
+_RO_CRATE = Namespace("https://github.com/crs4/rocrate-validator/profiles/ro-crate/")
 
 # Spec section title -> the ISA (or Bioschemas) class whose rows the section
-# inherits. The profile mints no classes of its own, so the rows a section adds
-# come from the shapes listed for it in _SECTION_SHAPES.
+# inherits; for the Investigation, the root class the ISA shapes target. The
+# profile mints no classes of its own, so the rows a section adds come from the
+# shapes listed for it in _SECTION_SHAPES.
 _SECTION_CLASSES: dict[str, URIRef] = {
+    "Investigation": _RO_CRATE.RootDataEntity,
     "MolecularEntity - Test and Control Chemicals": _BIOSCHEMAS.MolecularEntity,
     "Sample - Source Cells": _ISA.Sample,
     "Source Cells - Cell Line": _ISA.Sample,
@@ -65,6 +68,7 @@ _SECTION_CLASSES: dict[str, URIRef] = {
 # test_every_data_targeted_shape_belongs_to_a_section keeps this list complete.
 _EVERY_STEP = ("LabProcessExecutesAProtocol", "LabProcessExecutesOneProtocol")
 _SECTION_SHAPES: dict[str, set[str]] = {
+    "Investigation": {"InvestigationMustHaveDescriptors"},
     "Study - Adverse Outcome Pathway": {"StudyShouldReferenceAOP"},
     "Assay - Key Event": {"AssayShouldReferenceKeyEvent"},
     "Sample - Source Cells": {"CellLineSampleMustHaveSampleType"},
@@ -99,12 +103,10 @@ _SECTION_SHAPES: dict[str, set[str]] = {
     },
 }
 # Data-targeted shapes whose requirements the spec states in an "Expected ...
-# items" table rather than a section's property table, and the root's descriptors,
-# for which the spec has no table.
+# items" table rather than a section's property table.
 _NOT_IN_A_SECTION_TABLE = {
     "DOIPropertyValueMustHaveOBIPropertyID",
     "PubMedIDPropertyValueMustHaveOBIPropertyID",
-    "InvestigationMustHaveDescriptors",
 }
 
 # A step's parameters are written under `parameterValue` (the ISA predicate) and
