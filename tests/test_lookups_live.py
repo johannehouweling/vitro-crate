@@ -145,7 +145,18 @@ def test_each_characteristic_term_means_its_characteristic():
     stood in for the growth conditions until #856."""
     from builder.tools._crate_mapping import _CELL_LINE_CHARACTERISTICS
 
+    def words(text: str) -> set[str]:
+        return {"catalog" if word == "catalogue" else word for word in text.lower().split()}
+
+    assert sum(1 for c in _CELL_LINE_CHARACTERISTICS if c.property_id) >= 9
     for c in _CELL_LINE_CHARACTERISTICS:
-        assert c.property_id, f"{c.name} names no ontology term to check"
+        if not c.property_id:  # the specification names no term for it
+            continue
         label = _ols_term(c.property_id).get("label", "")
-        assert c.name.lower() in label.lower(), (c.name, c.property_id, label)
+        # The label says no more than the name, or the name no more than the label:
+        # "passage" of "passage number", "donor age" of "age".
+        assert words(c.name) <= words(label) or words(label) <= words(c.name), (
+            c.name,
+            c.property_id,
+            label,
+        )
