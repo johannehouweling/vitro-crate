@@ -108,7 +108,25 @@ description with the SHACL shapes is published at
 
 ## Requirements
 
+### Investigation
+
+Is based on the [ISA Investigation](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#investigation), the Root Data Entity of the crate.
 An Investigation MUST include at least one Exposure referenced by one of its Studies or Assays.
+
+The following rows are those of the ISA Investigation that this profile checks.
+
+| Property | Required | Expected Type | Description |
+|----------|----------|---------------|-------------|
+|@id|MUST|Text or URL|Should be "./": the investigation is the root data entity.|
+|@type|MUST|[schema.org/Dataset](https://schema.org/Dataset)|—|
+|additionalType|MUST|Text or URL|'Investigation' or ontology term to identify it as an Investigation.|
+|identifier|MUST|Text or URL|Identifying descriptor of the investigation.|
+|name|MUST|Text|A title of the investigation.|
+|description|MUST|Text|A description of the investigation (e.g. an abstract).|
+|license|MUST|URL or [schema.org/CreativeWork](https://schema.org/CreativeWork)|The terms under which the depositor permits reuse.|
+|datePublished|MUST|DateTime|When the Investigation was published.|
+|creator|SHOULD|[schema.org/Person](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#person)|The creators of the investigation.|
+|dateCreated|SHOULD|DateTime|When the Investigation was created.|
 
 ### Study - Adverse Outcome Pathway
 

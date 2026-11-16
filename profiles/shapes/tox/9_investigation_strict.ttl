@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Investigation: the root's descriptors, and the requirement to include an exposure.
-# The ISA profile leaves name, description, license and datePublished optional on the
-# root Investigation; this profile requires them, matching the general information
-# module of the reporting standards.
+# The ISA profile requires name, description, license and datePublished on the root
+# Investigation, but the ISA shapes bundled with rocrate-validator do not check them;
+# this profile does, matching the general information module of the reporting
+# standards.
 # The root is selected as RO-Crate defines it: the Dataset the metadata descriptor is
 # about.
 
