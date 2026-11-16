@@ -1119,18 +1119,16 @@ def _merge_plan_chain_names(
             plan_names[ptype] = name
 
         raw = step.get("parameters")
-        if not isinstance(raw, dict):
-            continue
         kept: dict[str, Any] = {
             key: value.strip()
-            for key, value in raw.items()
+            for key, value in (raw.items() if isinstance(raw, dict) else ())
             if key in LABPROCESS_PARAMETER_FIELDS and isinstance(value, str) and value.strip()
         }
         # Whatever else the step states, by name. An identifier is not a
         # parameter: those come from lookups, never from a reading (D5).
         other = [
             entry
-            for entry in named_parameters(raw.get("other"))
+            for entry in named_parameters(step.get("other_parameters"))
             if not is_identifier_field(entry["name"])
         ]
         if other:

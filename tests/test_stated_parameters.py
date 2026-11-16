@@ -12,7 +12,7 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-from builder.agents.pipeline.leaves import _process_parameters_schema
+from builder.agents.pipeline.leaves import _plan_schema
 from builder.agents.pipeline.pipeline import _merge_plan_chain_names
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import draft_hints_schema
@@ -127,7 +127,8 @@ class TestTheTools:
 
 class TestThePlan:
     def test_the_plan_can_name_other_parameters(self):
-        offered = _process_parameters_schema()["properties"]["other"]
+        step = _plan_schema()["properties"]["process_chain"]["items"]["properties"]
+        offered = step["other_parameters"]
         assert offered["type"] == "array"
         assert set(offered["items"]["properties"]) == {"name", "value", "unit"}
 
@@ -136,13 +137,11 @@ class TestThePlan:
             "process_chain": [
                 {
                     "process_type": "EndpointReadout",
-                    "parameters": {
-                        "endpoint": "T3 uptake",
-                        "other": [
-                            {"name": "Positive control", "value": "Silychristin"},
-                            {"name": "Time point", "value": "130", "unit": "minutes"},
-                        ],
-                    },
+                    "parameters": {"endpoint": "T3 uptake"},
+                    "other_parameters": [
+                        {"name": "Positive control", "value": "Silychristin"},
+                        {"name": "Time point", "value": "130", "unit": "minutes"},
+                    ],
                 }
             ]
         }
@@ -159,16 +158,14 @@ class TestThePlan:
             "process_chain": [
                 {
                     "process_type": "EndpointReadout",
-                    "parameters": {
-                        "other": [
-                            {"name": "CAS", "value": "51-48-9"},
-                            {"name": "DOI", "value": "10.1000/x"},
-                            {"name": "Replicates", "value": "3"},
-                            {"name": "", "value": "nameless"},
-                            {"name": "Blank", "value": " "},
-                            "not a parameter",
-                        ]
-                    },
+                    "other_parameters": [
+                        {"name": "CAS", "value": "51-48-9"},
+                        {"name": "DOI", "value": "10.1000/x"},
+                        {"name": "Replicates", "value": "3"},
+                        {"name": "", "value": "nameless"},
+                        {"name": "Blank", "value": " "},
+                        "not a parameter",
+                    ],
                 }
             ]
         }

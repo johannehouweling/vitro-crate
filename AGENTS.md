@@ -3506,8 +3506,8 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   (D5) — so the tox "MUST have at least one additionalProperty" fires on it
   (#379). Identifiers remain excluded, and the parameter sub-object is closed so
   an unrecognised key cannot reach LabProcess state. What a step states beyond
-  those keys goes in its `other` list by name (§5), which the overlay reads as
-  names and values only, dropping any entry named like an identifier (D5). The guidance loop then asks
+  those keys goes in its `other_parameters` list by name (§5), which the overlay
+  reads as names and values only, dropping any entry named like an identifier (D5). The guidance loop then asks
   for the step's own parameter field (`validation.STEP_PARAMETER_FIELD`), where
   the build reads it, never for the predicate the shape names: both profiles
   report the finding on `additionalProperty` / `parameterValue`, and an answer

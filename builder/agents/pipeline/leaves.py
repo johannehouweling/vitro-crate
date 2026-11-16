@@ -43,7 +43,7 @@ from builder.agents.llm import (
     _extract_system_fingerprint,
     _extract_token_usage,
 )
-from builder.tools._crate_mapping import draft_hints_schema
+from builder.tools._crate_mapping import NAMED_PARAMETERS_SCHEMA, draft_hints_schema
 from builder.tools.drafters import VALID_PROCESS_TYPES
 from builder.tools.field_kinds import (
     _EXCLUDED_DRAFT_FIELDS,
@@ -163,7 +163,6 @@ def _process_parameters_schema() -> dict[str, Any]:
     """
     from builder.tools._crate_mapping import (
         LABPROCESS_PARAMETER_FIELDS,
-        NAMED_PARAMETERS_SCHEMA,
         draft_hints_schema,
     )
 
@@ -173,17 +172,12 @@ def _process_parameters_schema() -> dict[str, Any]:
         for key, spec in props.items()
         if key in LABPROCESS_PARAMETER_FIELDS and key not in _EXCLUDED_FIELDS
     }
-    # Whatever else the step states, under the name the documents give it. The
-    # overlay reads it as a list of names and values and nothing more, so the
-    # sub-object stays closed to keys that could reach LabProcess state.
-    parameters["other"] = NAMED_PARAMETERS_SCHEMA
     return {
         "type": "object",
         "description": (
             "Experimental parameters this step states, e.g. exposure duration or "
             "detection instrument. Only what the documents say — omit the rest. A "
-            "parameter with no field of its own goes in 'other', under the name the "
-            "documents give it."
+            "parameter with no field here goes in the step's 'other_parameters'."
         ),
         "properties": parameters,
         "additionalProperties": False,
@@ -424,6 +418,10 @@ def _plan_schema() -> dict[str, Any]:
                     "object_hint": {**str_field, "description": "Free-text hint of the input."},
                     "result_hint": {**str_field, "description": "Free-text hint of the output."},
                     "parameters": _process_parameters_schema(),
+                    # Whatever else the step states, under the name the documents
+                    # give it. The overlay reads names and values and nothing
+                    # more, so no key of it can reach LabProcess state.
+                    "other_parameters": NAMED_PARAMETERS_SCHEMA,
                 },
                 required=["process_type"],
             ),
