@@ -267,6 +267,43 @@ class TestResolveCompoundDtxsid:
         assert "dtxsid" not in mol.fields
 
 
+class TestResolveCompoundWikiId:
+    """resolve_compound keeps the Compound Wiki id of the molecule it resolved.
+
+    The id is found by the InChIKey the lookup returned, an exact statement on
+    the wiki's item, so it is never a name guess (D5). A miss or an outage is
+    non-fatal.
+    """
+
+    def test_the_id_is_stored_on_the_entity(self, offline_lookup, monkeypatch):
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q2026"
+        )
+        state = CrateState()
+        result = resolve_compound(state, name="Silychristin A")
+        mol = _by_type(state, "MolecularEntity")[0]
+        assert mol.fields.get("compoundwiki_id") == "Q2026"
+        assert seen == ["ABCDEFGHIJKLMN-UHFFFAOYSA-N"]
+        assert result["identifiers"].get("compoundwiki_id") == "Q2026"
+
+    def test_a_miss_leaves_no_field(self, offline_lookup, monkeypatch):
+        monkeypatch.setattr(composites, "compound_wiki_id", lambda key: "")
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert "compoundwiki_id" not in _by_type(state, "MolecularEntity")[0].fields
+
+    def test_an_outage_is_non_fatal(self, offline_lookup, monkeypatch):
+        def boom(key):  # noqa: ANN001
+            raise RuntimeError("wiki down")
+
+        monkeypatch.setattr(composites, "compound_wiki_id", boom)
+        state = CrateState()
+        result = resolve_compound(state, name="Silychristin A")
+        assert result["entity_id"]
+        assert "compoundwiki_id" not in _by_type(state, "MolecularEntity")[0].fields
+
+
 class TestResolveCompoundIdempotent:
     def test_second_call_no_duplicate(self, offline_lookup):
         state = CrateState()

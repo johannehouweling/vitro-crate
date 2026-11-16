@@ -64,6 +64,7 @@ from builder.tools.lookups import (
 from builder.tools.provenance import _PROCESS_LINK_HOMES as _BUILD_HONOURED_HOMES
 from builder.tools.verification import verify_identifier
 from lookups.affiliation_from_works import cached_affiliation_from_works, institution_of
+from lookups.compoundwiki import compound_wiki_id
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
 from lookups.ror import fetch_ror_by_id, search_ror
@@ -2129,12 +2130,25 @@ def resolve_compound(
             if dtxsid:
                 entity.set_fields_from_dict({"dtxsid": dtxsid}, source="lookup")
 
+    # The Compound Wiki id, found by the InChIKey the lookup returned: an exact
+    # statement on the wiki's item, so never a name guess (D5). Enrichment like
+    # the DTXSID above, so a miss or an outage is non-fatal.
+    if not entity.fields.get("compoundwiki_id") and entity.fields.get("inchikey"):
+        try:
+            wiki_id = compound_wiki_id(str(entity.fields["inchikey"]))
+        except Exception:
+            logger.debug("Compound Wiki id lookup failed for '%s'", display_name, exc_info=True)
+            wiki_id = ""
+        if wiki_id:
+            entity.set_fields_from_dict({"compoundwiki_id": wiki_id}, source="lookup")
+
     identifiers = {
         key: data[key] for key in _COMPOUND_IDENTIFIER_FIELDS if data.get(key) not in (None, "")
     }
-    # Surface the looked-up DTXSID in the return (pipeline provenance/logging).
-    if entity.fields.get("dtxsid"):
-        identifiers["dtxsid"] = entity.fields["dtxsid"]
+    # Surface the looked-up DTXSID and Compound Wiki id in the return.
+    for key in ("dtxsid", "compoundwiki_id"):
+        if entity.fields.get(key):
+            identifiers[key] = entity.fields[key]
 
     verifications: list[dict[str, Any]] = []
     do_verify = verify is None or verify

@@ -86,6 +86,7 @@ IDENTIFIER_FIELDS: frozenset[str] = frozenset(
         "smiles",
         "molecular_formula",
         "pubchem_cid",
+        "compoundwiki_id",
         "cas",
         "casrn",
         "cas_number",

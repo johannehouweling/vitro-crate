@@ -431,6 +431,8 @@ _STRUCT_FIELDS = frozenset(
         # EPA CompTox/DSSTox substance id promoted to a DTXSID identifier
         # PropertyValue (#179) — consumed structurally, not a stray node literal.
         "dtxsid",
+        # VHP4Safety Compound Wiki item id, promoted the same way.
+        "compoundwiki_id",
         "doi",
         "dest_path",
         "path",
@@ -595,6 +597,12 @@ _MOLECULAR_IDENTIFIERS: tuple[tuple[tuple[str, ...], str, str | None], ...] = (
         ("dtxsid",),
         "DTXSID",
         "https://comptox.epa.gov/dashboard/chemical/details",
+    ),
+    # VHP4Safety Compound Wiki item id; propertyID is the wiki's entity base.
+    (
+        ("compoundwiki_id",),
+        "Compound Wiki",
+        "https://compoundcloud.wikibase.cloud/entity",
     ),
 )
 

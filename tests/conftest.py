@@ -30,6 +30,18 @@ def _stub_composites_dtxsid(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stub_composites_compound_wiki(monkeypatch):
+    """Keep ``resolve_compound``'s Compound Wiki id lookup offline.
+
+    Same scope and reason as ``_stub_composites_dtxsid`` above: a miss by
+    default, and a test that needs the id re-patches ``composites.compound_wiki_id``.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(composites, "compound_wiki_id", lambda inchikey: "", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _stub_composites_cellosaurus(monkeypatch):
     """Keep ``resolve_cell_line``'s Cellosaurus calls offline (#372).
 

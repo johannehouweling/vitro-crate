@@ -587,3 +587,31 @@ class TestCellLineCharacteristicTerms:
         rows = dict(re.findall(r"^\|([^|]+)\|[^|]*\|`([^`]+)`\|", spec, re.M))
         for c in _CELL_LINE_CHARACTERISTICS:
             assert rows.get(c.name) == c.property_id, (c.name, rows.get(c.name), c.property_id)
+
+
+class TestMolecularEntityCompoundWikiId:
+    """A MolecularEntity carrying `compoundwiki_id` emits a Compound Wiki identifier."""
+
+    def _state(self) -> CrateState:
+        state = _molecular_state_with_dtxsid()
+        chem = state.get_entity("chem_bpa")
+        assert chem is not None
+        chem.fields["compoundwiki_id"] = "Q2026"
+        return state
+
+    def test_it_is_the_last_identifier(self):
+        graph = _graph(self._state())
+        pv = next(n for n in graph if n.get("name") == "Compound Wiki")
+        assert pv["@type"] == "PropertyValue"
+        assert pv["value"] == "Q2026"
+        assert pv["propertyID"] == {"@id": "https://compoundcloud.wikibase.cloud/entity"}
+        chem = _by_id(graph, "https://pubchem.ncbi.nlm.nih.gov/compound/6623")
+        assert chem is not None
+        ids = _ref_ids(chem.get("identifier"))
+        assert len(ids) == 4
+        assert ids[-1] == pv["@id"]
+
+    def test_no_raw_literal_on_the_node(self):
+        chem = _by_id(_graph(self._state()), "https://pubchem.ncbi.nlm.nih.gov/compound/6623")
+        assert chem is not None
+        assert "compoundwiki_id" not in chem

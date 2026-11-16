@@ -1178,7 +1178,11 @@ a Person carrying `orcid` gains an `ORCID` PropertyValue identifier
 `cas`/`casrn`/`cas_number` and/or `pubchem_cid` and/or `dtxsid` gains
 `[CAS, PubChem CID, DTXSID]` identifiers in that order (CAS has no `propertyID`;
 PubChem CID's is `{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`; DTXSID's is
-`{"@id": https://comptox.epa.gov/dashboard/chemical/details}`). These source fields
+`{"@id": https://comptox.epa.gov/dashboard/chemical/details}`), and one carrying
+`compoundwiki_id` gains a fourth, `Compound Wiki` (`propertyID`
+`{"@id": https://compoundcloud.wikibase.cloud/entity}`); `resolve_compound` finds that
+id by the InChIKey the lookup returned, an exact statement search on the wiki, and
+keeps none when two items state one InChIKey (D5). These source fields
 are consumed structurally (kept off the node as raw literals). A Person's
 `affiliation` and a Publication's `author` are resolved to `{"@id"}` references
 (via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so
