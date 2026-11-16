@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -101,16 +102,28 @@ img {{ display: block; max-width: 100%; margin: 1.25rem auto; background: #fff;
 """
 
 
+def _github_slug(value: str, separator: str) -> str:
+    """Make a heading id the way GitHub does: one hyphen per space, never collapsed.
+
+    Python-Markdown's default turns ``Study - Adverse Outcome Pathway`` into
+    ``study-adverse-outcome-pathway``; the spec links to GitHub's
+    ``study---adverse-outcome-pathway``.
+    """
+    return re.sub(r"[^\w\- ]", "", value.strip().lower()).replace(" ", separator)
+
+
 def _render_spec() -> str:
     """Render ``isa_tox.md`` to a standalone page.
 
     The spec's one figure is referenced relatively, so it resolves both on
     GitHub and in the crate, where :func:`build` writes it to the same path.
+    Heading ids follow GitHub's, so the spec's in-page links resolve in both.
     GitHub Pages serves the result as-is (``.nojekyll``).
     """
     body = markdown.markdown(
         SPEC.read_text(encoding="utf-8"),
         extensions=["tables", "fenced_code", "toc", "attr_list"],
+        extension_configs={"toc": {"slugify": _github_slug}},
     )
     return _PAGE.format(title=NAME, body=body)
 
