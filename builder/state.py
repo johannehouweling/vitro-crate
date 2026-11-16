@@ -633,6 +633,7 @@ class CrateMetadata:
             (schema:dateModified on the Root Data Entity). ``None`` when unset.
         input_path: Path to the input directory (if applicable).
         output_path: Path where the crate will be written.
+        metadata_only: The export leaves the data files out.
     """
 
     title: str | None = None
@@ -666,6 +667,10 @@ class CrateMetadata:
     # A session that has never exported leaves this None — distinguishable from
     # "exported but the path is unknown", which the dashboard reports differently.
     exported_at: str | None = None
+    # The export writes the metadata and no data file: for a deposit whose data
+    # is not public yet. Read by ``export_crate`` alone — the session keeps its
+    # files, because they are what the metadata is built and judged from.
+    metadata_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {}
@@ -693,6 +698,8 @@ class CrateMetadata:
             d["output_path"] = self.output_path
         if self.exported_at is not None:
             d["exported_at"] = self.exported_at
+        if self.metadata_only:
+            d["metadata_only"] = True
         return d
 
     @classmethod
@@ -714,6 +721,7 @@ class CrateMetadata:
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
             exported_at=data.get("exported_at"),
+            metadata_only=bool(data.get("metadata_only", False)),
         )
 
 

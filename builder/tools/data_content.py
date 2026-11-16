@@ -842,6 +842,11 @@ def populate_condition_table(
         _mint_id,
     )
 
+    if getattr(state.metadata, "metadata_only", False):
+        return {
+            "ok": False,
+            "error": "This session writes a metadata-only crate, so no condition table is written.",
+        }
     proc = state.get_entity(exposure_id)
     if proc is None:
         return {"ok": False, "error": f"Exposure entity not found: {exposure_id!r}"}

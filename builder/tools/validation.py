@@ -641,6 +641,62 @@ def _partition_citations(
     return gaps, citations
 
 
+def _findings(
+    metadata_doc: dict[str, Any], results: list[Any]
+) -> tuple[dict[str, bool], list[dict[str, Any]], list[dict[str, Any]]]:
+    """The verdict of *metadata_doc*: conformance per layer, its issues, its citations."""
+    conformance = {r.profile: r.passed_required for r in results}
+    # Findings about vocabulary the crate CITES are separated from findings about
+    # what the crate ASSERTS — see `_cited_iris` for how that line is drawn, and
+    # why it is drawn from the crate's own structure rather than from a list of
+    # ontology hosts. A previous attempt at this WAS such a list, deleted in
+    # 00ca43b for needing an edit per ontology; the objection was right and it
+    # applies to any list, including one written today.
+    #
+    # Separated, not dropped: they come back under `citations`, counted, so a
+    # finding never disappears without a trace. What changes is that `issues`
+    # holds the things somebody can actually act on.
+    issues: list[dict[str, Any]] = [
+        {
+            "entity_id": issue.entity_id,
+            "property": issue.property,
+            "message": issue.message,
+            "fix": _synthesize_fix(issue),
+            "severity": issue.severity,
+            "profile": issue.profile,
+        }
+        for result in results
+        for issue in result.issues
+    ]
+
+    issues, citations = _partition_citations(issues, _cited_iris(metadata_doc))
+    if citations:
+        logger.info(
+            "Findings about vocabulary the crate cites, not about the crate itself: %d",
+            len(citations),
+        )
+
+    fold_isa_reachability(metadata_doc, conformance, issues)
+    return conformance, issues, citations
+
+
+def validate_document(
+    metadata_doc: dict[str, Any], severity: str = "required", profile: str = "all"
+) -> dict[str, Any]:
+    """Validate an assembled metadata document: the verdict of exactly these statements.
+
+    :func:`build_and_validate` answers for a state, and assembles it to do so. A
+    caller that changed the crate after assembly holds a document no state
+    assembles to, and asks here. The result has the same shape; nothing is
+    remembered, because no state stands behind the answer.
+    """
+    from profiles.validator import validate_crate_dict
+
+    results = validate_crate_dict(metadata_doc, severity=severity, profile=profile)
+    conformance, issues, citations = _findings(metadata_doc, results)
+    return _sweep_scoped(conformance, issues, profile, severity, citations)
+
+
 def build_and_validate(
     state: CrateState,
     severity: str | None = "required",
@@ -708,38 +764,7 @@ def build_and_validate(
         logger.error("build_and_validate failed: %s", e)
         return {"ok": False, "conformance": {}, "issues": [], "error": str(e)}
 
-    conformance = {r.profile: r.passed_required for r in results}
-    # Findings about vocabulary the crate CITES are separated from findings about
-    # what the crate ASSERTS — see `_cited_iris` for how that line is drawn, and
-    # why it is drawn from the crate's own structure rather than from a list of
-    # ontology hosts. A previous attempt at this WAS such a list, deleted in
-    # 00ca43b for needing an edit per ontology; the objection was right and it
-    # applies to any list, including one written today.
-    #
-    # Separated, not dropped: they come back under `citations`, counted, so a
-    # finding never disappears without a trace. What changes is that `issues`
-    # holds the things somebody can actually act on.
-    issues: list[dict[str, Any]] = [
-        {
-            "entity_id": issue.entity_id,
-            "property": issue.property,
-            "message": issue.message,
-            "fix": _synthesize_fix(issue),
-            "severity": issue.severity,
-            "profile": issue.profile,
-        }
-        for result in results
-        for issue in result.issues
-    ]
-
-    issues, citations = _partition_citations(issues, _cited_iris(metadata_doc))
-    if citations:
-        logger.info(
-            "Findings about vocabulary the crate cites, not about the crate itself: %d",
-            len(citations),
-        )
-
-    fold_isa_reachability(metadata_doc, conformance, issues)
+    conformance, issues, citations = _findings(metadata_doc, results)
 
     if memo_key:
         _remember_sweep(memo_key, profile, severity, conformance, issues, citations)
