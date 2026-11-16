@@ -20,6 +20,7 @@ remote context and make the suite network-dependent.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,15 @@ class TestTheSpecDocument:
         assert "mermaid" not in html, "the mermaid summary was replaced by the figure"
         # The requirement tables are the substance of the profile.
         assert "<table>" in html
+
+    def test_every_in_page_link_lands_on_a_heading(self, tmp_path):
+        """The spec links by GitHub's anchors, so the page must mint the same ids."""
+        build(tmp_path)
+        html = (tmp_path / "index.html").read_text(encoding="utf-8")
+        ids = set(re.findall(r'\bid="([^"]+)"', html))
+        targets = set(re.findall(r'href="#([^"]+)"', html))
+        assert targets, "the spec has no in-page links to check"
+        assert targets <= ids, f"links to no anchor: {sorted(targets - ids)}"
 
 
 class TestTheShapes:
