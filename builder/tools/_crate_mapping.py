@@ -1395,7 +1395,7 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
             properties={
                 "@type": ["CreativeWork", "Profile"],
                 "name": "ISA-Tox RO-Crate Profile",
-                "version": "0.1.0-draft.1",
+                "version": "1.0.0",
             },
         )
     )
