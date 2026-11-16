@@ -42,6 +42,7 @@ from profiles.models.tox import (
     LabProcessEndpointReadout,
     LabProcessExposure,
     LabProcessTestSystemPreparation,
+    _pv,
 )
 from profiles.ontology_iris import iri
 
@@ -376,6 +377,50 @@ LABPROCESS_PARAMETER_FIELDS: frozenset[str] = (
 )
 
 
+# Any other parameter a step states, under the name the deposit gives it
+# (AGENTS.md §5, "A step states any parameter the deposit names").
+NAMED_PARAMETERS_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "description": (
+        "Any other parameter the documents state for this step, under the name they "
+        "give it: replicates, a positive control, a time point, the exposure type or "
+        "concentration, a wavelength. Only what is stated; never an identifier."
+    ),
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The parameter's name, as stated."},
+            "value": {"type": "string", "description": "Its value, without the unit."},
+            "unit": {"type": "string", "description": "Its unit, when one is stated."},
+        },
+        "required": ["name", "value"],
+        "additionalProperties": False,
+    },
+}
+
+
+def named_parameters(value: Any) -> list[dict[str, str]]:
+    """A step's ``parameters`` as ``{"name", "value"[, "unit"]}`` entries, in the order stated.
+
+    Reads the list the tools advertise and a plain ``{name: value}`` mapping. An
+    entry without a name or without a value states nothing and is left out.
+    """
+    if isinstance(value, dict):
+        value = [{"name": name, "value": stated} for name, stated in value.items()]
+    found: list[dict[str, str]] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name, stated = str(item.get("name") or "").strip(), item.get("value")
+        if not name or stated is None or not str(stated).strip():
+            continue
+        entry = {"name": name, "value": str(stated).strip()}
+        if unit := str(item.get("unit") or "").strip():
+            entry["unit"] = unit
+        found.append(entry)
+    return found
+
+
 def draft_hints_schema(entity_type: str) -> dict[str, Any]:
     """Build the JSON-Schema for a ``draft_*`` tool's ``hints`` parameter.
 
@@ -398,6 +443,8 @@ def draft_hints_schema(entity_type: str) -> dict[str, Any]:
                     {"type": "array", "items": {"type": "string"}},
                 ],
             }
+        if entity_type == "LabProcess":
+            properties["parameters"] = NAMED_PARAMETERS_SCHEMA
     return {
         "type": "object",
         "description": (
@@ -779,7 +826,9 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
 # Spellings ``_build_process`` reads from state and maps onto a constructor's own
 # parameter name, so they are consumed without appearing in any signature. The
 # tool spec advertises these, and the tox profile's violation message names them.
-_PROCESS_FIELD_ALIASES = frozenset({"data_calculation_and_statistics", "computational_tool"})
+_PROCESS_FIELD_ALIASES = frozenset(
+    {"data_calculation_and_statistics", "computational_tool", "parameters"}
+)
 
 
 @lru_cache(maxsize=1)
@@ -3553,6 +3602,7 @@ def _add_processes(
         if ptype == "TestSystemPreparation":
             cultures_by_assay.setdefault(assay_key, []).extend(nodes)
         for node in nodes:
+            _add_named_parameters(crate, node, f.get("parameters"))
             _wire_process_node(
                 state,
                 crate,
@@ -3656,6 +3706,23 @@ def _wire_process_node(
         )
 
     _chain_processes(built)
+
+
+def _add_named_parameters(crate: ROCrate, node: Any, stated: Any) -> None:
+    """Write the parameters a step states under their own names.
+
+    A parameter this tool has a field for is already on the node under that
+    field's name and is not written a second time. A value that says nothing is
+    left out, as it is for every parameter (``_pv``).
+    """
+    have = {str(p.get("name") or "").casefold() for p in _linked_nodes(node, "parameter")}
+    for entry in named_parameters(stated):
+        if entry["name"].casefold() in have:
+            continue
+        parameter = _pv(crate, entry["name"], entry["value"], None, entry.get("unit"))
+        if parameter is not None:
+            node.append_to("parameter", parameter)
+            have.add(entry["name"].casefold())
 
 
 def _build_process(

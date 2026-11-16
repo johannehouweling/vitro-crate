@@ -81,7 +81,7 @@ from builder.tools.document_discovery import (
 # mis-placed into givenName). Re-exported under the legacy private name so the
 # materialize-path callsite and tests can keep using ``_split_person_name``.
 from builder.tools.drafters import split_person_name as _split_person_name
-from builder.tools.field_kinds import drafter_visible_fields
+from builder.tools.field_kinds import drafter_visible_fields, is_identifier_field
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -1104,10 +1104,10 @@ def _merge_plan_chain_names(
     * A plan with no parameters yields exactly the previous name-only hints, so
       the #262 "no-provider crate is byte-identical" guarantee is untouched.
     """
-    from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
+    from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS, named_parameters
 
     plan_names: dict[str, str] = {}
-    plan_parameters: dict[str, dict[str, str]] = {}
+    plan_parameters: dict[str, dict[str, Any]] = {}
     for step in (plan or {}).get("process_chain") or []:
         if not isinstance(step, dict):
             continue
@@ -1121,11 +1121,20 @@ def _merge_plan_chain_names(
         raw = step.get("parameters")
         if not isinstance(raw, dict):
             continue
-        kept = {
+        kept: dict[str, Any] = {
             key: value.strip()
             for key, value in raw.items()
             if key in LABPROCESS_PARAMETER_FIELDS and isinstance(value, str) and value.strip()
         }
+        # Whatever else the step states, by name. An identifier is not a
+        # parameter: those come from lookups, never from a reading (D5).
+        other = [
+            entry
+            for entry in named_parameters(raw.get("other"))
+            if not is_identifier_field(entry["name"])
+        ]
+        if other:
+            kept["parameters"] = other
         if kept:
             plan_parameters[ptype] = kept
 
