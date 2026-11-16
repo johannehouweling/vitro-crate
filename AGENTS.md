@@ -1171,6 +1171,16 @@ reference(s) at build time (gold `#report_analysis` → `[#pv_repro_score]`) —
 PropertyValues already present in state (or bare IRIs) are wired; a score is never
 computed or fabricated here (D5).
 
+**A step states any parameter the deposit names.** The typed fields cover the
+parameters this tool has a name for; a deposit states more (replicates, a positive
+control, a time point, the exposure type, a wavelength). `LabProcess.parameters` is
+the place for those: a list of `{name, value, unit}` (`NAMED_PARAMETERS_SCHEMA`,
+advertised in the `LabProcess` hints and read by `named_parameters`). The build
+writes each as a `ParameterValue` of the step under the name stated, with its unit
+and no `propertyID`, since no term was looked up for it. A name a typed field
+already wrote is not written twice, and a value that says nothing is left out as
+for every parameter.
+
 **Looked-up identifiers round-trip as `schema:PropertyValue` nodes** (Issue #180,
 deterministic build path — no new LLM tools). `_crate_mapping._identifier_pv(name,
 value, property_id_url=None)` mints an identifier PropertyValue with a stable id
@@ -3426,7 +3436,9 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   and nothing is invented in its place — not a placeholder, not an empty list
   (D5) — so the tox "MUST have at least one additionalProperty" fires on it
   (#379). Identifiers remain excluded, and the parameter sub-object is closed so
-  an unrecognised key cannot reach LabProcess state. The guidance loop then asks
+  an unrecognised key cannot reach LabProcess state. What a step states beyond
+  those keys goes in its `other` list by name (§5), which the overlay reads as
+  names and values only, dropping any entry named like an identifier (D5). The guidance loop then asks
   for the step's own parameter field (`validation.STEP_PARAMETER_FIELD`), where
   the build reads it, never for the predicate the shape names: both profiles
   report the finding on `additionalProperty` / `parameterValue`, and an answer
