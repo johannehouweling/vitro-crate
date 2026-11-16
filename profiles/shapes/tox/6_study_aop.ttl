@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Study - Adverse Outcome Pathway: the pathway the study addresses.
 # A Study SHOULD mention its pathway by its AOP-Wiki IRI, https://aopwiki.org/aops/<id>.
+# A Study is selected as the ISA profile defines one: a Dataset whose additionalType
+# is "Study".
 
-@prefix isa-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/isa-ro-crate/> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
@@ -10,7 +11,15 @@
 tox:StudyShouldReferenceAOP a sh:NodeShape ;
     sh:name "A study SHOULD reference its Adverse Outcome Pathway" ;
     sh:description "A Study SHOULD reference the AOP-Wiki Adverse Outcome Pathway it addresses." ;
-    sh:targetClass isa-ro-crate:Study ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE {
+                ?this <http://schema.org/additionalType> "Study" .
+                ?this a <http://schema.org/Dataset> .
+            }
+        """ ;
+    ] ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:mentions ;

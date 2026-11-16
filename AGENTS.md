@@ -2438,8 +2438,8 @@ their target class *from* the very edge whose absence is the defect: `FindISAPro
 `ProcessMustBeReferencedFromDataset` then targets that inferred class — so a process nothing
 references never earns the label, the rule written to catch exactly this defect has no target, and
 every rule keyed to the class goes silent with it. 11 of the profile's 12 shape files are built this
-way, and our `tox/7_assay_key_event.ttl` rides on `isa-ro-crate:Assay`, so the blind spot is
-general: a missing structural edge switches off the whole rule-set for that layer, and the crate
+way, so the blind spot is general: a missing structural edge switches off the whole rule-set for
+that layer, and the crate
 reports conformant precisely when its structure is most broken. The upstream shapes are not ours to
 restructure, so `verify_isa_reachability` asserts the invariant on our side, the one way an absent
 edge cannot game: a **directed** walk from `./` over every reference, and a structural entity (a
@@ -2822,9 +2822,14 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
 The profile **mints no classes and no terms**: every type and term it names is an
 existing Schema.org, Bioschemas or ontology IRI. Each tox shape selects its focus nodes
 from the data with a SHACL `sh:SPARQLTarget` — a Sample by its `sampleType` term, a step
-by its protocol record's `intendedUse`, either one by its legacy `additionalType` alias —
+by its protocol record's `intendedUse`, either one by its legacy `additionalType` alias,
+a Study or an Assay by the ISA `additionalType`, the root as the Dataset the metadata
+descriptor is about —
 so a generic RO-Crate consumer and the ISA-Tox validator see the same types, which is
-why `@type` stays the bare base token. A term outside the profile's closed lists
+why `@type` stays the bare base token. No target is a class only rocrate-validator
+infers, so the shape files alone, run over a crate's metadata with any SHACL-AF engine,
+report what the ISA-Tox pass reports; `tests/test_shape_constraint_coverage.py` holds
+every constraint to both. A term outside the profile's closed lists
 (`sh:in`) is a warning. `tests/test_profile_crate.py` fails if anything but a shape is
 declared under the profile's namespace.
 

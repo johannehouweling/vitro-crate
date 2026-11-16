@@ -17,8 +17,8 @@ the crate without it, nor promise a check no shape performs.
 Scope: the property tables. The "Expected ``parameterValue`` /
 ``additionalProperty`` items" tables that follow them list recommended
 parameter names, which the spec states are not shape-checked. Shapes with no
-spec table (AOP and Key Event references, CSVW tables, DOI/PubMed identifiers,
-culture lineage, root descriptors) are outside this test.
+spec table (CSVW tables, DOI/PubMed identifiers, culture lineage, root
+descriptors) are outside this test.
 """
 
 from __future__ import annotations
@@ -60,11 +60,13 @@ _SECTION_CLASSES: dict[str, URIRef] = {
 }
 
 # The tox shapes select their focus node from the data (a sh:SPARQLTarget on a
-# sampleType or a protocol record's intendedUse), so no class reaches them: each
-# section names its own. test_every_data_targeted_shape_belongs_to_a_section
-# keeps this list complete.
+# sampleType, a protocol record's intendedUse, a Study's or Assay's additionalType,
+# or the root), so no class reaches them: each section names its own.
+# test_every_data_targeted_shape_belongs_to_a_section keeps this list complete.
 _EVERY_STEP = ("LabProcessExecutesAProtocol", "LabProcessExecutesOneProtocol")
 _SECTION_SHAPES: dict[str, set[str]] = {
+    "Study - Adverse Outcome Pathway": {"StudyShouldReferenceAOP"},
+    "Assay - Key Event": {"AssayShouldReferenceKeyEvent"},
     "Sample - Source Cells": {"CellLineSampleMustHaveSampleType"},
     "Source Cells - Cell Line": {
         "CellLineSampleMustHaveSampleType",
@@ -97,10 +99,12 @@ _SECTION_SHAPES: dict[str, set[str]] = {
     },
 }
 # Data-targeted shapes whose requirements the spec states in an "Expected ...
-# items" table rather than a section's property table.
+# items" table rather than a section's property table, and the root's descriptors,
+# for which the spec has no table.
 _NOT_IN_A_SECTION_TABLE = {
     "DOIPropertyValueMustHaveOBIPropertyID",
     "PubMedIDPropertyValueMustHaveOBIPropertyID",
+    "InvestigationMustHaveDescriptors",
 }
 
 # A step's parameters are written under `parameterValue` (the ISA predicate) and
