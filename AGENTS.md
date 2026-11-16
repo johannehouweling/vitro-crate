@@ -1076,12 +1076,14 @@ composite, not the drafter: reuse is tried by accession first — one line often
 appears under two names in one submission, and once the accession drives the
 `@id` (`_crate_mapping._mint_id`) two such entities would collide onto one node
 — then by the deterministic name-derived id. Only `accession` /
-`alternateName` / `url` / `sameAs` are persisted; `_CELL_LINE_DROPPED_FIELDS`
+`alternateName` / `url` / `sameAs` / `taxonomicRange` are persisted; the
+organism is the NCBITaxon term Cellosaurus states, which the build writes as a
+`DefinedTerm` entity the Sample references. `_CELL_LINE_DROPPED_FIELDS`
 records what else the record offers and the failure each would cause (the
 record's own `identifier` is a full URL that `verify_all_identifiers` would
-re-query percent-encoded, miss, and pop; `taxonomicRange`/`disease`/
-`anatomicalSite` are `DefinedTerm` node objects that `_scalar_props` emits
-un-flattened, failing base conformance).
+re-query percent-encoded, miss, and pop; `disease`/`anatomicalSite` are
+`DefinedTerm` node objects that `_scalar_props` emits un-flattened, failing
+base conformance).
 
 `resolve_publication` (Issue #179) is the citation counterpart of
 `resolve_compound`, closing the gap PR #217 deferred: a plan carries a

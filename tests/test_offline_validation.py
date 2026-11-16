@@ -427,8 +427,21 @@ class TestCellosaurusResolvedCellLineContext:
             assert key in context_terms, f"CellLineSample key {key!r} not in @context"
 
         # The DefinedTerm node objects and the undeclared donor facts stayed off.
-        for dropped in ("taxonomicRange", "disease", "anatomicalSite", "donorSex", "category"):
+        for dropped in ("disease", "anatomicalSite", "donorSex", "category"):
             assert dropped not in cell.fields
+
+    def test_the_organism_is_a_referenced_term(self, monkeypatch):
+        """The species Cellosaurus states reaches the crate as its own entity."""
+        from builder.tools.builder import assemble_crate
+
+        state, _ = self._resolved_state(monkeypatch)
+        doc = assemble_crate(state, materialize_payload=False).metadata.generate()
+        nodes = {n["@id"]: n for n in doc["@graph"]}
+        cell = nodes["https://www.cellosaurus.org/CVCL_0027"]
+        taxon = "http://purl.obolibrary.org/obo/NCBITaxon_9606"
+        assert cell["taxonomicRange"] == {"@id": taxon}
+        assert nodes[taxon]["@type"] == "DefinedTerm"
+        assert nodes[taxon]["name"] == "Homo sapiens"
 
 
 class TestAPreservedFieldStillConforms:

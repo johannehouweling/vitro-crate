@@ -454,14 +454,27 @@ class TestResolveCellLine:
         result = resolve_cell_line(state, "HepG2")
         fields = _entity(state, result["entity_id"]).fields
 
-        assert set(fields) <= {"name", "accession", "alternateName", "url", "sameAs"}
+        assert set(fields) <= {
+            "name",
+            "accession",
+            "alternateName",
+            "url",
+            "sameAs",
+            "taxonomicRange",
+        }
+        # The organism is kept, as the NCBITaxon term Cellosaurus states.
+        assert fields["taxonomicRange"] == {
+            "@id": "http://purl.obolibrary.org/obo/NCBITaxon_9606",
+            "@type": "DefinedTerm",
+            "name": "Homo sapiens (Human)",
+        }
         for dropped, _reason in composites._CELL_LINE_DROPPED_FIELDS:
             if dropped == "name":
                 continue  # the entity keeps its OWN name — see the test below
             assert dropped not in fields, f"{dropped} must not be persisted"
         # The record really did offer them, so the assertion above has teeth.
         record = lookup_cellosaurus("CVCL_0027")
-        assert {"identifier", "taxonomicRange", "disease", "anatomicalSite"} <= set(record)
+        assert {"identifier", "disease", "anatomicalSite"} <= set(record)
         # ...and the source name survives the Cellosaurus label ("Hep-G2").
         assert fields["name"] == "HepG2"
         assert "Hep-G2" in fields["alternateName"]
