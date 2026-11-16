@@ -1464,15 +1464,17 @@ def _ensure_publication(state: CrateState, doi: str, data: dict) -> Entity:
             return pub
         if pub.fields.get("doi") and _norm(pub.fields["doi"]) == _norm(doi):
             return pub
-    hints: dict[str, Any] = {}
-    if data.get("name"):
-        hints["name"] = data["name"]
-    if data.get("headline"):
-        hints["headline"] = data["headline"]
-    if data.get("datePublished"):
-        hints["datePublished"] = data["datePublished"]
-    if data.get("url"):
-        hints["url"] = data["url"]
+    carried = (
+        "name",
+        "headline",
+        "datePublished",
+        "url",
+        "journal",
+        "volumeNumber",
+        "issn",
+        "additionalType",
+    )
+    hints: dict[str, Any] = {k: data[k] for k in carried if data.get(k)}
     return draft_publication(state, str(bare_doi), hints)
 
 

@@ -1525,6 +1525,45 @@ def _attach_country(crate: ROCrate, node: Any, org: Entity) -> None:
     )
 
 
+# Where an article was published. Held back from the node's scalar properties
+# and re-emitted as the Periodical, and the PublicationVolume, it is part of.
+_JOURNAL_FIELDS: tuple[str, ...] = ("journal", "volumeNumber", "issn")
+
+
+def _attach_journal(crate: ROCrate, node: Any, pub: Entity) -> None:
+    """Emit an article's journal and volume, referenced from *node* by ``isPartOf``.
+
+    schema.org puts ``issn`` on a Periodical and ``volumeNumber`` on a
+    PublicationVolume: the article is part of the volume, the volume of the
+    journal. A volume with no journal named is part of nothing, so it is not
+    written.
+    """
+    journal = str(pub.fields.get("journal") or "").strip()
+    if not journal:
+        return
+    issn = pub.fields.get("issn") or []
+    issn = [issn] if isinstance(issn, str) else list(issn)
+    properties: dict[str, Any] = {"@type": "Periodical", "name": journal}
+    if issn:
+        properties["issn"] = issn
+    key = _slug(issn[0] if issn else journal)
+    part_of = crate.add(ContextEntity(crate, f"#journal_{key}", properties=properties))
+    if volume := str(pub.fields.get("volumeNumber") or "").strip():
+        part_of = crate.add(
+            ContextEntity(
+                crate,
+                f"#journal_{key}_volume_{_slug(volume)}",
+                properties={
+                    "@type": "PublicationVolume",
+                    "name": f"{journal}, volume {volume}",
+                    "volumeNumber": volume,
+                    "isPartOf": {"@id": part_of.id},
+                },
+            )
+        )
+    node["isPartOf"] = part_of
+
+
 def _source_term(crate: ROCrate, kind: str) -> ContextEntity:
     """A test-system source's shared, resolvable sampleType DefinedTerm, which types
     it (D16) — one node per kind, referenced by every source of that kind."""
@@ -1749,9 +1788,13 @@ def _add_leaves(
             ContextEntity(
                 crate,
                 _mint_id(pub),
-                properties={"@type": "ScholarlyArticle", **_scalar_props(pub)},
+                properties={
+                    "@type": "ScholarlyArticle",
+                    **_scalar_props(pub, skip=_JOURNAL_FIELDS),
+                },
             )
         )
+        _attach_journal(crate, node, pub)
         _idx_add(idx, pub, node)
         # ScholarlyArticle.author is an array of Person references (#180). Persons
         # are added earlier in this pass, so their nodes resolve from the index.

@@ -31,7 +31,7 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools._crate_mapping import populate_crate
-from builder.tools.composites import _find_or_draft_organization
+from builder.tools.composites import _ensure_publication, _find_or_draft_organization
 from profiles.context import ISA_TOX_CONTEXT
 from profiles.licenses import describe_license
 
@@ -549,3 +549,54 @@ class TestOrganizationsCarryTheirWebsite:
         state = CrateState()
         _find_or_draft_organization(state, "Some Unregistered Lab", None)
         assert calls == []
+
+
+class TestArticlesCarryTheirJournal:
+    """Crossref states the journal, volume, ISSN and type; the article keeps them."""
+
+    CROSSREF = {
+        "identifier": "https://doi.org/10.1016/j.tox.2021.152898",
+        "name": "Global gene expression signatures",
+        "journal": "Toxicology",
+        "volumeNumber": "461",
+        "issn": ["0300-483X"],
+        "additionalType": "journal-article",
+    }
+
+    def _article(self, **drop) -> tuple[dict, dict]:
+        state = CrateState()
+        data = {k: v for k, v in self.CROSSREF.items() if k not in drop}
+        _ensure_publication(state, "10.1016/j.tox.2021.152898", data)
+        doc = _doc(state)
+        return doc, next(n for n in doc["@graph"] if n.get("@type") == "ScholarlyArticle")
+
+    def test_the_article_is_part_of_a_volume_of_the_journal(self):
+        doc, article = self._article()
+        volume = _node(doc, article["isPartOf"]["@id"])
+        assert volume is not None
+        assert volume["@type"] == "PublicationVolume"
+        assert volume["volumeNumber"] == "461"
+        journal = _node(doc, volume["isPartOf"]["@id"])
+        assert journal is not None
+        assert journal["@type"] == "Periodical"
+        assert journal["name"] == "Toxicology"
+        assert journal["issn"] == ["0300-483X"]
+
+    def test_the_type_crossref_states_is_kept(self):
+        _, article = self._article()
+        assert article["additionalType"] == "journal-article"
+
+    def test_the_literals_do_not_also_ship(self):
+        _, article = self._article()
+        assert not {"journal", "volumeNumber", "issn"} & set(article)
+
+    def test_without_a_volume_the_article_is_part_of_the_journal(self):
+        doc, article = self._article(volumeNumber=True)
+        journal = _node(doc, article["isPartOf"]["@id"])
+        assert journal is not None
+        assert journal["@type"] == "Periodical"
+
+    def test_without_a_journal_nothing_is_minted(self):
+        doc, article = self._article(journal=True)
+        assert "isPartOf" not in article
+        assert not [n for n in doc["@graph"] if n.get("@type") == "Periodical"]
