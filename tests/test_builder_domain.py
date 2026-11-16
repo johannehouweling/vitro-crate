@@ -11,6 +11,8 @@ compounds as its record's reagents, conformsTo gating on validation, and the
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +20,7 @@ from builder.state import CrateState, Entity, EntityProvenance, FileClassificati
 from builder.tools.assessment_graph import with_kinds
 from builder.tools.builder import build_crate
 
+_TOX_PROFILE = Path(__file__).resolve().parents[1] / "profiles/shapes/tox/profile.ttl"
 
 
 # Every test here exports a crate, and each export now runs the uncached,
@@ -824,6 +827,10 @@ class TestIdentifiersAndConformance:
         ):
             pt = by_id[pid]["@type"]
             assert "Profile" in (pt if isinstance(pt, list) else [pt])
+        # and the crate states the version the profile itself declares
+        declared = re.search(r'dct:hasVersion "([^"]+)"', _TOX_PROFILE.read_text())
+        assert declared, "profile.ttl declares no dct:hasVersion"
+        assert by_id["https://w3id.org/ro/crate/isa-tox/1.0"]["version"] == declared.group(1)
 
     def test_descriptor_conformsto_is_base_spec_only(self, tmp_path):
         # Issue #91/#110: the metadata file descriptor's conformsTo is reserved
