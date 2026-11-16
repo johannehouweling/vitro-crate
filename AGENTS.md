@@ -197,7 +197,7 @@ CrateState {
         license_from_deposit: bool,
         input_path: str | None, output_path: str | None,
         exported_at: str | None,  # None until the crate has been written
-        # the export writes no data file (a deposit whose data is not public yet);
+        # the export writes no payload file (a deposit whose data is not public yet);
         # read by `export_crate` alone, so the session keeps its files
         metadata_only: bool,
     },
@@ -1545,16 +1545,20 @@ session.
 condition-table placeholder CSV so validation stays a zero-disk operation.
 
 **Metadata-only export.** With `state.metadata.metadata_only` set (`--metadata-only`),
-`export_crate` writes the crate without its files, for a deposit whose data is not public
-yet. Only the export differs: the session is built and judged with its files, because they
-are what the metadata is read from. The crate is assembled whole in memory, then every
-payload file is removed with each reference to it and with what described only that file
-(`_leave_files_out`); a file at a web address stays. The verdict and the report inside the
-crate are those of the document as written (`validation.validate_document`), on a view of
-the state the session never sees (`_without_files`): a readout whose result file is left
-out has no `result`, and the ISA-Tox Violation says so. The folder must hold nothing the
-export does not write itself, or the export is refused, since files an earlier export left
-there would travel with the metadata. No condition table is written in such a session.
+`export_crate` writes the same crate without its payload, for a deposit whose data is not
+public yet. Only the export differs: the session is built and judged with its files, because
+they are what the metadata is read from. The crate is assembled whole in memory, then every
+payload file is described as RO-Crate 1.2 describes a file that is deliberately not present:
+under a local `#` identifier, with a `localPath` naming where it belongs (`_leave_files_out`).
+It keeps its description and every reference to it, so a step still names its files and the
+profiles find what they find in the full crate; a file at a web address stays as it is. The
+verdict and the report inside the crate are those of the document as written
+(`validation.validate_document`), on a view of the state the session never sees
+(`_without_files`). A file that is described and not present is no data a reader receives, so
+every check about the crate's data passes it over (`assessment_graph.is_payload_file`). The
+folder must hold nothing the export does not write itself, or the export is refused, since
+files an earlier export left there would travel with the metadata. No condition table is
+written in such a session.
 
 **Auto-included scanned files (#175).** `assemble_crate(..., include_all_scanned=True)`
 (the default, used by `export_crate`) packages *every* scanned file that the agent
@@ -1883,7 +1887,8 @@ directory — `build_and_validate` assembles and validates entirely in memory.
 └── <payload>                        the described files, copied in
 ```
 
-A metadata-only export (§5) writes the three generated files and no payload.
+A metadata-only export (§5) writes the three generated files and no payload; its
+metadata describes each payload file as not present.
 
 Payload files land at their path **relative to the input tree**, so an exported
 crate mirrors the folder the depositor handed over. A `File` entity's

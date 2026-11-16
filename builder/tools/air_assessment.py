@@ -42,6 +42,7 @@ from builder.tools.assessment_graph import (
     Verdict,
     as_verdict,
     is_external_iri,
+    is_payload_file,
     needs_graph,
     node_types,
     nodes,
@@ -400,7 +401,7 @@ def _check_documentation_template(state: CrateState, graph: Graph) -> Verdict | 
     documents = [
         n
         for n in nodes(graph)
-        if "File" in node_types(n)
+        if is_payload_file(n)
         and (
             str(n.get("encodingFormat") or "") in _DOCUMENT_MEDIA_TYPES
             or any(
@@ -449,7 +450,7 @@ def _check_payload_checksums(state: CrateState, graph: Graph) -> Verdict | None:
     """
     if needs_graph(graph):
         return None
-    files = [n for n in nodes(graph) if "File" in node_types(n)]
+    files = [n for n in nodes(graph) if is_payload_file(n)]
     if not files:
         return Verdict(False, "0 payload files — nothing whose integrity could be checked")
     hashed = [f for f in files if any(f.get(key) for key in _CHECKSUM_FIELDS)]

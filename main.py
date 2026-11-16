@@ -186,8 +186,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "Write the crate without its data files, for a deposit whose data is "
-            "not public yet. Kept with the session; --no-metadata-only turns it off"
+            "Write the crate without its payload, for a deposit whose data is not "
+            "public yet: each file stays described and is not included. Kept with "
+            "the session; --no-metadata-only turns it off"
         ),
     )
     parser.add_argument(
