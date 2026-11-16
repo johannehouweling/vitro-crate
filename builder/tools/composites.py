@@ -63,6 +63,7 @@ from builder.tools.lookups import (
 # entity type from" — imported rather than restated so the two cannot drift.
 from builder.tools.provenance import _PROCESS_LINK_HOMES as _BUILD_HONOURED_HOMES
 from builder.tools.verification import verify_identifier
+from lookups._http import TransientLookupError
 from lookups.affiliation_from_works import cached_affiliation_from_works, institution_of
 from lookups.compoundwiki import compound_wiki_id
 from lookups.crossref import search_works_by_title
@@ -1195,8 +1196,14 @@ def _resolve_via_search(
     escalated to HITL (``present`` the candidates + a none/skip option, then
     optionally ``request_input`` for a pasted ORCID). Returns a verified bare
     ORCID, or ``None`` (no confident answer; caller falls back to synthesis).
+    A search that cannot be reached is no answer either: the author is kept
+    without an ORCID rather than the article losing every author.
     """
-    candidates = list(lookup_by_name_fn(given, family, affiliation) or [])
+    try:
+        candidates = list(lookup_by_name_fn(given, family, affiliation) or [])
+    except TransientLookupError:
+        logger.info("ORCID could not be reached, so %s %s is recorded without one.", given, family)
+        return None
     if not candidates:
         return None
 
