@@ -1888,7 +1888,9 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 - **ORCID**: ORCID iD → name, affiliation, affiliation ROR
 - **ROR**: Organization name → ROR ID, website URL, country. The build writes the
   country as a `PostalAddress` the Organization's `address` references, one per country
-- **Crossref**: DOI → title, authors, journal, year
+- **Crossref**: DOI → title, authors, journal, volume, ISSN, work type, year. The build
+  writes the journal as a `Periodical` and the volume as a `PublicationVolume`, which
+  the article is `isPartOf`
 
 ### Multi-Strategy Lookups
 For chemicals, `lookup_compound` tries by name, then CAS, then the

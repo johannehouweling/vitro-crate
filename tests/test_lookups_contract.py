@@ -1132,14 +1132,17 @@ class TestCrossrefContract:
 
         assert result["@id"] == "https://doi.org/10.1016/j.tox.2021.152898"
         assert result["@type"] == "ScholarlyArticle"
-        assert "nephrotoxicity" in result["name"]
+        assert "silver nanoparticles" in result["name"]
         assert result["headline"] == result["name"]
         assert result["datePublished"] == "2021"
         assert len(result["author"]) == 2
-        assert result["author"][0]["familyName"] == "Krebs"
-        assert result["author"][0]["identifier"] == "https://orcid.org/0000-0001-1234-5678"
-        assert result["author"][1]["familyName"] == "Smith"
-        assert "identifier" not in result["author"][1]
+        assert result["author"][0]["familyName"] == "Li"
+        assert "identifier" not in result["author"][0]
+        assert result["author"][1]["identifier"] == "https://orcid.org/0000-0003-4105-1480"
+        assert result["journal"] == "Toxicology"
+        assert result["volumeNumber"] == "461"
+        assert result["issn"] == ["0300-483X"]
+        assert result["additionalType"] == "journal-article"
 
     @responses.activate
     def test_doi_prefix_stripped(self):

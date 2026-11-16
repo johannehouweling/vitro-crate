@@ -25,7 +25,9 @@ def lookup_doi(doi: str) -> dict:
 
     Returns:
         dict with keys: @id, @type ("ScholarlyArticle"), name, author (list),
-        datePublished, url, identifier.
+        datePublished, url, identifier, and, when Crossref states them,
+        journal, volumeNumber, issn (list) and additionalType (Crossref's work
+        type, e.g. "journal-article").
         Returns {} when the DOI is not found. Raises TransientLookupError on a
         transient API failure (timeout / connection / 429 / 5xx).
     """
@@ -71,7 +73,7 @@ def lookup_doi(doi: str) -> dict:
         # Publisher URL
         url = work.get("URL", doi_url)
 
-        return {
+        out = {
             "@id": doi_url,
             "@type": "ScholarlyArticle",
             "identifier": doi_url,
@@ -84,6 +86,14 @@ def lookup_doi(doi: str) -> dict:
             "datePublished": year,
             "url": url,
         }
+        # Where it was published and as what, each only when Crossref states it.
+        stated = {
+            "journal": (work.get("container-title") or [""])[0],
+            "volumeNumber": work.get("volume"),
+            "issn": work.get("ISSN"),
+            "additionalType": work.get("type"),
+        }
+        return out | {k: v for k, v in stated.items() if v}
     except TransientLookupError:
         raise
     except Exception:
