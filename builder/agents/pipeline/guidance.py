@@ -107,7 +107,7 @@ from typing import TYPE_CHECKING, Any, Callable
 # read. Importing it from ``pipeline`` would work too, but would leave the tail
 # depending on the spine for something neither of them owns.
 from builder.agents.llm import ModelOverrides, UsageSink, make_usage_logger
-from builder.agents.pipeline.pipeline import draft_entity_fields
+from builder.agents.pipeline.pipeline import _look_up_characteristic_terms, draft_entity_fields
 from builder.config import get_provider
 from builder.tools.field_kinds import (
     CITATION_FIELDS,
@@ -2231,6 +2231,10 @@ def run_guidance(
             # bounded by ``max_rounds``.
             skipped.add(index)
             tried_identities.add(_gap_identity(gap))
+
+    # An answer may have stated an organ, a tissue or a cell type, after the spine
+    # asked for the terms. Asked once more here, whatever the round committed.
+    _look_up_characteristic_terms(engine)
 
     return {
         "resolved": resolved,

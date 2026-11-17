@@ -152,7 +152,7 @@ TOOL_SPECS = [
     },
     {
         "name": "resolve_cell_line",
-        "description": "Resolve a cell-line NAME to a CellLineSample carrying its Cellosaurus accession in ONE call (the cell-line counterpart of resolve_compound). Two steps, both against Cellosaurus: lookup_cell_line_by_name on the name (and then on catalog_name) commits an accession ONLY on its exact+unique D5 gate, and lookup_cell_line on that accession IS the verification (a definitive miss clears the accession; a transient outage keeps it unverified). Prefer this over lookup_cell_line_by_name + draft_cell_line_sample + verify_identifier. UNLIKE resolve_compound a miss is NOT a failure and there is no 'ok' key: a name-only CellLineSample is a valid ISA Sample, so the entity is ALWAYS minted and the accession is enrichment — read 'accession'/'match' to see whether one was found. 'name' is kept exactly as the source documents word it; the Cellosaurus label lands on alternateName. Idempotent (reused by accession, then by name). NEVER pass an accession — not as a hint and not as catalog_name (a CVCL_*-shaped catalog_name is refused); every id must come back from the lookup. For primary cells (taken directly from donor tissue) pass hints.source_kind='primary cells': Cellosaurus has no record for them, so no lookup runs — give hints.taxonomicRange (the species) and hints.cell_type instead. Example: resolve_cell_line(name='FRTL-5 TPO-overexpressing rat thyroid follicular cells', catalog_name='FRTL-5').",
+        "description": "Resolve a cell-line NAME to a CellLineSample carrying its Cellosaurus accession in ONE call (the cell-line counterpart of resolve_compound). Two steps, both against Cellosaurus: lookup_cell_line_by_name on the name (and then on catalog_name) commits an accession ONLY on its exact+unique D5 gate, and lookup_cell_line on that accession IS the verification (a definitive miss clears the accession; a transient outage keeps it unverified). Prefer this over lookup_cell_line_by_name + draft_cell_line_sample + verify_identifier. UNLIKE resolve_compound a miss is NOT a failure and there is no 'ok' key: a name-only CellLineSample is a valid ISA Sample, so the entity is ALWAYS minted and the accession is enrichment — read 'accession'/'match' to see whether one was found. 'name' is kept exactly as the source documents word it; the Cellosaurus label lands on alternateName. Idempotent (reused by accession, then by name). NEVER pass an accession — not as a hint and not as catalog_name (a CVCL_*-shaped catalog_name is refused); every id must come back from the lookup. For primary cells (taken directly from donor tissue) pass hints.source_kind='primary cells': Cellosaurus has no record for them, so no lookup runs — give hints.taxonomicRange (the species) and hints.cell_type instead. An organ, tissue or cell_type given in hints also gets the ontology term that is called exactly that word, when there is one. Example: resolve_cell_line(name='FRTL-5 TPO-overexpressing rat thyroid follicular cells', catalog_name='FRTL-5').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -171,6 +171,19 @@ TOOL_SPECS = [
                 },
             },
             "required": ["name"],
+        },
+    },
+    {
+        "name": "resolve_characteristic_terms",
+        "description": "Give each stated organ, tissue and cell type of the cell sources the ontology term that is called exactly that: UBERON for an organ or a tissue, the Cell Ontology for a cell type. The stated word stays the value. The term is added beside it only when the ontology has one term of its own with exactly that label, and the crate then writes it as the characteristic's valueReference. A word no term is called stays as it is, which is a final answer: never reword a value to obtain a term, and never write organ_term, tissue_term or cell_type_term yourself (D5). resolve_cell_line already does this for the hints it is given, so call this only after you set or change organ, tissue or cell_type on a CellLineSample another way. Idempotent. Returns {found, not_found, unavailable}, each a list of {entity_id, field, value}; 'unavailable' means the service could not be reached, and a later call asks again. Example: resolve_characteristic_terms().",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "Optional id of one CellLineSample; every cell source when omitted.",
+                },
+            },
         },
     },
     {

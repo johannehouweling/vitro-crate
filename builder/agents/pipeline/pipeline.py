@@ -2653,6 +2653,28 @@ def _run_fix_loop(
     return last_validation, rounds
 
 
+def _look_up_characteristic_terms(engine: AgentEngine) -> None:
+    """Give each stated organ, tissue and cell type the ontology term called that.
+
+    ``resolve_cell_line`` looks up the terms of what the plan states, but the
+    drafter states an organ or a tissue afterwards, on the entity that composite
+    minted. So the spine asks once more, for every source of cells, when both
+    have run, and the question round asks again when it ends, for what a person
+    answered. Enrichment: a failure costs the terms and nothing else.
+    """
+    try:
+        outcome = engine.run_tool("resolve_characteristic_terms")
+    except Exception as exc:  # noqa: BLE001 - a term must not break the spine
+        logger.warning("The ontology terms of the cell sources were not looked up: %s", exc)
+        return
+    if unavailable := outcome.get("unavailable"):
+        logger.warning(
+            "The ontology service could not be reached. Stated values written without "
+            "a term for now: %d.",
+            len(unavailable),
+        )
+
+
 def run_pipeline(
     engine: AgentEngine,
     *,
@@ -2769,6 +2791,9 @@ def run_pipeline(
     unresolved_compounds = (
         _retry_unresolved_compounds(engine, emit) if get_provider() is not None else []
     )
+    # Behind the same gate, and before the fix loop for the same reason.
+    if get_provider() is not None:
+        _look_up_characteristic_terms(engine)
 
     validation, fix_rounds = _run_fix_loop(engine, progress=emit, save=_persist)
 

@@ -19,6 +19,7 @@ from builder.tools._resolve_cache import compound_cache, normalize_compound_name
 from lookups._http import TransientLookupError
 from lookups.aopwiki import lookup_aop as lookup_aop_wiki
 from lookups.bao import lookup_bao_term as lookup_bao_term_ols
+from lookups.bao import lookup_exact_term as lookup_exact_term_ols
 from lookups.bao import lookup_ontology_term as lookup_ontology_term_ols
 from lookups.bao import lookup_unit as lookup_unit_ols
 from lookups.cellosaurus import lookup_cellosaurus, search_cellosaurus
@@ -401,6 +402,38 @@ def lookup_ontology_term(query: str, ontology: str) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("OLS lookup failed for '%s' in '%s'", query, ontology)
         return _failure(f"OLS lookup failed: {exc}")
+
+
+def lookup_exact_term(label: str, ontology: str) -> dict[str, Any]:
+    """The term of an OLS4-hosted ontology that is called exactly *label*.
+
+    Not a search: ``found`` is true only when the ontology has one term of its
+    own with that label, so the term may stand beside the word as stated. Not
+    cached here, because the client keeps every definitive answer and raises on
+    an outage: a failure is asked about again.
+
+    Args:
+        label: The word as stated (e.g. "Brain").
+        ontology: OLS ontology short name (e.g. "uberon", "cl").
+
+    Returns:
+        Standard lookup dict with keys:
+            found: True if exactly one term is called that.
+            data: Dict with @id, @type, name, termCode keys.
+            error: Error message or None on success.
+            transient: True when the service could not be asked.
+    """
+    try:
+        result = lookup_exact_term_ols(label, ontology)
+    except TransientLookupError as exc:
+        return _failure(f"OLS unavailable (transient): {exc}", transient=True)
+    except Exception as exc:
+        # No answer either: only the service saying "no such term" is a miss.
+        logger.exception("OLS exact lookup failed for '%s' in '%s'", label, ontology)
+        return _failure(f"OLS lookup failed: {exc}", transient=True)
+    if result.get("@id"):
+        return _success(result)
+    return _failure(f"No '{ontology}' term is called '{label}'")
 
 
 @functools.lru_cache(maxsize=256)

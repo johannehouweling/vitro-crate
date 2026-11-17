@@ -21,6 +21,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
+from builder.tools._crate_mapping import (
+    CHARACTERISTIC_ONTOLOGIES,
+    TERM_FIELDS,
+    confirmed_term,
+    term_field,
+)
 from builder.tools._resolve_cache import (
     DEFAULT_RESOLVE_TIMEOUT,
     compound_cache,
@@ -55,6 +61,7 @@ from builder.tools.lookups import (
     lookup_compound,
     lookup_doi,
     lookup_dtxsid,
+    lookup_exact_term,
     lookup_orcid,
     warm_compound_cache,
 )
@@ -2206,9 +2213,12 @@ _ACCESSION_SHAPED = re.compile(r"^CVCL[_-]?\w+$", re.IGNORECASE)
 # Cellosaurus in THIS call. `rrid` and `identifier` are in here because
 # `_crate_mapping._mint_id` reads `accession`/`rrid` to build the cell line's
 # resolvable `@id`, so a hint on either would fabricate the node's identity, and
-# the profile model promotes the accession to `schema:identifier` itself.
+# the profile model promotes the accession to `schema:identifier` itself. The
+# term of a stated organ, tissue or cell type is refused the same way: it comes
+# back from its own lookup (`resolve_characteristic_terms`).
 _CELL_LINE_REFUSED_HINTS: frozenset[str] = frozenset(
     {"accession", "identifier", "rrid", "cellosaurus", "cellosaurus_accession", "@id", "id"}
+    | TERM_FIELDS
 )
 
 # Fields copied from the `lookup_cell_line` record onto the CellLineSample.
@@ -2553,6 +2563,13 @@ def resolve_cell_line(
         # An accession an earlier cell-line call wrote names another entity.
         entity.fields.pop("accession", None)
 
+    # The organ, tissue and cell type the caller stated, each with the term its
+    # ontology calls exactly that. Enrichment like the accession: never fatal.
+    try:
+        resolve_characteristic_terms(state, entity.entity_id)
+    except Exception:
+        logger.exception("resolve_cell_line term lookup failed for %r", display_name)
+
     return {
         "entity_id": entity.entity_id,
         "name": display_name,
@@ -2565,6 +2582,73 @@ def resolve_cell_line(
     }
 
 
+def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None) -> dict[str, Any]:
+    """Give each stated organ, tissue and cell type the ontology term called exactly that.
+
+    A source of cells states these in the documents' words ("Brain", "kidney
+    epithelial cell"), and the word stays the value. Where the ontology the
+    characteristic belongs to (:data:`CHARACTERISTIC_ONTOLOGIES`) has one term of
+    its own with exactly that label, the term is kept beside the word and the
+    build writes it as the characteristic's ``valueReference``. A word no term is
+    called stays alone: nothing is matched loosely and nothing is guessed (D5).
+
+    Each distinct word is asked about once per call. A term already confirmed for
+    the word as it stands is not asked about again; any other term in the field,
+    one for an earlier wording or one no lookup confirmed, is removed first. A
+    service that cannot be reached is no answer: the word is reported
+    ``unavailable`` and a later call asks again.
+
+    Args:
+        state: The crate state.
+        entity_id: One ``CellLineSample`` to look at; every one when omitted.
+
+    Returns:
+        ``{"found": [...], "not_found": [...], "unavailable": [...]}``, each item
+        ``{entity_id, field, value}`` and, when found, the ``term`` IRI.
+
+    Raises:
+        ValueError: If *entity_id* names no entity.
+    """
+    if not entity_id:  # a model that fills an optional argument with "" names nothing
+        sources = state.list_entities("CellLineSample")
+    else:
+        from builder.tools.management import entity_not_found_message, resolve_entity_id
+
+        named = state.get_entity(resolve_entity_id(state, entity_id))
+        if named is None:
+            raise ValueError(entity_not_found_message(state, entity_id))
+        sources = [named] if named.type == "CellLineSample" else []
+
+    answers: dict[tuple[str, str], dict[str, Any]] = {}
+    outcome: dict[str, list[dict[str, Any]]] = {"found": [], "not_found": [], "unavailable": []}
+    for source in sources:
+        for field, ontology in CHARACTERISTIC_ONTOLOGIES.items():
+            stated = source.fields.get(field)
+            entry = {"entity_id": source.entity_id, "field": field, "value": stated}
+            term = confirmed_term(source, field)
+            if term is None:
+                held = term_field(field)
+                source.fields.pop(held, None)
+                source._completion.pop(source._completion_key(held), None)
+                word = " ".join(stated.split()) if isinstance(stated, str) else ""
+                if not word:
+                    continue
+                asked = (word.casefold(), ontology)
+                if asked not in answers:
+                    answers[asked] = lookup_exact_term(word, ontology)
+                answer = answers[asked]
+                if not answer.get("found"):
+                    outcome["unavailable" if answer.get("transient") else "not_found"].append(entry)
+                    continue
+                term = dict(answer["data"])
+                source.fields[held] = term
+                source.set_field_status(held, "verified", "lookup")
+                if "ols" not in source._provenance.lookups_used:
+                    source._provenance.lookups_used.append("ols")
+            outcome["found"].append({**entry, "term": term["@id"]})
+    return outcome
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
@@ -2574,6 +2658,9 @@ TOOL_REGISTRY.register("scaffold_isa_backbone", scaffold_isa_backbone, takes_sta
 TOOL_REGISTRY.register("draft_process_chain", draft_process_chain, takes_state=True)
 TOOL_REGISTRY.register("resolve_compound", resolve_compound, takes_state=True)
 TOOL_REGISTRY.register("resolve_cell_line", resolve_cell_line, takes_state=True)
+TOOL_REGISTRY.register(
+    "resolve_characteristic_terms", resolve_characteristic_terms, takes_state=True
+)
 TOOL_REGISTRY.register("resolve_publication", resolve_publication, takes_state=True)
 TOOL_REGISTRY.register("materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True)
 TOOL_REGISTRY.register("link_assay_to_key_event", link_assay_to_key_event, takes_state=True)

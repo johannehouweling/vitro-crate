@@ -416,6 +416,24 @@ _ASSAY_MENTION_FIELDS = {
     "key_events": "keyEvent",
     "mentions": "mentions",
 }
+# The ontology whose own terms name what a characteristic states: an organ or a
+# tissue is an UBERON structure, a cell type a CL cell. The word the documents use
+# stays the value; `composites.resolve_characteristic_terms` adds the term the
+# ontology calls exactly that, held in the field `term_field` names.
+CHARACTERISTIC_ONTOLOGIES: dict[str, str] = {
+    "organ": "uberon",
+    "tissue": "uberon",
+    "cell_type": "cl",
+}
+
+
+def term_field(field: str) -> str:
+    """The field that holds the looked-up term of the word stated in *field*."""
+    return f"{field}_term"
+
+
+TERM_FIELDS: frozenset[str] = frozenset(map(term_field, CHARACTERISTIC_ONTOLOGIES))
+
 # Discriminator / id-source fields consumed structurally, never emitted as literals.
 _STRUCT_FIELDS = frozenset(
     {
@@ -462,6 +480,8 @@ _STRUCT_FIELDS = frozenset(
         "cell_type",
         "organ",
         "tissue",
+        # The looked-up term of such a word, written as its valueReference.
+        *TERM_FIELDS,
         # draft_file's extra @type term(s) — consumed to co-type the File node
         # (#180), never emitted as a literal property.
         "additional_types",
@@ -1458,16 +1478,64 @@ def _cell_line_characteristics(crate: ROCrate, cl: Entity) -> list[Any]:
         if char.property_id:
             # An @id reference — see `_identifier_property_value`.
             props["propertyID"] = {"@id": char.property_id}
+        node_id = param_id(char.name, str(value))
+        if reference := _value_reference(crate, cl, char.aliases[0], node_id):
+            props["valueReference"] = reference
         out.append(
             CharacteristicValue(
                 crate,
-                param_id(char.name, str(value)),
+                node_id,
                 name=char.name,
                 value=str(value),
                 properties=props or None,
             )
         )
     return out
+
+
+def confirmed_term(entity: Entity, field: str) -> dict[str, Any] | None:
+    """The looked-up term of the word *entity* states in *field*, or ``None``.
+
+    A term counts only while both hold: a lookup confirmed it (its status says
+    so, which no drafted or typed value can), and it is still called what the
+    field states. A word edited since, or a term a model wrote, has none (D5).
+    """
+    term = entity.fields.get(term_field(field))
+    status = entity.get_field_status(term_field(field))
+    if not isinstance(term, dict) or not term.get("@id") or status is None:
+        return None
+    if (status.status, status.source) != ("verified", "lookup"):
+        return None
+    stated = entity.fields.get(field)
+    if not isinstance(stated, str) or _folded(term.get("name")) != _folded(stated):
+        return None
+    return term
+
+
+def _folded(text: Any) -> str:
+    """*text* with case and spacing set aside, the way a label is compared."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+def _value_reference(crate: ROCrate, cl: Entity, field: str, node_id: str) -> dict[str, str] | None:
+    """A reference to the ontology term a characteristic's value is, if one is confirmed.
+
+    The term is written as its own ``DefinedTerm`` entity. Sources that state the
+    same word share one characteristic node, so a term confirmed for one of them
+    is the node's, whichever of them is written last.
+    """
+    if field not in CHARACTERISTIC_ONTOLOGIES:
+        return None
+    term = confirmed_term(cl, field)
+    if term is None:
+        shared = crate.dereference(node_id)
+        return shared.properties().get("valueReference") if shared is not None else None
+    if crate.dereference(term["@id"]) is None:
+        described = {"@type": "DefinedTerm", "name": term["name"]}
+        if term.get("termCode"):
+            described["termCode"] = term["termCode"]
+        crate.add(ContextEntity(crate, term["@id"], properties=described))
+    return {"@id": term["@id"]}
 
 
 # Fields that describe how to reach a Person or Organization. Held back from the
