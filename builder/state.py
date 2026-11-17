@@ -53,7 +53,9 @@ EntityType = Literal[
     "PropertyValue",
     "File",
     # AOP-Wiki subgraph contextual entities (Issue #180). MIE/KE/AO all share
-    # @type KeyEvent and are discriminated only by their eventType string.
+    # @type KeyEvent and are discriminated only by their eventType string. The
+    # builder stores no KeyEventRelationship: the type is known so that a session
+    # saved with a whole pathway loads, and the crate writer leaves such an entity out.
     "AdverseOutcomePathway",
     "KeyEvent",
     "KeyEventRelationship",

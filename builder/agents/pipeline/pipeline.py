@@ -817,7 +817,7 @@ def _draft_entities(
 
 # The id of the scaffolded Assay / Study the materialized chain / AOP wire onto.
 # Resolved from state (the backbone is scaffolded first) so the chain and AOP
-# subgraph hang off the real backbone rather than minting an orphan one.
+# pathway hang off the real backbone rather than minting an orphan one.
 def _first_entity_id(engine: AgentEngine, entity_type: str) -> str | None:
     """entity_id of the first state entity of *entity_type*, or ``None``."""
     return next(
@@ -1978,7 +1978,7 @@ def _materialize_plan(
       from AOP-Wiki — D5), followed by the Assay → Key Event link (#382) when the
       plan's ``measured_event_name`` says which event the assay measures. The
       plan supplies a NAME; :func:`link_assay_to_key_event` matches it against
-      the KeyEvents just materialized and commits their AOP-Wiki IRI, writing
+      the events AOP-Wiki lists for the pathway, stores the one named and links it, writing
       NOTHING on a zero or ambiguous match — picking the measured event is a
       scientific claim, so an unlinked Assay is a legitimate outcome (counted
       under ``key_events``).
@@ -2348,11 +2348,10 @@ def _materialize_plan(
                 exc,
             )
 
-    # --- AOPs: materialize each subgraph and wire it onto the scaffolded Study,
-    # then link the Assay to the ONE Key Event it measures (#382). Wiring the
-    # Study alone left the Assay connected to nothing in the subgraph: the crate
-    # said "this study is about AOP 42" and "here are AOP 42's eight key events"
-    # and never which one was actually measured. ---
+    # --- AOPs: store each pathway and wire it onto the scaffolded Study, then
+    # link the Assay to the ONE Key Event it measures (#382), which stores that
+    # event. Wiring the Study alone said "this study is about AOP 42" and never
+    # which of its key events was actually measured. ---
     study_id = _first_entity_id(engine, "Study")
     assay_id = _first_entity_id(engine, "Assay")
     for aop in plan.get("aops") or []:
@@ -2367,14 +2366,14 @@ def _materialize_plan(
             logger.warning("materialize_aop_subgraph failed for %r: %s", aop_id, exc)
             continue
         if not aop_result.get("aop_entity_id"):
-            # A lookup miss put no subgraph in the crate. Matching the event name
+            # A lookup miss put no pathway in the crate. Matching the event name
             # anyway would resolve it against some OTHER pathway's events, so the
             # link is skipped with the pathway that should have carried it.
             continue
         result["aops"] += 1
 
         # The plan carries the event's NAME only; the composite matches it against
-        # the KeyEvents the lookup just materialized and commits THEIR AOP-Wiki
+        # the events the lookup lists for the pathway and commits THEIR AOP-Wiki
         # IRI, so the reference is never built from the model's words (D5). A
         # zero/ambiguous match writes nothing and reports it — which Key Event an
         # assay measures is a scientific claim, so a refusal to guess is a normal

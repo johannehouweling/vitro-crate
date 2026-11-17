@@ -203,7 +203,11 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
     "Study": EntityDraftSchema(
         scalar_fields={"name": _NAME, "description": _DESC, "identifier": _IDENTIFIER},
         ref_fields={
-            "aop": "AOP-Wiki id or entity ref the study investigates (schema:mentions).",
+            "aop": (
+                "Entity ref of the pathway the study addresses (schema:mentions). "
+                "materialize_aop_subgraph looks the pathway up on AOP-Wiki and sets "
+                "this, so do not write an AOP-Wiki id here by hand."
+            ),
             "organism": "Organism term/entity the study concerns (schema:mentions).",
             "chemicals": "MolecularEntity id(s) studied (schema:mentions).",
             "cell_lines": "CellLineSample id(s) studied (schema:mentions).",
@@ -212,7 +216,11 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
     "Assay": EntityDraftSchema(
         scalar_fields={"name": _NAME, "description": _DESC, "identifier": _IDENTIFIER},
         ref_fields={
-            "key_event": "AOP Key Event id/entity the assay measures (schema:mentions).",
+            "key_event": (
+                "Entity ref of the Key Event the assay measures (schema:mentions). "
+                "link_assay_to_key_event matches the event on AOP-Wiki and sets "
+                "this, so do not write an AOP-Wiki id here by hand."
+            ),
         },
     ),
     "MolecularEntity": EntityDraftSchema(
@@ -1955,8 +1963,8 @@ def _add_leaves(
     # The AOP classes resolve to AOPO, http://aopkb.org/aop_ontology#… (profiles/context.py),
     # which is not a schema.org type — so the base profile asked every one of
     # these for one, 36 findings on a real crate. These are NOT cited vocabulary
-    # we could argue our way out of describing: `materialize_aop_subgraph` fetches
-    # them, names them and puts them in the graph deliberately, so the finding is
+    # we could argue our way out of describing: the AOP composites look them up,
+    # name them and put them in the graph deliberately, so the finding is
     # correct and the answer is to satisfy it. A Key Event IS a defined term —
     # an entry in a controlled vocabulary, with AOP-Wiki as its DefinedTermSet —
     # so this states what the node already is, under a term the base profile

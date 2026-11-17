@@ -254,7 +254,7 @@ _PLAN_SYSTEM_PROMPT = (
     # #382: the Assay -> Key Event edge is the reason an ISA-Tox crate is more
     # than a file manifest, and only the documents can say WHICH event the assay
     # measures. Ask for the wording verbatim: `link_assay_to_key_event` matches
-    # against the AOP-Wiki event names already in the crate and deliberately
+    # against the names AOP-Wiki gives the pathway's events and deliberately
     # refuses to guess, so a paraphrase ("TPO inhibition" for "Thyroperoxidase,
     # Inhibition") silently drops the link rather than mislinking it.
     "For each AOP, also report in 'measured_event_name' the NAME of the key "
@@ -434,7 +434,7 @@ def _plan_schema() -> dict[str, Any]:
                     # #382: the ONE thing only the documents can say — which event
                     # of this pathway the assay measures. A NAME, never an id: the
                     # spine feeds it to `link_assay_to_key_event`, which matches it
-                    # against the KeyEvents AOP-Wiki just put in the crate and
+                    # against the events AOP-Wiki lists for the pathway and
                     # commits their IRI. Asking for an id here would let the model
                     # fabricate the very reference the lookup exists to supply (D5).
                     "measured_event_name": {
