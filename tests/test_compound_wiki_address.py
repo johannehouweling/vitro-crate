@@ -357,3 +357,62 @@ class TestTwoChemicalsOnOneItemAreOneEntity:
         other.set_fields_from_dict({"compoundwiki_id": "Q2026"}, source="llm")
         graph = _graph(_state(first, other))
         assert [n["@id"] for n in _chemicals(graph)] == [WIKI + "Q2026", PUBCHEM + "64119"]
+
+
+class TestAReferenceHeldAsAnAddressFollowsTheChemical:
+    """A reference may hold one of a chemical's addresses instead of its id in the state."""
+
+    def test_the_pubchem_address_reaches_the_chemical_at_its_wiki_address(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        graph = _graph(_with_a_study(chem, study=[PUBCHEM + "2519"]))
+        assert _study_chemicals(graph) == [WIKI + "Q2026"]
+
+    def test_a_step_naming_the_pubchem_address_gets_its_reagent(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        graph = _graph(_with_a_study(chem, exposure=[PUBCHEM + "2519"]))
+        assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]
+
+    def test_the_wiki_address_reaches_it_too(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        graph = _graph(_with_a_study(chem, study=[WIKI + "Q2026"], exposure=[WIKI + "Q2026"]))
+        assert _study_chemicals(graph) == [WIKI + "Q2026"]
+        assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]
+
+    def test_the_chebi_address_reaches_it_too(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", sameAs={"@id": CHEBI})
+        graph = _graph(_with_a_study(chem, study=[CHEBI]))
+        assert _study_chemicals(graph) == [WIKI + "Q2026"]
+
+    def test_the_id_and_an_address_of_one_chemical_are_one_reference(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        graph = _graph(_with_a_study(chem, study=["chem_caffeine", PUBCHEM + "2519"]))
+        assert _study_chemicals(graph) == [WIKI + "Q2026"]
+
+    def test_the_address_of_a_chemical_written_with_another_reaches_their_entity(self):
+        first = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        other = _chemical("chem_coffein", "Coffein", wiki_id="Q2026", pubchem_cid="64119")
+        graph = _graph(_with_a_study(first, other, exposure=[PUBCHEM + "64119"]))
+        assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]
+
+    def test_a_chemical_the_wiki_has_no_item_for_is_reached_by_its_address(self):
+        chem = _chemical("chem_caffeine", "Caffeine", **CAFFEINE)
+        graph = _graph(_with_a_study(chem, study=[PUBCHEM + "2519"], exposure=[PUBCHEM + "2519"]))
+        assert _study_chemicals(graph) == [PUBCHEM + "2519"]
+        assert _reagents(graph, "#LabProcess_p_exp") == [PUBCHEM + "2519"]
+
+    @pytest.mark.parametrize("wiki_first", [True, False])
+    def test_an_address_another_chemical_sits_at_reaches_that_chemical(self, wiki_first):
+        """The address one chemical is identified by is never taken as another's."""
+        at_wiki = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        at_pubchem = _chemical("chem_drafted", "Caffeine (drafted)", pubchem_cid="2519")
+        chemicals = (at_wiki, at_pubchem) if wiki_first else (at_pubchem, at_wiki)
+        graph = _graph(_with_a_study(*chemicals, study=[PUBCHEM + "2519"]))
+        assert _study_chemicals(graph) == [PUBCHEM + "2519"]
+        node = _by_id(graph, PUBCHEM + "2519")
+        assert node is not None and node["name"] == "Caffeine (drafted)"
+
+    def test_a_typed_id_names_no_address_a_reference_could_follow(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", written_by="llm", **CAFFEINE)
+        graph = _graph(_with_a_study(chem, exposure=[WIKI + "Q2026"]))
+        assert _reagents(graph, "#LabProcess_p_exp") == []
+        assert _by_id(graph, WIKI + "Q2026") is None
