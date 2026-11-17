@@ -513,8 +513,9 @@ class TestTheCrate:
 
 class TestATermIsNeverTakenFromProse:
     def test_each_characteristic_with_an_ontology_has_a_field_for_its_term(self) -> None:
-        assert TERM_FIELDS == {"organ_term", "tissue_term", "cell_type_term"}
-        assert TERM_FIELDS == {term_field(field) for field in CHARACTERISTIC_ONTOLOGIES}
+        held = {term_field(field) for field in CHARACTERISTIC_ONTOLOGIES}
+        assert held == {"organ_term", "tissue_term", "cell_type_term"}
+        assert held <= TERM_FIELDS
         written = {characteristic.aliases[0] for characteristic in _CELL_LINE_CHARACTERISTICS}
         assert set(CHARACTERISTIC_ONTOLOGIES) <= written
 

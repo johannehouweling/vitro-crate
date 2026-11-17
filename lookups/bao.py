@@ -94,7 +94,7 @@ def lookup_exact_term(label: str, ontology: str) -> dict:
 
     Args:
         label: the word as stated, e.g. "Brain".
-        ontology: OLS ontology short name, e.g. "uberon", "cl".
+        ontology: OLS ontology short name, e.g. "uberon", "cl", "ncbitaxon".
 
     Returns:
         dict with keys @id (term IRI), @type ("DefinedTerm"), name (the term's
@@ -127,14 +127,15 @@ def _named(word: str, ontology: str) -> dict:
     )
     response = data.get("response") if isinstance(data, dict) else None
     docs = response.get("docs") if isinstance(response, dict) else None
-    prefix = f"{ontology.upper()}_"
+    # An ontology writes its prefix in a case of its own (UBERON_, NCBITaxon_).
+    prefix = f"{ontology.casefold()}_"
     own = [
         doc
         for doc in docs or []
         if isinstance(doc, dict)
         and doc.get("iri")
         and doc.get("label")
-        and str(doc.get("short_form") or "").startswith(prefix)
+        and str(doc.get("short_form") or "").casefold().startswith(prefix)
     ]
     wanted = _folded(word)
     by_label = [doc for doc in own if _folded(doc["label"]) == wanted]

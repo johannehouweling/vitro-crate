@@ -22,7 +22,7 @@ from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools._crate_mapping import (
-    CHARACTERISTIC_ONTOLOGIES,
+    STATED_TERM_ONTOLOGIES,
     TERM_FIELDS,
     confirmed_term,
     term_field,
@@ -2742,10 +2742,12 @@ def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None
     documents' words ("Brain", "kidney epithelial cell"), and the word stays the
     value. Where the word names one
     term of the ontology the characteristic belongs to
-    (:data:`CHARACTERISTIC_ONTOLOGIES`), by its label or an exact synonym, the
+    (:data:`STATED_TERM_ONTOLOGIES`), by its label or an exact synonym, the
     term is kept beside the word and the build writes it as the characteristic's
-    ``valueReference``. A word that names no term stays alone: nothing is matched
-    loosely and nothing is guessed (D5).
+    ``valueReference``. The species a source states in words is asked about the
+    same way, and the build writes its term as the ``taxonomicRange``. A word
+    that names no term stays alone: nothing is matched loosely and nothing is
+    guessed (D5).
 
     Each distinct word is asked about once per call. A term already confirmed for
     the word as it stands is not asked about again; any other term in the field,
@@ -2778,7 +2780,7 @@ def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None
     answers: dict[tuple[str, str], dict[str, Any]] = {}
     outcome: dict[str, list[dict[str, Any]]] = {"found": [], "not_found": [], "unavailable": []}
     for source in sources:
-        for field, ontology in CHARACTERISTIC_ONTOLOGIES.items():
+        for field, ontology in STATED_TERM_ONTOLOGIES.items():
             stated = source.fields.get(field)
             entry = {"entity_id": source.entity_id, "field": field, "value": stated}
             term = confirmed_term(source, field)
