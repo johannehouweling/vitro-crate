@@ -371,6 +371,47 @@ class TestOnlyTheWikiGivesACompoundWikiId:
         assert self._wiki_id(state) == ("Q2026", "llm")
         assert seen == []
 
+    def test_the_wiki_is_asked_with_the_inchikey_the_lookup_returned(
+        self, offline_lookup, monkeypatch
+    ):
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q1881"
+        )
+        state = CrateState()
+        resolve_compound(
+            state, name="Silychristin A", hints={"inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N"}
+        )
+        assert seen == ["ABCDEFGHIJKLMN-UHFFFAOYSA-N"]
+
+    def test_an_inchikey_the_caller_hands_in_finds_no_item(self, monkeypatch):
+        """A lookup that returns no structure leaves the wiki unasked (D5).
+
+        The ChEBI fallback gives a term and no InChIKey. One the caller hands in
+        is theirs, and so would the item found by it be.
+        """
+        chebi_only = {
+            "found": True,
+            "error": None,
+            "data": {
+                "iupac_name": "caffeine",
+                "source": "chebi",
+                "chebiId": "CHEBI_27732",
+                "sameAs": {"@id": "http://purl.obolibrary.org/obo/CHEBI_27732"},
+            },
+        }
+        seen: list[str] = []
+        monkeypatch.setattr(composites, "lookup_compound", lambda name: dict(chebi_only))
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q2026"
+        )
+        state = CrateState()
+        resolve_compound(
+            state, name="Caffeine", hints={"inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N"}
+        )
+        assert seen == []
+        assert self._wiki_id(state) == (None, None)
+
 
 class TestAResolvedChemicalIsIdentifiedByItsWikiItem:
     """The build takes the id the wiki gave as the chemical's ``@id``, and no other."""
