@@ -2163,12 +2163,13 @@ def resolve_compound(
                 entity.set_fields_from_dict({"dtxsid": dtxsid}, source="lookup")
 
     # The Compound Wiki id, found by the InChIKey the lookup returned: an exact
-    # statement on the wiki's item, so never a name guess (D5). The build takes
-    # it as the chemical's @id. A miss or an outage is non-fatal, as for the
-    # DTXSID above: the chemical then keeps its PubChem address.
-    if not entity.fields.get("compoundwiki_id") and entity.fields.get("inchikey"):
+    # statement on the wiki's item, so never a name guess, and never the item of
+    # a structure the caller handed in (D5). The build takes it as the chemical's
+    # @id. A miss or an outage is non-fatal, as for the DTXSID above: the
+    # chemical then keeps its PubChem address.
+    if not entity.fields.get("compoundwiki_id") and data.get("inchikey"):
         try:
-            wiki_id = compound_wiki_id(str(entity.fields["inchikey"]))
+            wiki_id = compound_wiki_id(str(data["inchikey"]))
         except Exception:
             logger.debug("Compound Wiki id lookup failed for '%s'", display_name, exc_info=True)
             wiki_id = ""
