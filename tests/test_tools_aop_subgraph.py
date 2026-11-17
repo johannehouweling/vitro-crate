@@ -1,14 +1,16 @@
 """Tests for the ``materialize_aop_subgraph`` composite tool (Issue #180).
 
-``materialize_aop_subgraph`` turns ONE AOP-Wiki id into the full crate subgraph
-and wires it deterministically: an ``AdverseOutcomePathway`` node with its
-MIE/KE/AO and KeyEventRelationship link arrays, one ``KeyEvent`` node per event
-(discriminated only by ``eventType``), one ``KeyEventRelationship`` per relation,
-and the AOP wired onto the Study named by ``study_id`` — or onto the sole Study
-when none is named — via the ``aop`` / ``mentions`` reference.
+``materialize_aop_subgraph`` turns ONE AOP-Wiki id into the pathway a Study
+addresses and wires it deterministically: one ``AdverseOutcomePathway`` entity at
+its AOP-Wiki address, wired onto the Study named by ``study_id`` — or onto the
+sole Study when none is named — via the ``aop`` / ``mentions`` reference.
+``link_assay_to_key_event`` then stores the one ``KeyEvent`` an Assay measures,
+matched against the events AOP-Wiki lists for that pathway. The rest of the
+pathway stays on AOP-Wiki: no other key event, no ``KeyEventRelationship`` and
+none of the properties that link them reaches the state or the crate.
 
 The only model-supplied input is the numeric ``aop_id``; everything else is the
-deterministic AOP-Wiki graph (D5: never fabricate ids). Tests never hit the
+deterministic AOP-Wiki answer (D5: never fabricate ids). Tests never hit the
 network — the AOP-Wiki HTTP is mocked from the bundled AOP-610 fixture exactly
 as the existing lookup tests do (per project policy, lookups stay offline).
 """
@@ -24,6 +26,7 @@ import pytest
 from builder.state import CrateState
 from builder.tools.composites import materialize_aop_subgraph
 from builder.tools.drafters import draft_investigation, draft_study
+from builder.tools.lookups import lookup_aop as _lookup_aop
 from builder.tools.validation import build_and_validate
 from lookups import _http, aopwiki
 
@@ -78,9 +81,12 @@ def _offline_aop(monkeypatch):
     _http.reset_host_throttle()
     monkeypatch.setattr(aopwiki, "http_get_json", fake_get_json)
     monkeypatch.setattr(_http, "_HOST_MIN_INTERVAL", 0.0)
-    # The tools-layer lookup_aop is independently lru_cached.
+    # The tools-layer lookup_aop is independently lru_cached, and the suite
+    # defaults it to a miss (tests/conftest.py). These tests drive the real one
+    # over the recorded page.
     from builder.tools import lookups as tool_lookups
 
+    monkeypatch.setattr(tool_lookups, "lookup_aop", _lookup_aop)
     tool_lookups.lookup_aop.cache_clear()
     yield
     aopwiki.lookup_aop.cache_clear()
@@ -125,28 +131,26 @@ def _graph(state: CrateState) -> list[dict]:
 
 
 class TestMaterializeState:
-    def test_materializes_typed_entities(self):
+    def test_stores_the_pathway_and_nothing_else_of_it(self):
         state = CrateState()
         result = materialize_aop_subgraph(state, "610")
 
-        # The AOP-610 fixture is 1 MIE + 2 KE + 1 AO + 3 relationships.
+        # The AOP-610 fixture is 1 MIE + 2 KE + 1 AO + 3 relationships. Only the
+        # pathway itself is stored; the seven stay on AOP-Wiki.
         aops = _by_type(state, "AdverseOutcomePathway")
-        events = _by_type(state, "KeyEvent")
-        kers = _by_type(state, "KeyEventRelationship")
         assert len(aops) == 1
-        assert len(events) == 4  # MIE + 2 KE + AO all share @type KeyEvent
-        assert len(kers) == 3
+        assert _by_type(state, "KeyEvent") == []
+        assert _by_type(state, "KeyEventRelationship") == []
 
-        # Result reports the materialized ids/counts.
+        # Result reports the stored pathway, and no relationship.
         assert result["aop_id"] == "610"
-        assert result["events"] == 4
-        assert result["relationships"] == 3
         assert result["aop_entity_id"] == aops[0].entity_id
+        assert "relationships" not in result
 
-    def test_result_reports_materialized_event_iris(self):
-        # (#382) The composite used to report COUNTS only, so a caller that had
-        # just put four KeyEvents in the crate had nothing to pick one WITH — the
-        # reason neither arm ever linked an Assay to the event it measures.
+    def test_result_lists_the_events_of_the_pathway_without_storing_them(self):
+        # (#382) The composite used to report COUNTS only, so a caller had
+        # nothing to pick the measured event WITH — the reason neither arm ever
+        # linked an Assay to the event it measures.
         state = CrateState()
         result = materialize_aop_subgraph(state, "610")
 
@@ -157,47 +161,76 @@ class TestMaterializeState:
             "name": "Binding of inhibitor, NADH-ubiquinone oxidoreductase (complex I)",
             "eventType": "Molecular Initiating Event",
         } in result["events_detail"]
-        # Detail and count describe the same materialization.
-        assert len(result["events_detail"]) == result["events"]
-        assert {d["@id"] for d in result["events_detail"]} == {
-            e.entity_id for e in _by_type(state, "KeyEvent")
-        }
+        # Detail and count describe the same four events, the ones the lookup
+        # lists for the pathway, in its order.
+        assert len(result["events_detail"]) == result["events"] == 4
+        assert [d["@id"] for d in result["events_detail"]] == [
+            e["@id"] for e in aopwiki.lookup_aop("610")["events"]
+        ]
+        # They are listed to choose from, and none of them is stored.
+        assert _by_type(state, "KeyEvent") == []
 
     def test_event_types_discriminated_only_by_event_type_field(self):
-        state = CrateState()
-        materialize_aop_subgraph(state, "610")
-        events = _by_type(state, "KeyEvent")
-        # Every event node is @type KeyEvent; the only discriminator is eventType.
-        types = {e.fields.get("eventType") for e in events}
-        assert "Molecular Initiating Event" in types
-        assert "Key Event" in types
-        assert "Adverse Outcome" in types
+        from builder.tools.composites import link_assay_to_key_event, scaffold_isa_backbone
 
-    def test_aop_carries_link_arrays(self):
+        state = CrateState()
+        scaffold = scaffold_isa_backbone(
+            state, investigation={"name": "I"}, study={"name": "S"}, assay={"name": "A"}
+        )
+        materialize_aop_subgraph(state, "610", study_id=scaffold["study_id"])
+        link_assay_to_key_event(
+            state,
+            scaffold["assay_id"],
+            [
+                "Binding of inhibitor, NADH-ubiquinone oxidoreductase (complex I)",
+                "Mitochondrial dysfunction",
+                "Parkinsonian motor deficits",
+            ],
+        )
+        events = _by_type(state, "KeyEvent")
+        # Every stored event is @type KeyEvent; the only discriminator is eventType.
+        types = {e.fields.get("eventType") for e in events}
+        assert types == {"Molecular Initiating Event", "Key Event", "Adverse Outcome"}
+
+    def test_aop_carries_its_own_facts_and_no_link_arrays(self):
         state = CrateState()
         materialize_aop_subgraph(state, "610")
         aop = _by_type(state, "AdverseOutcomePathway")[0]
-        assert aop.fields["has_molecular_initiating_event"]
-        assert aop.fields["has_key_event"]
-        assert aop.fields["has_adverse_outcome"]
-        assert aop.fields["has_key_event_relationship"]
         assert aop.fields["identifier"] == "610"
         assert aop.fields["url"] == "https://aopwiki.org/aops/610"
+        assert aop.fields["alternateName"] == "MC-I inhibition to Parkinsonism"
+        assert "parkinsonian motor deficits" in aop.fields["name"]
+        assert not _LINK_PROPERTIES & set(aop.fields)
 
-    def test_relationships_link_upstream_downstream(self):
+    def test_no_relationship_and_no_link_is_stored(self):
         state = CrateState()
         materialize_aop_subgraph(state, "610")
-        ker = _by_type(state, "KeyEventRelationship")[0]
-        assert "@id" in ker.fields["upstream_event"]
-        assert "@id" in ker.fields["downstream_event"]
+        assert _by_type(state, "KeyEventRelationship") == []
+        assert not [e.entity_id for e in state.list_entities() if _LINK_PROPERTIES & set(e.fields)]
+
+    def test_the_cached_answer_of_the_lookup_keeps_its_links(self):
+        # `lookup_aop` is cached and hands every caller the same dict. Storing the
+        # pathway without its links must not take them out of the answer the next
+        # caller reads.
+        from builder.tools import lookups as tool_lookups
+
+        materialize_aop_subgraph(CrateState(), "610")
+
+        cached = tool_lookups.lookup_aop("610")["data"]["aop"]
+        assert {
+            "has_molecular_initiating_event",
+            "has_key_event",
+            "has_adverse_outcome",
+            "has_key_event_relationship",
+        } <= set(cached)
 
     def test_idempotent_no_duplicates(self):
         state = CrateState()
         materialize_aop_subgraph(state, "610")
         materialize_aop_subgraph(state, "610")
         assert len(_by_type(state, "AdverseOutcomePathway")) == 1
-        assert len(_by_type(state, "KeyEvent")) == 4
-        assert len(_by_type(state, "KeyEventRelationship")) == 3
+        assert _by_type(state, "KeyEvent") == []
+        assert _by_type(state, "KeyEventRelationship") == []
 
     def test_unknown_aop_returns_error(self, monkeypatch):
         from builder.tools import lookups as tool_lookups
@@ -595,13 +628,14 @@ class TestLinkAssayToKeyEvent:
         assert assay["keyEvent"] == {"@id": "https://aopwiki.org/events/177"}
 
 
-class TestLinkAssayToMaterializedKeyEvent:
-    """The same link, but over the KeyEvents AOP-Wiki really produced (#382).
+class TestLinkAssayToAKeyEventOfThePathway:
+    """The same link, but over the events AOP-Wiki really lists for the pathway (#382).
 
     :class:`TestLinkAssayToKeyEvent` hand-builds its KeyEvents, which cannot show
     that the id committed onto the Assay is one the LOOKUP minted. These tests
     type only the event's lowercase NAME and let the AOP-610 fixture supply every
-    id, so a name-derived or fabricated IRI fails them.
+    id, so a name-derived or fabricated IRI fails them. The crate holds the
+    pathway and none of its events until an Assay is linked to one.
     """
 
     _MITOCHONDRIAL_DYSFUNCTION = "https://aopwiki.org/events/177"
@@ -639,8 +673,192 @@ class TestLinkAssayToMaterializedKeyEvent:
         assay_node = self._assay_node(state)
         assert assay_node["keyEvent"] == {"@id": self._MITOCHONDRIAL_DYSFUNCTION}
         # And the target really is a KeyEvent node in the SAME graph — the whole
-        # point is an edge into the AOP subgraph, not a dangling reference.
+        # point is an edge to an event the crate describes, not a dangling reference.
         assert self._MITOCHONDRIAL_DYSFUNCTION in {e.entity_id for e in _by_type(state, "KeyEvent")}
+
+    def test_only_the_matched_event_is_stored(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        events = _by_type(state, "KeyEvent")
+        assert [e.entity_id for e in events] == [self._MITOCHONDRIAL_DYSFUNCTION]
+        # It carries the facts the lookup gave for it, as a lookup's answer.
+        assert events[0].fields == {
+            "name": "Mitochondrial dysfunction",
+            "eventType": "Key Event",
+            "identifier": "177",
+            "url": "https://aopwiki.org/events/177.json",
+            "short_name": "Event 177",
+            "biologicalOrganization": "Cellular",
+        }
+        assert events[0]._provenance.created_by == "lookup"
+        assert _by_type(state, "KeyEventRelationship") == []
+
+    def test_the_measured_event_reaches_the_crate_as_a_described_entity(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        graph = _graph(state)
+        events = [n for n in graph if _typed(n, "KeyEvent")]
+        assert [n["@id"] for n in events] == [self._MITOCHONDRIAL_DYSFUNCTION]
+        assert events[0]["@type"] == ["KeyEvent", "schema:DefinedTerm"]
+        assert events[0]["name"] == "Mitochondrial dysfunction"
+        pathway = next(n for n in graph if _typed(n, "AdverseOutcomePathway"))
+        assert not _LINK_PROPERTIES & (set(pathway) | set(events[0]))
+        # The Study and the Assay carry the only connection between the two.
+        study = next(n for n in graph if n.get("additionalType") == "Study")
+        assert study["aop"] == {"@id": pathway["@id"]}
+        assert [n for n in graph if _typed(n, "KeyEventRelationship")] == []
+
+    def test_the_pathway_and_the_measured_event_raise_no_finding(self):
+        # The widest tier, all three profiles. The Study's pathway is in place from
+        # the start; the Assay's warning is the control, and the link clears it.
+        from builder.tools.composites import link_assay_to_key_event
+
+        def about_aop_wiki(state: CrateState) -> list[str]:
+            issues = build_and_validate(state, severity="optional")["issues"]
+            return [i["message"] for i in issues if "aopwiki.org" in json.dumps(i)]
+
+        state, assay_id = self._crate()
+        before = about_aop_wiki(state)
+        assert len(before) == 1 and before[0].startswith("Assay SHOULD reference the Key Event")
+
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        assert about_aop_wiki(state) == []
+
+    def test_an_event_stated_by_its_address_is_matched_on_the_address(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        result = link_assay_to_key_event(state, assay_id, self._MITOCHONDRIAL_DYSFUNCTION)
+
+        assert result["ok"] is True
+        assert result["key_event_ids"] == [self._MITOCHONDRIAL_DYSFUNCTION]
+        assert result["matched_names"] == ["Mitochondrial dysfunction"]
+        assert [e.entity_id for e in _by_type(state, "KeyEvent")] == [
+            self._MITOCHONDRIAL_DYSFUNCTION
+        ]
+
+    def test_an_event_stated_by_its_number_is_matched_on_the_number(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        result = link_assay_to_key_event(state, assay_id, "177")
+
+        assert result["ok"] is True
+        assert result["key_event_ids"] == [self._MITOCHONDRIAL_DYSFUNCTION]
+        assert [e.entity_id for e in _by_type(state, "KeyEvent")] == [
+            self._MITOCHONDRIAL_DYSFUNCTION
+        ]
+
+    @pytest.mark.parametrize(
+        "stated",
+        [
+            "https://aopwiki.org/events/999999",
+            "999999",
+            # The pathway's own address and number name no key event of it.
+            "https://aopwiki.org/aops/610",
+            "610",
+        ],
+    )
+    def test_an_address_or_number_the_pathway_does_not_list_writes_nothing(self, stated):
+        # D5: an address or a number is used only once the lookup lists it for a
+        # pathway in the crate. It is never taken on its own word.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        result = link_assay_to_key_event(state, assay_id, stated)
+
+        assert result["ok"] is False
+        assert "keyEvent" not in state.get_entity(assay_id).fields
+        assert _by_type(state, "KeyEvent") == []
+
+    def test_two_assays_measuring_one_event_share_its_entity(self):
+        from builder.tools.composites import link_assay_to_key_event
+        from builder.tools.drafters import draft_assay
+
+        state, assay_id = self._crate()
+        study_id = _by_type(state, "Study")[0].entity_id
+        second = draft_assay(state, study_id, {"name": "Second complex I assay"})
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+        link_assay_to_key_event(state, second.entity_id, "Mitochondrial dysfunction")
+
+        assert [e.entity_id for e in _by_type(state, "KeyEvent")] == [
+            self._MITOCHONDRIAL_DYSFUNCTION
+        ]
+        assays = [n for n in _graph(state) if n.get("additionalType") == "Assay"]
+        assert [n["keyEvent"] for n in assays] == [{"@id": self._MITOCHONDRIAL_DYSFUNCTION}] * 2
+
+    def test_linking_the_same_event_again_stores_it_once(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+        result = link_assay_to_key_event(state, assay_id, "Mitochondrial dysfunction")
+
+        assert result["key_event_ids"] == [self._MITOCHONDRIAL_DYSFUNCTION]
+        assert len(_by_type(state, "KeyEvent")) == 1
+
+    def test_an_event_two_pathways_share_is_one_candidate(self):
+        # AOP 611 here repeats two events of AOP 610 under the same AOP-Wiki ids.
+        # One id is one event, whichever pathway lists it.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(("610", "611"))
+        result = link_assay_to_key_event(state, assay_id, "Parkinsonian motor deficits")
+
+        assert result["ok"] is True
+        assert result["key_event_ids"] == ["https://aopwiki.org/events/890"]
+        offered = link_assay_to_key_event(state, assay_id, "TPO inhibition")["candidates"]
+        assert len({c["@id"] for c in offered}) == len(offered) == 5
+
+    def test_a_pathway_whose_events_aop_wiki_does_not_give_says_so(self, monkeypatch):
+        # The pathway is in the crate, and AOP-Wiki cannot be asked for its events
+        # when the Assay is to be linked. That is not "no match", and running the
+        # pathway composite again is not the remedy.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        monkeypatch.setattr(
+            tool_lookups,
+            "lookup_aop",
+            lambda aop_id: {"found": False, "data": {}, "error": "AOP-Wiki unavailable"},
+        )
+        result = link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        assert result["ok"] is False
+        assert result["candidates"] == []
+        assert "AOP-Wiki gave no key events" in result["error"]
+        assert "materialize_aop_subgraph" not in result["error"]
+        assert "keyEvent" not in state.get_entity(assay_id).fields
+
+    def test_a_stored_event_stays_a_candidate_when_aop_wiki_cannot_be_asked(self, monkeypatch):
+        # An event one Assay measures is in the crate, so a second Assay can be
+        # linked to it without AOP-Wiki.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+        from builder.tools.drafters import draft_assay
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+        second = draft_assay(
+            state, _by_type(state, "Study")[0].entity_id, {"name": "Second complex I assay"}
+        )
+        monkeypatch.setattr(
+            tool_lookups,
+            "lookup_aop",
+            lambda aop_id: {"found": False, "data": {}, "error": "AOP-Wiki unavailable"},
+        )
+        result = link_assay_to_key_event(state, second.entity_id, "mitochondrial dysfunction")
+
+        assert result["ok"] is True
+        assert result["key_event_id"] == self._MITOCHONDRIAL_DYSFUNCTION
 
     def test_unmatched_name_writes_nothing_and_returns_candidates(self):
         # Honesty control for the row above: "TPO inhibition" is a real assay
@@ -654,14 +872,16 @@ class TestLinkAssayToMaterializedKeyEvent:
         assert result["ok"] is False
         assert "keyEvent" not in state.get_entity(assay_id).fields
         assert "keyEvent" not in self._assay_node(state)
-        # The candidates are the four fixture events, offered for a human choice.
-        assert {c["name"] for c in result["candidates"]} == {
-            e.fields.get("name") for e in _by_type(state, "KeyEvent")
-        }
+        # The candidates are the four fixture events, offered for a human choice,
+        # and none of them is stored for having been offered.
+        assert [c["name"] for c in result["candidates"]] == [
+            e["name"] for e in aopwiki.lookup_aop("610")["events"]
+        ]
         assert len(result["candidates"]) == 4
+        assert _by_type(state, "KeyEvent") == []
 
     def test_ambiguous_name_across_two_pathways_writes_nothing(self):
-        # Two materialized pathways share an event NAME under different AOP-Wiki
+        # Two pathways in the crate share an event NAME under different AOP-Wiki
         # ids. Picking either would be a fabricated scientific assertion.
         from builder.tools.composites import link_assay_to_key_event
 
@@ -678,9 +898,11 @@ class TestLinkAssayToMaterializedKeyEvent:
         }
 
     def test_never_fabricates_an_iri_from_the_name(self):
-        # D5 control: the committed reference must be an id that is ALREADY in
-        # state, so an id minted from the name (#KeyEvent_mitochondrial_...) or
-        # any other guess fails regardless of how plausible it looks.
+        # D5 control: the committed reference must be an id the LOOKUP gave for an
+        # event of the pathway, so an id minted from the name
+        # (#KeyEvent_mitochondrial_...) or any other guess fails regardless of how
+        # plausible it looks. The linking call stores the event itself, so being
+        # in state no longer shows where an id came from; the lookup's answer does.
         from builder.tools.composites import link_assay_to_key_event
 
         state, assay_id = self._crate()
@@ -690,7 +912,8 @@ class TestLinkAssayToMaterializedKeyEvent:
         # `set_fields` canonicalises a reference to its bare id, so the stored
         # value is the IRI string rather than the `{"@id": …}` it was passed.
         ref_id = committed.get("@id") if isinstance(committed, dict) else committed
-        assert ref_id in {e.entity_id for e in _by_type(state, "KeyEvent")}
+        assert ref_id in {e["@id"] for e in aopwiki.lookup_aop("610")["events"]}
+        assert {e.entity_id for e in _by_type(state, "KeyEvent")} == {ref_id}
 
     def test_field_status_source_is_lookup_on_the_camel_case_field(self):
         # The MIT slot is `Assay:keyEvent` and `_count_filled_fields` keys on the

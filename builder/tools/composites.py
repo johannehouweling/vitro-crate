@@ -22,6 +22,7 @@ from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools._crate_mapping import (
+    AOP_LINK_FIELDS,
     STATED_TERM_ONTOLOGIES,
     TERM_FIELDS,
     confirmed_term,
@@ -680,15 +681,16 @@ def _slug(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AOP-Wiki subgraph materialisation (Issue #180)
+# AOP-Wiki pathway and measured key event (Issue #180)
 # ---------------------------------------------------------------------------
 
-# AOP-Wiki @type string -> CrateState EntityType. The three classes share one
-# collection (state.ENTITY_TYPE_MAP); the build types each node by its own class.
+# AOP-Wiki @type string -> CrateState EntityType, for the two classes the crate
+# describes: the pathway a Study addresses and the key event an Assay measures.
+# They share one collection (state.ENTITY_TYPE_MAP); the build types each node
+# by its own class.
 _AOP_NODE_TYPES: dict[str, EntityType] = {
     "AdverseOutcomePathway": "AdverseOutcomePathway",
     "KeyEvent": "KeyEvent",
-    "KeyEventRelationship": "KeyEventRelationship",
 }
 
 
@@ -697,10 +699,12 @@ def _materialize_aop_node(state: CrateState, node: dict[str, Any]) -> Entity | N
 
     The node's resolvable AOP-Wiki IRI (``@id``) becomes the entity_id, so
     :func:`builder.tools._crate_mapping._mint_id` keeps it verbatim as the built
-    node's ``@id`` and the subgraph's ``has_*`` / ``upstream_event`` /
-    ``downstream_event`` reference objects (which already point at sibling IRIs)
-    cross-link without any id resolution. Idempotent: a node whose IRI is already
-    in state is left untouched (no duplicate, no clobber).
+    node's ``@id``. The entity takes the node's own facts and none of the
+    properties that link it to the rest of its pathway
+    (:data:`~builder.tools._crate_mapping.AOP_LINK_FIELDS`): that rest is on
+    AOP-Wiki, at the IRI. The fields are copied, so the lookup's cached answer
+    keeps its links. Idempotent: a node whose IRI is already in state is left
+    untouched (no duplicate, no clobber).
 
     Returns the materialised (or pre-existing) Entity, or ``None`` for a
     malformed node missing its ``@id`` / ``@type``.
@@ -712,7 +716,7 @@ def _materialize_aop_node(state: CrateState, node: dict[str, Any]) -> Entity | N
     existing = state.get_entity(str(iri))
     if existing is not None:
         return existing
-    fields = {k: v for k, v in node.items() if k not in ("@id", "@type")}
+    fields = {k: v for k, v in node.items() if k not in ("@id", "@type", *AOP_LINK_FIELDS)}
     entity = Entity(
         entity_id=str(iri),
         type=node_type,
@@ -728,30 +732,28 @@ def materialize_aop_subgraph(
     aop_id: str,
     study_id: str | None = None,
 ) -> dict[str, Any]:
-    """Turn ONE AOP-Wiki id into the full, cross-linked crate subgraph.
+    """Turn ONE AOP-Wiki id into the pathway entity a Study addresses.
 
     Looks the AOP up via :func:`builder.tools.lookups.lookup_aop` and
-    deterministically materialises its complete subgraph into ``state``:
+    deterministically stores ONE entity in ``state``: the
+    ``AdverseOutcomePathway``, at its AOP-Wiki IRI, carrying its ``name`` /
+    ``identifier`` / ``url`` (and ``alternateName`` when present).
 
-    - one ``AdverseOutcomePathway`` node carrying its ``name`` / ``identifier`` /
-      ``url`` (and ``alternateName`` when present) plus the
-      ``has_molecular_initiating_event`` / ``has_key_event`` /
-      ``has_adverse_outcome`` / ``has_key_event_relationship`` link arrays;
-    - one ``KeyEvent`` node per molecular-initiating-event / key-event /
-      adverse-outcome — all share ``@type KeyEvent`` and are discriminated only
-      by their ``eventType`` string;
-    - one ``KeyEventRelationship`` node per relation, linking its
-      ``upstream_event`` and ``downstream_event`` by ``@id``.
+    The rest of the pathway stays on AOP-Wiki, at that IRI: no key event, no key
+    event relationship and none of the properties that link the pathway to its
+    events is stored. The events are listed in the result instead, so a caller
+    can say which one an Assay measures; :func:`link_assay_to_key_event` stores
+    that one.
 
-    The ONLY model-supplied input is the numeric ``aop_id``; every link and id
-    comes straight from the AOP-Wiki graph, so nothing is fabricated (D5). The
-    nodes are keyed by their resolvable AOP-Wiki IRI, so re-running is idempotent.
+    The ONLY model-supplied input is the numeric ``aop_id``; every value and id
+    comes straight from AOP-Wiki, so nothing is fabricated (D5). The entity is
+    keyed by its resolvable AOP-Wiki IRI, so re-running is idempotent.
 
     The AOP is wired onto a Study via the ``aop`` reference (an alias of
     ``schema:mentions``), connecting the study to the pathway it investigates —
     mirroring the gold crate (Issue #180): the Study ``study_id`` names, or the
     sole Study in the crate when none is named. With several Studies and no name it
-    refuses to guess and wires nothing; the subgraph is then an island the ISA
+    refuses to guess and wires nothing; the pathway is then an island the ISA
     reachability check reports (#738).
 
     Args:
@@ -761,8 +763,11 @@ def materialize_aop_subgraph(
             sole Study when exactly one exists.
 
     Returns:
-        On success, ``{"aop_id", "aop_entity_id", "events", "relationships",
-        "wired_to_study"}``. On a lookup miss, ``{"ok": False, "error": ...}``.
+        On success, ``{"aop_id", "aop_entity_id", "events", "events_detail",
+        "wired_to_study"}``: ``events`` counts the events AOP-Wiki lists for the
+        pathway and ``events_detail`` gives the ``@id``, ``name`` and
+        ``eventType`` of each, none of which is stored. On a lookup miss,
+        ``{"ok": False, "error": ...}``.
     """
     from builder.tools.lookups import lookup_aop
 
@@ -782,27 +787,14 @@ def materialize_aop_subgraph(
     aop_node = data.get("aop") or {}
     aop_entity = _materialize_aop_node(state, aop_node)
 
-    events = 0
-    events_detail: list[dict[str, Any]] = []
-    for ev in data.get("events", []):
-        entity = _materialize_aop_node(state, ev)
-        if entity is not None:
-            events += 1
-            # Surfaced so a caller can pick the Key Event an Assay measures
-            # WITHOUT a second lookup. Every value is read off the entity just
-            # persisted — the @id is the AOP-Wiki IRI, never minted (D5).
-            events_detail.append(
-                {
-                    "@id": entity.entity_id,
-                    "name": entity.fields.get("name"),
-                    "eventType": entity.fields.get("eventType"),
-                }
-            )
-
-    relationships = 0
-    for rel in data.get("relationships", []):
-        if _materialize_aop_node(state, rel) is not None:
-            relationships += 1
+    # Surfaced so a caller can pick the Key Event an Assay measures WITHOUT a
+    # second lookup. Every value is read off the lookup's answer — the @id is
+    # the AOP-Wiki IRI, never minted (D5) — and no event is stored here.
+    events_detail: list[dict[str, Any]] = [
+        {"@id": ev["@id"], "name": ev.get("name"), "eventType": ev.get("eventType")}
+        for ev in data.get("events", [])
+        if ev.get("@id")
+    ]
 
     wired_to_study: str | None = None
     if study_id and aop_entity is not None:
@@ -822,10 +814,9 @@ def materialize_aop_subgraph(
     return {
         "aop_id": str(aop_id),
         "aop_entity_id": aop_entity.entity_id if aop_entity else None,
-        "events": events,
+        "events": len(events_detail),
         # Additive: the int count stays for existing callers/tests.
         "events_detail": events_detail,
-        "relationships": relationships,
         "wired_to_study": wired_to_study,
     }
 
@@ -841,10 +832,14 @@ def materialize_aop_subgraph(
 # supported.
 #
 # Matching is by NAME because that is what a depositor writes ("mitochondrial
-# dysfunction"), but the reference committed is always the in-state AOP-Wiki IRI
-# — never an id minted from the name (D5). An ambiguous or absent match writes
-# nothing and returns the candidates, because guessing which Key Event an assay
-# measures is a scientific claim, not a string operation.
+# dysfunction"), but the reference committed is always the AOP-Wiki IRI the
+# lookup gave for the matched event — never an id minted from the name (D5). An
+# ambiguous or absent match writes nothing and returns the candidates, because
+# guessing which Key Event an assay measures is a scientific claim, not a string
+# operation.
+#
+# The candidates are the events AOP-Wiki lists for the pathway(s) in the crate.
+# The crate does not hold them: only the event an Assay is linked to is stored.
 
 
 def _event_tokens(text: str) -> frozenset[str]:
@@ -853,10 +848,48 @@ def _event_tokens(text: str) -> frozenset[str]:
     return frozenset(cleaned.split())
 
 
+def key_event_candidates(state: CrateState) -> list[dict[str, Any]]:
+    """The Key Events an Assay of this crate can be linked to, as AOP-Wiki nodes.
+
+    The events AOP-Wiki lists for each pathway in the crate, in the pathway's
+    order, followed by the Key Events the crate already holds: an event another
+    Assay measures, or the events of a session saved with a whole pathway, which
+    stay available when AOP-Wiki cannot be asked. One entry per AOP-Wiki IRI, so
+    an event two pathways share is listed once. The lookup is asked by the
+    ``identifier`` it gave the pathway; nothing is stored and the lookup's cached
+    answer is handed on unchanged.
+    """
+    from builder.tools.lookups import lookup_aop
+
+    candidates: dict[str, dict[str, Any]] = {}
+    for pathway in state.list_entities("AdverseOutcomePathway"):
+        identifier = pathway.fields.get("identifier")
+        if not identifier:
+            continue
+        result = lookup_aop(str(identifier))
+        if not result.get("found"):
+            continue
+        for event in result["data"].get("events", []):
+            if event.get("@id"):
+                candidates.setdefault(str(event["@id"]), event)
+    for held in state.list_entities("KeyEvent"):
+        candidates.setdefault(
+            held.entity_id, {"@id": held.entity_id, "@type": "KeyEvent", **held.fields}
+        )
+    return list(candidates.values())
+
+
 def link_assay_to_key_event(
     state: CrateState, assay_id: str, event_name: str | list[str]
 ) -> dict[str, Any]:
     """Link an Assay to the AOP Key Event(s) it measures, by Key Event name.
+
+    The name is matched against the events AOP-Wiki lists for the pathway(s) in
+    the crate, and against the Key Events the crate already holds
+    (:func:`key_event_candidates`). The one event a name matches is stored, at its
+    AOP-Wiki IRI with the facts the lookup gave for it, and nothing else of the
+    pathway is. Where the source states the event's AOP-Wiki address or number
+    instead of its name, that is matched against the same events.
 
     An assay can measure more than one Key Event — a viability control beside
     the transporter inhibition it is built to detect is one experiment reporting
@@ -875,7 +908,7 @@ def link_assay_to_key_event(
     Removing a link is `set_fields`' job, where it is explicit.
 
     Args:
-        state: The crate state holding the Assay and the materialized Key Events.
+        state: The crate state holding the Assay and the pathway it belongs to.
         assay_id: ``entity_id`` of the Assay.
         event_name: One Key Event name, or several.
 
@@ -891,18 +924,23 @@ def link_assay_to_key_event(
     if assay is None or assay.type != "Assay":
         return {"ok": False, "error": f"Assay not found: {assay_id!r}", "candidates": []}
 
-    events = state.list_entities("KeyEvent")
+    events = key_event_candidates(state)
     if not events:
-        return {
-            "ok": False,
-            "error": (
-                "no KeyEvent in the crate — run materialize_aop_subgraph first so "
-                "the event can be referenced by its AOP-Wiki id"
-            ),
-            "candidates": [],
-        }
+        if state.list_entities("AdverseOutcomePathway"):
+            error = (
+                "AOP-Wiki gave no key events for the pathway in the crate, so there "
+                "is nothing to match the event against — try again when AOP-Wiki "
+                "answers"
+            )
+        else:
+            error = (
+                "no pathway in the crate — run materialize_aop_subgraph first so "
+                "the event can be matched against the key events AOP-Wiki lists "
+                "for it"
+            )
+        return {"ok": False, "error": error, "candidates": []}
 
-    candidates = [{"@id": e.entity_id, "name": e.fields.get("name")} for e in events]
+    candidates = [{"@id": e["@id"], "name": e.get("name")} for e in events]
     wanted_names = [event_name] if isinstance(event_name, str) else list(event_name)
     wanted_names = [str(n).strip() for n in wanted_names if str(n).strip()]
     if not wanted_names:
@@ -915,8 +953,10 @@ def link_assay_to_key_event(
         if len(matches) != 1:
             unmatched.append({"name": name, "matches": len(matches)})
             continue
-        if matches[0] not in linked:
-            linked.append(matches[0])
+        # Only now is the event stored: the one this Assay is said to measure.
+        event = _materialize_aop_node(state, matches[0])
+        if event is not None and event not in linked:
+            linked.append(event)
 
     if not linked:
         detail = "; ".join(f"{u['matches']} match {u['name']!r}" for u in unmatched)
@@ -959,8 +999,18 @@ def link_assay_to_key_event(
     return result
 
 
-def _key_events_named(events: list[Entity], name: str) -> list[Entity]:
-    """Key Events whose name (or a known alias) is *name*."""
+def _key_events_named(events: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    """The candidate Key Events that *name* states.
+
+    A name is compared with each event's name and known aliases. An AOP-Wiki
+    address is compared with the events' own addresses and an AOP-Wiki number
+    with their identifiers, never read as a name: one that AOP-Wiki does not
+    list for a pathway in the crate states no candidate.
+    """
+    if "://" in name:
+        return [event for event in events if event.get("@id") == name]
+    if name.isdigit():
+        return [event for event in events if str(event.get("identifier") or "") == name]
     wanted = _event_tokens(name)
     return [
         event
@@ -968,9 +1018,9 @@ def _key_events_named(events: list[Entity], name: str) -> list[Entity]:
         if any(
             _event_tokens(alias) == wanted
             for alias in (
-                event.fields.get("name"),
-                event.fields.get("short_name"),
-                event.fields.get("alternateName"),
+                event.get("name"),
+                event.get("short_name"),
+                event.get("alternateName"),
             )
             if alias
         )
