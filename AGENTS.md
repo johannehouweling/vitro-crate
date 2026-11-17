@@ -1359,6 +1359,10 @@ Idempotent: placeholder/process ids are derived deterministically from the step,
 so re-running reuses them rather than duplicating; deposited files are found-or-
 created by `provenance.find_or_create_file`, deduped on destination and source so
 `attach_files` and the chain converge on one entity per file rather than two.
+A step belongs to one assay (`drafters._step_id`): two assays may name a step
+alike ("Exposure"), and where another assay's step already holds the id that name
+gives, the step is named after its assay as well, so drafting it never takes the
+other assay's step.
 `attach_files` is the bulk *placement* verb (#177): it associates a **group** of
 scanned files with a Study or Assay in one call (select by `name_contains` /
 `mime_contains` / explicit `paths`, stamp an optional `role`). For each match it
