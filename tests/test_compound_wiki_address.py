@@ -11,6 +11,7 @@ still written as an identifier value, and never becomes the ``@id``. The
 identifier values (CAS, PubChem CID, DTXSID, Compound Wiki) are the same
 whichever address the chemical sits at.
 
+Two chemicals in the state that resolve to one item are one entity in the crate.
 Every assertion reads the assembled JSON-LD graph: no network and no SHACL.
 """
 
@@ -93,6 +94,46 @@ def _identifiers(graph: list[dict], node: dict) -> list[tuple[str, str]]:
     """The identifier values of *node* as (scheme, value), in the order written."""
     values = [_by_id(graph, ref) for ref in _ids(node.get("identifier"))]
     return [(pv["name"], pv["value"]) for pv in values if pv is not None]
+
+
+def _study_chemicals(graph: list[dict]) -> list[str]:
+    study = next(n for n in graph if n.get("additionalType") == "Study")
+    return _ids(study.get("chemicals"))
+
+
+def _reagents(graph: list[dict], step_id: str) -> list[str]:
+    """The reagents of the protocol record the step at *step_id* executes."""
+    step = _by_id(graph, step_id)
+    assert step is not None
+    (record_id,) = _ids(step.get("executesLabProtocol"))
+    record = _by_id(graph, record_id)
+    assert record is not None
+    return _ids(record.get("reagent"))
+
+
+def _with_a_study(*chemicals: Entity, study=None, exposure=None, readout=None) -> CrateState:
+    """A study, its assay and two steps, each naming the chemicals it is given."""
+    return _state(
+        *chemicals,
+        _ent("study_1", "Study", name="Study", chemicals=study),
+        _ent("assay_1", "Assay", name="Assay", study_id="study_1"),
+        _ent(
+            "p_exp",
+            "LabProcess",
+            name="Exposure",
+            process_type="Exposure",
+            assay_id="assay_1",
+            chemicals=exposure,
+        ),
+        _ent(
+            "p_read",
+            "LabProcess",
+            name="Readout",
+            process_type="EndpointReadout",
+            assay_id="assay_1",
+            reagents=readout,
+        ),
+    )
 
 
 class TestALookedUpCompoundWikiIdIsTheAddress:
@@ -220,3 +261,99 @@ class TestAChemicalIsNotTheSameAsItself:
         (node,) = _chemicals(_graph(_state(chem)))
         assert node["@id"] == WIKI + "Q2026"
         assert node["sameAs"] == {"@id": CHEBI}
+
+
+class TestTwoChemicalsOnOneItemAreOneEntity:
+    """The first resolved gives its name and identifiers; the other's name is an alternate name."""
+
+    def _pair(self) -> tuple[Entity, Entity]:
+        first = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        other = _chemical(
+            "chem_coffein",
+            "Coffein",
+            wiki_id="Q2026",
+            cas="5743-12-4",
+            pubchem_cid="64119",
+            description="The name the second document uses.",
+        )
+        return first, other
+
+    def test_the_crate_holds_one_entity(self):
+        graph = _graph(_state(*self._pair()))
+        assert [n["@id"] for n in _chemicals(graph)] == [WIKI + "Q2026"]
+
+    def test_the_first_gives_its_name_and_identifiers(self):
+        graph = _graph(_state(*self._pair()))
+        (node,) = _chemicals(graph)
+        assert node["name"] == "Caffeine"
+        assert _identifiers(graph, node) == [
+            ("CAS", "58-08-2"),
+            ("PubChem CID", "2519"),
+            ("DTXSID", "DTXSID0020232"),
+            ("Compound Wiki", "Q2026"),
+        ]
+        assert "description" not in node
+
+    def test_the_identifiers_of_the_other_are_not_written(self):
+        graph = _graph(_state(*self._pair()))
+        values = {n.get("value") for n in graph if n.get("@type") == "PropertyValue"}
+        assert not values & {"5743-12-4", "64119"}
+
+    def test_the_name_of_the_other_is_an_alternate_name(self):
+        graph = _graph(_state(*self._pair()))
+        (node,) = _chemicals(graph)
+        assert node["alternateName"] == ["Coffein"]
+
+    def test_the_alternate_names_of_the_first_are_kept(self):
+        first, other = self._pair()
+        first.fields["alternateName"] = ["1,3,7-Trimethylxanthine"]
+        (node,) = _chemicals(_graph(_state(first, other)))
+        assert node["alternateName"] == ["1,3,7-Trimethylxanthine", "Coffein"]
+
+    def test_a_name_the_entity_already_has_is_not_repeated(self):
+        first, other = self._pair()
+        first.fields["alternateName"] = ["Coffein"]
+        again = _chemical("chem_caffeine_2", "Caffeine", wiki_id="Q2026")
+        (node,) = _chemicals(_graph(_state(first, other, again)))
+        assert node["alternateName"] == ["Coffein"]
+
+    def test_the_order_in_the_state_decides_which_is_first(self):
+        first, other = self._pair()
+        (node,) = _chemicals(_graph(_state(other, first)))
+        assert node["name"] == "Coffein"
+        assert node["alternateName"] == ["Caffeine"]
+
+    def test_the_state_keeps_both_chemicals_as_they_were(self):
+        first, other = self._pair()
+        before = (dict(first.fields), dict(other.fields))
+        _graph(_state(first, other))
+        assert (first.fields, other.fields) == before
+
+    def test_a_study_naming_both_references_the_entity_once(self):
+        graph = _graph(_with_a_study(*self._pair(), study=["chem_caffeine", "chem_coffein"]))
+        assert _study_chemicals(graph) == [WIKI + "Q2026"]
+
+    def test_a_step_naming_the_other_reaches_the_entity(self):
+        graph = _graph(
+            _with_a_study(*self._pair(), exposure=["chem_caffeine"], readout=["chem_coffein"])
+        )
+        assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]
+        assert _reagents(graph, "#LabProcess_p_read") == [WIKI + "Q2026"]
+
+    def test_a_condition_table_about_both_names_the_entity_once(self):
+        graph = _graph(_with_a_study(*self._pair(), exposure=["chem_caffeine", "chem_coffein"]))
+        (table,) = [n for n in graph if "csvw:Table" in n.get("@type", [])]
+        assert _ids(table["about"]).count(WIKI + "Q2026") == 1
+        assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]
+
+    def test_chemicals_on_different_items_stay_two_entities(self):
+        first, other = self._pair()
+        other.set_fields_from_dict({"compoundwiki_id": "Q1881"}, source="lookup")
+        graph = _graph(_state(first, other))
+        assert [n["@id"] for n in _chemicals(graph)] == [WIKI + "Q2026", WIKI + "Q1881"]
+
+    def test_a_typed_id_does_not_fold_a_chemical_onto_the_item(self):
+        first, other = self._pair()
+        other.set_fields_from_dict({"compoundwiki_id": "Q2026"}, source="llm")
+        graph = _graph(_state(first, other))
+        assert [n["@id"] for n in _chemicals(graph)] == [WIKI + "Q2026", PUBCHEM + "64119"]

@@ -1949,14 +1949,31 @@ def _add_leaves(
         _wire_job_title(crate, node, person.fields.get("jobTitle"), idx)
         crate.root_dataset.append_to("author", node)
 
+    # Two chemicals that mint one @id are one molecule and one node: two names
+    # the Compound Wiki holds as one item. The first gives the node its name and
+    # identifiers, and the name of a later one is an alternate name. `crate.add`
+    # would replace the first without a word.
+    chem_nodes: dict[str, Any] = {}
     for chem in state.list_entities("MolecularEntity"):
         chem_id = _mint_id(chem)
+        if (node := chem_nodes.get(chem_id)) is not None:
+            name = chem.fields.get("name")
+            if name and name not in (node.get("name"), *_child_ids(node, "alternateName")):
+                node.append_to("alternateName", name)
+            logger.info(
+                "%s names the chemical already written at %s, so its name is kept as "
+                "an alternate name",
+                chem.entity_id,
+                chem_id,
+            )
+            _idx_add(idx, chem, node)
+            continue
         props = _scalar_props(chem)
         # The Compound Wiki's by-name record states its item as sameAs. Once that
         # item is the chemical's own @id the link says nothing, so it is left out.
         if _compound_wiki_iri(chem) and props.get("sameAs") in (chem_id, {"@id": chem_id}):
             del props["sameAs"]
-        node = crate.add(
+        node = chem_nodes[chem_id] = crate.add(
             ContextEntity(
                 crate,
                 chem_id,
@@ -3401,7 +3418,7 @@ def _synth_condition_table(
     )
     table = crate.add(File(crate, source, dest_path=rel, properties=table_props))
     for chem in chems:
-        table.append_to("about", chem)
+        _append_unique(table, "about", chem)
     # Typed CSVW: a linked schema entity carries the per-column datatype +
     # propertyUrl (and valueUrl resolving the cell-line/compound columns to their
     # entity ids). The table points to it via tableSchema (canonical CSVW) and
@@ -4238,7 +4255,7 @@ def _wire_mention(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None
             continue
         ent = _resolve_one(idx, item)
         if ent is not None:
-            node.append_to(prop, ent)
+            _append_unique(node, prop, ent)
         elif isinstance(item, dict) and item.get("@id"):
             node.append_to(prop, item)
         elif isinstance(item, str) and ("://" in item or item.startswith("#")):
