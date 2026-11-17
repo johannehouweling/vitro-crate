@@ -2406,6 +2406,18 @@ def _states_other_cells(entity: Entity, name: str, hints: Mapping[str, Any] | No
     )
 
 
+def _name_stated_terms(state: CrateState, cells: Entity) -> None:
+    """Give the organ, tissue and cell type *cells* state the term each word names.
+
+    Enrichment like the accession, so never fatal: a lookup that fails leaves the
+    words as stated (:func:`resolve_characteristic_terms`).
+    """
+    try:
+        resolve_characteristic_terms(state, cells.entity_id)
+    except Exception:
+        logger.exception("The term lookup failed for %r", cells.fields.get("name"))
+
+
 def _own_source_beside(
     state: CrateState, line: Entity, name: str, hints: Mapping[str, Any] | None, query: str
 ) -> dict[str, Any]:
@@ -2422,6 +2434,7 @@ def _own_source_beside(
         entity = existing
     else:
         entity = draft_cell_line_sample(state, name, stated)
+    _name_stated_terms(state, entity)
     held = str(line.fields.get("accession") or "")
     catalogued = query or held
     return {
@@ -2484,6 +2497,7 @@ def _resolve_population(
         population.set_fields_from_dict(fields, source="llm")
     else:
         population = draft_sample(state, fields)
+    _name_stated_terms(state, population)
     return {**line, "entity_id": population.entity_id, "name": name, "line_id": line["entity_id"]}
 
 
@@ -2712,12 +2726,7 @@ def resolve_cell_line(
         # An accession an earlier cell-line call wrote names another entity.
         entity.fields.pop("accession", None)
 
-    # The organ, tissue and cell type the caller stated, each with the term its
-    # ontology has for that word. Enrichment like the accession: never fatal.
-    try:
-        resolve_characteristic_terms(state, entity.entity_id)
-    except Exception:
-        logger.exception("resolve_cell_line term lookup failed for %r", display_name)
+    _name_stated_terms(state, entity)
 
     return {
         "entity_id": entity.entity_id,
