@@ -2059,7 +2059,8 @@ fragment follow as above. The id must be one a lookup wrote, which its completio
 record says (`_crate_mapping._compound_wiki_iri`): a `compoundwiki_id` a model or a
 person wrote is still written as an identifier value and never becomes the `@id`
 (D5). The item a name search hits in `lookup_compound`'s fallback does not count
-either; it is the `@id` only when the InChIKey search finds it too. The identifier
+either; it stays the chemical's `sameAs`, and is the `@id` instead only when the
+InChIKey search finds it too. The identifier
 values (CAS, PubChem CID, DTXSID, Compound Wiki) are the same whichever address the
 chemical has. An unreachable wiki reads as no item, so the chemical then keeps its
 PubChem address.

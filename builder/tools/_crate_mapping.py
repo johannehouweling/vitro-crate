@@ -1907,11 +1907,17 @@ def _add_leaves(
         crate.root_dataset.append_to("author", node)
 
     for chem in state.list_entities("MolecularEntity"):
+        chem_id = _mint_id(chem)
+        props = _scalar_props(chem)
+        # The Compound Wiki's by-name record states its item as sameAs. Once that
+        # item is the chemical's own @id the link says nothing, so it is left out.
+        if _compound_wiki_iri(chem) and props.get("sameAs") in (chem_id, {"@id": chem_id}):
+            del props["sameAs"]
         node = crate.add(
             ContextEntity(
                 crate,
-                _mint_id(chem),
-                properties={"@type": "MolecularEntity", **_scalar_props(chem)},
+                chem_id,
+                properties={"@type": "MolecularEntity", **props},
             )
         )
         _idx_add(idx, chem, node)
