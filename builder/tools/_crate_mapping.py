@@ -1115,6 +1115,22 @@ def _compound_wiki_iri(entity: Entity) -> str | None:
     return f"{COMPOUND_WIKI}/entity/{wiki_id}"
 
 
+def _compound_addresses(entity: Entity) -> list[str]:
+    """Every address a lookup gave a MolecularEntity, whichever one identifies it.
+
+    Its Compound Wiki item, its PubChem compound and its ChEBI PURL, where it has
+    them. :func:`_mint_id` takes the first as the ``@id``; a reference may hold
+    any of them, and the build index knows the chemical by each.
+    """
+    cid = entity.fields.get("pubchem_cid")
+    found = (
+        _compound_wiki_iri(entity),
+        f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}" if cid else None,
+        _chebi_purl(entity),
+    )
+    return [address for address in found if address]
+
+
 def _mint_id(entity: Entity) -> str:
     """A spec-correct @id: resolvable URI when available, else `#`-fragment.
 
@@ -1985,6 +2001,14 @@ def _add_leaves(
         # gold-crate order (CAS first, then PubChem CID) (#180).
         for pv in _build_identifier_pvs(crate, _MOLECULAR_IDENTIFIERS, chem):
             node.append_to("identifier", pv)
+    # A reference may hold one of a chemical's addresses instead of its id in the
+    # state, such as the PubChem address a chemical had before the Compound Wiki
+    # named it. It reaches the chemical written at that address, and otherwise
+    # the one that has the address beside the one it is identified by.
+    for chem in state.list_entities("MolecularEntity"):
+        node = chem_nodes[_mint_id(chem)]
+        for address in _compound_addresses(chem):
+            idx.setdefault(address, chem_nodes.get(address, node))
 
     for pv in state.list_entities("PropertyValue"):
         _idx_add(
