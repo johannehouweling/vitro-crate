@@ -362,6 +362,24 @@ def draft_cell_line_sample(state: CrateState, name: str, hints: dict) -> Entity:
     return entity
 
 
+def _step_id(state: CrateState, assay_id: str, name: str, hints: dict) -> str:
+    """The entity_id of the step *name* of *assay_id*.
+
+    A step is named after its name, so drafting it again reaches the same step.
+    Two assays may name a step alike ("Exposure"), and a step belongs to one
+    assay: where another assay's step already holds the name's id, this one is
+    named after its assay as well, and keeps that id from then on.
+    """
+    plain = _make_entity_id("proc", name, hints)
+    own = _make_entity_id("proc", f"{assay_id} {name}", hints)
+    if state.get_entity(own) is not None:
+        return own
+    held = state.get_entity(plain)
+    if held is not None and held.fields.get("assay_id") not in (None, "", assay_id):
+        return own
+    return plain
+
+
 def draft_process(state: CrateState, assay_id: str, process_type: str, hints: dict) -> Entity:
     """Create a LabProcess entity.
 
@@ -383,7 +401,7 @@ def draft_process(state: CrateState, assay_id: str, process_type: str, hints: di
             f"Must be one of: {', '.join(sorted(VALID_PROCESS_TYPES))}"
         )
     name = hints.get("name", f"{process_type} Process")
-    entity_id = _make_entity_id("proc", name, hints)
+    entity_id = _step_id(state, assay_id, name, hints)
     entity = Entity(
         entity_id=entity_id,
         type="LabProcess",
