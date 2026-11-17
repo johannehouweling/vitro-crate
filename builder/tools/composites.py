@@ -2731,11 +2731,16 @@ def resolve_cell_line(
     }
 
 
+# The entities that are cells: a source, and a sample made from one.
+_CELLS: tuple[EntityType, ...] = ("CellLineSample", "Sample")
+
+
 def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None) -> dict[str, Any]:
     """Give each stated organ, tissue and cell type the ontology term that word names.
 
-    A source of cells states these in the documents' words ("Brain", "kidney
-    epithelial cell"), and the word stays the value. Where the word names one
+    A source of cells, and a sample of cells made from one, states these in the
+    documents' words ("Brain", "kidney epithelial cell"), and the word stays the
+    value. Where the word names one
     term of the ontology the characteristic belongs to
     (:data:`CHARACTERISTIC_ONTOLOGIES`), by its label or an exact synonym, the
     term is kept beside the word and the build writes it as the characteristic's
@@ -2750,7 +2755,8 @@ def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None
 
     Args:
         state: The crate state.
-        entity_id: One ``CellLineSample`` to look at; every one when omitted.
+        entity_id: One ``CellLineSample`` or ``Sample`` to look at; every one
+            when omitted.
 
     Returns:
         ``{"found": [...], "not_found": [...], "unavailable": [...]}``, each item
@@ -2760,14 +2766,14 @@ def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None
         ValueError: If *entity_id* names no entity.
     """
     if not entity_id:  # a model that fills an optional argument with "" names nothing
-        sources = state.list_entities("CellLineSample")
+        sources = [e for kind in _CELLS for e in state.list_entities(kind)]
     else:
         from builder.tools.management import entity_not_found_message, resolve_entity_id
 
         named = state.get_entity(resolve_entity_id(state, entity_id))
         if named is None:
             raise ValueError(entity_not_found_message(state, entity_id))
-        sources = [named] if named.type == "CellLineSample" else []
+        sources = [named] if named.type in _CELLS else []
 
     answers: dict[tuple[str, str], dict[str, Any]] = {}
     outcome: dict[str, list[dict[str, Any]]] = {"found": [], "not_found": [], "unavailable": []}

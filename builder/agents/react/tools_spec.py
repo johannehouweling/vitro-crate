@@ -179,13 +179,13 @@ TOOL_SPECS = [
     },
     {
         "name": "resolve_characteristic_terms",
-        "description": "Give each stated organ, tissue and cell type of the cell sources the ontology term that word names: UBERON for an organ or a tissue, the Cell Ontology for a cell type. The stated word stays the value. The term is added beside it only when the word is the label of exactly one term of the ontology, or one of its exact synonyms (a plural counts as its singular), and the crate then writes it as the characteristic's valueReference. A word that names no term stays as it is, which is a final answer: never reword a value to obtain a term, and never write organ_term, tissue_term or cell_type_term yourself (D5). resolve_cell_line already does this for the hints it is given, so call this only after you set or change organ, tissue or cell_type on a CellLineSample another way. Idempotent. Returns {found, not_found, unavailable}, each a list of {entity_id, field, value}; 'unavailable' means the service could not be reached, and a later call asks again. Example: resolve_characteristic_terms().",
+        "description": "Give each stated organ, tissue and cell type of the cell sources, and of samples of cells made from them, the ontology term that word names: UBERON for an organ or a tissue, the Cell Ontology for a cell type. The stated word stays the value. The term is added beside it only when the word is the label of exactly one term of the ontology, or one of its exact synonyms (a plural counts as its singular), and the crate then writes it as the characteristic's valueReference. A word that names no term stays as it is, which is a final answer: never reword a value to obtain a term, and never write organ_term, tissue_term or cell_type_term yourself (D5). resolve_cell_line already does this for the hints it is given, so call this only after you set or change organ, tissue or cell_type on a CellLineSample or Sample another way. Idempotent. Returns {found, not_found, unavailable}, each a list of {entity_id, field, value}; 'unavailable' means the service could not be reached, and a later call asks again. Example: resolve_characteristic_terms().",
         "parameters": {
             "type": "object",
             "properties": {
                 "entity_id": {
                     "type": "string",
-                    "description": "Optional id of one CellLineSample; every cell source when omitted.",
+                    "description": "Optional id of one CellLineSample or Sample; every one when omitted.",
                 },
             },
         },
