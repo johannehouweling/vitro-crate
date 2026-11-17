@@ -1334,6 +1334,17 @@ Violation severity, so a compound cannot be the Exposure's input. The SOPs name 
 compound, so they stay reusable with other chemicals; the record names this run's
 compounds, and the per-well condition table — a data file `about` the exposed
 `Sample`s — states which well got which compound at which dose.
+
+A readout's **substrate** that is a chemical (the labelled hormone an uptake assay
+measures) is a compound of its own too, and no test chemical. It is resolved with
+`resolve_compound` like any compound, so its CAS and CID come from the lookup, and
+the EndpointReadout names it under `reagents`: the build lists it as a `reagent` of
+the readout's protocol record, while `substrate` stays the name as stated, the
+step's `Substrate` parameter. `link(readout, input, compound)` lands there
+(`provenance._PROCESS_LINK_HOMES`), and a compound a readout holds is used, so the
+export does not wire it onto the Exposure. The plan marks one with
+`compounds[].role = "substrate"`; the pipeline resolves it only when the crate has
+a readout to hold it.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
@@ -3063,6 +3074,8 @@ what the deposit states:
   named counts only where the deposit places none (#789);
 - on the Exposure, `reagent`: the compounds it applied, at least one (the tox
   profile's Violation);
+- on any step, `reagent` also lists the compounds it names under `reagents`: a
+  readout's substrate;
 - its `name`, `description` and `url` from what the lab stated about the step: the
   protocol the drafter recorded (`draft_protocol` with a name and description, or the
   plan's `protocols[]`), which is no crate node of its own (#789). Without one the

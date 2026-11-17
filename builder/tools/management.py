@@ -44,6 +44,7 @@ _COLLECTION_REF_FIELDS: frozenset[str] = frozenset(
         "author",
         "mentions",
         "chemicals",
+        "reagents",
         "cell_lines",
         "biological_models",
         "biologicalModels",

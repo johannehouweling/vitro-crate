@@ -325,8 +325,12 @@ def _plan_schema() -> dict[str, Any]:
                     "name": {**str_field, "description": "Compound name only (no identifiers)."},
                     "role": {
                         "type": "string",
-                        "enum": ["test", "control"],
-                        "description": "Whether the compound is the test article or a control.",
+                        "enum": ["test", "control", "substrate"],
+                        "description": (
+                            "Whether the compound is the test article, a control, or the "
+                            "substrate a readout measures (e.g. the labelled hormone of an "
+                            "uptake assay), which the cells are not exposed to as a test."
+                        ),
                     },
                 },
                 required=["name"],

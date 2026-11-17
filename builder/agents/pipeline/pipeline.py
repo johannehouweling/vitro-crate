@@ -1995,6 +1995,19 @@ def _materialize_plan(
     # Collect each resolved MolecularEntity id so the test compounds can be WIRED
     # into the Exposure below (#273) — without this they are graph orphans.
     compound_ids: list[str] = []
+    # The compounds a readout measures rather than the cells are exposed to (its
+    # substrate), by entity id with the name the plan gives each. They are the
+    # reagents of the readout's protocol record and never the Exposure's
+    # chemicals, so one is only resolved when there is a readout to hold it.
+    substrates: dict[str, str] = {}
+    readout_id = next(
+        (
+            str(step.get("process_id"))
+            for step in chain_steps_summary
+            if step.get("process_type") == "EndpointReadout" and step.get("process_id")
+        ),
+        None,
+    )
     # Fetch every compound's lookups in parallel first (#821): one at a time they
     # were most of a run. The loop then creates the entities from warm caches.
     prefetch_compound_lookups(
@@ -2008,6 +2021,12 @@ def _materialize_plan(
         name = str((compound or {}).get("name") or "").strip()
         if not name:
             continue
+        is_substrate = str((compound or {}).get("role") or "").strip().lower() == "substrate"
+        if is_substrate and readout_id is None:
+            logger.info(
+                "%s is a readout's substrate, and the crate has no readout to hold it.", name
+            )
+            continue
         try:
             # D5: only the NAME is passed; identifiers come from the lookup.
             resolved = engine.run_tool("resolve_compound", name=name)
@@ -2019,7 +2038,9 @@ def _materialize_plan(
         # on a miss (which mints no entity, so there is nothing to wire). Capture
         # the id (PubChem AND ChEBI hits alike) for the Exposure/Study linking.
         cid = resolved.get("entity_id") if isinstance(resolved, dict) else None
-        if cid:
+        if cid and is_substrate:
+            substrates[str(cid)] = name
+        elif cid:
             compound_ids.append(str(cid))
 
     # --- cell lines: resolve_cell_line mints the CellLineSample + its accession ---
@@ -2077,6 +2098,16 @@ def _materialize_plan(
         exposure_id = exposure_step.get("process_id") if exposure_step else None
         if exposure_id:
             _set_ref_field(engine, str(exposure_id), "chemicals", compound_ids)
+    if substrates and readout_id is not None:
+        held: dict[str, Any] = {"reagents": list(substrates)}
+        readout = engine.state.get_entity(readout_id)
+        if readout is not None and not readout.fields.get("substrate"):
+            # The name the plan gives it, unless the readout already names its substrate.
+            held["substrate"] = ", ".join(substrates.values())
+        try:
+            engine.run_tool("set_fields", entity_id=readout_id, fields=held)
+        except Exception as exc:  # noqa: BLE001 - a wiring failure must not break the spine
+            logger.warning("The readout's substrate was not wired: %s", exc)
 
     # --- payload descriptions: say what each file CONTAINS ---------------------
     # The largest single gap in a real report ("Add a description for … and 40
