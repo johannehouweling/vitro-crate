@@ -1874,6 +1874,8 @@ def _add_leaves(
                 crate,
                 identifier=_mint_id(s),
                 name=str(s.fields.get("name", "")),
+                # Cells made from a line state a cell type and a tissue of their own.
+                additionalProperty=_cell_line_characteristics(crate, s) or None,
                 properties=_scalar_props(s, skip=("name",)) or None,
             ),
         )
@@ -2575,10 +2577,12 @@ def _cultured_line_label(crate: ROCrate, sample: Any) -> str:
     The cell line's own name where the cultured sample derives from exactly one —
     "Exposed (SK-N-AS)" is how the lab says it, where the line's ``@id`` would say
     ``CVCL_1700``. Falls back to the sample's name when the lineage names none or
-    several, which is honest rather than a guess.
+    several, which is honest rather than a guess. Cells that state what they are
+    (a population made from a line) go by their own name: two populations of one
+    line would otherwise both be called after it.
     """
     lineage = _child_ids(sample, "derivesFrom") if sample is not None else []
-    if len(lineage) == 1:
+    if len(lineage) == 1 and not _child_ids(sample, "additionalProperty"):
         line = crate.dereference(str(lineage[0]))
         if line is not None:
             label = _node_label(line)

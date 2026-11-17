@@ -856,6 +856,105 @@ def _find_or_draft_organization(engine: AgentEngine, name: str) -> str | None:
     return getattr(org, "entity_id", None)
 
 
+def _lines_cells_were_made_from(cell_lines: list[Any]) -> dict[str, str]:
+    """For each cell source of the plan that was made from a line: that line's name.
+
+    The plan says so with ``made_from``. It also follows where two differently
+    named sources give one ``catalog_name``: they cannot both be that one
+    catalogued line, so they are populations made from it (two cell types
+    differentiated from one iPSC line). Keyed by the source's name, casefolded.
+    """
+    entries = [
+        (
+            str(entry.get("name") or "").strip(),
+            " ".join(str(entry.get("made_from") or "").split()),
+            " ".join(str(entry.get("catalog_name") or "").split()),
+        )
+        for entry in cell_lines
+        if isinstance(entry, dict)
+    ]
+    shared: dict[str, set[str]] = {}
+    for name, _line, catalogue in entries:
+        if name and catalogue:
+            shared.setdefault(catalogue.casefold(), set()).add(name.casefold())
+    found: dict[str, str] = {}
+    for name, line, catalogue in entries:
+        if not name:
+            continue
+        if line:
+            found[name.casefold()] = line
+        elif catalogue and len(shared[catalogue.casefold()]) > 1:
+            found[name.casefold()] = catalogue
+    return found
+
+
+# What a preparation step says of itself. Everything else it states (its medium,
+# its type) holds for each population it is repeated for.
+_STEP_OWN_FIELDS: frozenset[str] = frozenset(
+    {"name", "process_type", "assay_id", "cell_line", "result", "output", "object", "input"}
+)
+
+
+def _prepare_populations(
+    engine: AgentEngine, step_id: str, populations: list[tuple[str, str]]
+) -> None:
+    """Give each population of cells the preparation step that made it from its line.
+
+    The chain is drafted with one preparation step and a stand-in for what it
+    makes. That step makes the first population; each further one gets a step of
+    its own with what the first states, and whatever consumed the stand-in
+    consumes all of them. Each step is named after what it makes.
+    """
+    from builder.tools.management import find_referrers
+
+    state = engine.state
+    step = state.get_entity(step_id)
+    if step is None:
+        return
+    assay_id = step.fields.get("assay_id")
+    stated = {k: v for k, v in step.fields.items() if k not in _STEP_OWN_FIELDS and v is not None}
+    base = str(step.fields.get("name") or "Preparation")
+    stand_ins = [str(v) for v in _as_list(step.fields.get("result"))]
+    made = [sample_id for _line, sample_id in populations]
+
+    def named(sample_id: str) -> str:
+        sample = state.get_entity(sample_id)
+        return f"{base}: {sample.fields.get('name') if sample else sample_id}"
+
+    try:
+        for index, (line_id, sample_id) in enumerate(populations):
+            if index == 0:
+                engine.run_tool(
+                    "set_fields",
+                    entity_id=step_id,
+                    fields={"name": named(sample_id), "cell_line": line_id, "result": sample_id},
+                )
+                continue
+            hints = {**stated, "name": named(sample_id), "cell_line": line_id, "result": sample_id}
+            engine.run_tool(
+                "draft_process",
+                assay_id=assay_id,
+                process_type="TestSystemPreparation",
+                hints=hints,
+            )
+        for stand_in in stand_ins:
+            if stand_in in made:
+                continue
+            for referrer, field in find_referrers(state, stand_in):
+                kept = [v for v in _as_list(referrer.fields.get(field)) if v != stand_in]
+                _set_ref_field(engine, referrer.entity_id, field, [*kept, *made])
+            engine.run_tool("remove_entity", entity_id=stand_in)
+    except Exception as exc:  # noqa: BLE001 - a wiring failure must not break the spine
+        logger.warning("The preparation steps of the cell populations were not wired: %s", exc)
+
+
+def _as_list(value: Any) -> list[Any]:
+    """A field's value as a list: one reference, several, or none."""
+    if value in (None, ""):
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
 def _set_ref_field(
     engine: AgentEngine,
     entity_id: str,
@@ -2029,6 +2128,10 @@ def _materialize_plan(
     # the cell line can be wired into the TestSystemPreparation (and Study) below (#273)
     # rather than left orphaned.
     cell_line_ids: list[str] = []
+    # Cells made from a line, as (line id, sample id): each gets a preparation
+    # step of its own below, from that line.
+    populations: list[tuple[str, str]] = []
+    made_from = _lines_cells_were_made_from(plan.get("cell_lines") or [])
     for cell_line in plan.get("cell_lines") or []:
         name = str((cell_line or {}).get("name") or "").strip()
         if not name:
@@ -2042,11 +2145,11 @@ def _materialize_plan(
         hints = {
             k: v for k in ("source_kind", "taxonomicRange", "cell_type") if (v := cell_line.get(k))
         }
+        line = made_from.get(name.casefold())
+        named = {"made_from": line} if line else {"catalog_name": catalog_name or None}
         try:
             # D5: only NAMES are passed; the accession comes from the lookup.
-            resolved = engine.run_tool(
-                "resolve_cell_line", name=name, catalog_name=catalog_name or None, hints=hints
-            )
+            resolved = engine.run_tool("resolve_cell_line", name=name, hints=hints, **named)
             result["cell_lines"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning("resolve_cell_line failed for %r: %s", name, exc)
@@ -2054,7 +2157,11 @@ def _materialize_plan(
         # resolve_cell_line ALWAYS mints (a miss is not a failure — a name-only
         # CellLineSample is a valid ISA Sample), so there is always an id to wire.
         cid = resolved.get("entity_id") if isinstance(resolved, dict) else None
-        if cid:
+        line_id = resolved.get("line_id") if isinstance(resolved, dict) else None
+        if cid and line_id:
+            populations.append((str(line_id), str(cid)))
+            cid = line_id
+        if cid and str(cid) not in cell_line_ids:
             cell_line_ids.append(str(cid))
 
     # --- wire resolved compounds + cell line into the provenance (#273) ---------
@@ -2115,6 +2222,8 @@ def _materialize_plan(
         if culture_id:
             # TestSystemPreparation consumes ONE cell line; use the first resolved one.
             _set_ref_field(engine, str(culture_id), "cell_line", cell_line_ids[0])
+            if populations:
+                _prepare_populations(engine, str(culture_id), populations)
 
     # Surface both on the scaffolded Study via schema:mentions so every resolved
     # entity is reachable from the backbone (no orphan).

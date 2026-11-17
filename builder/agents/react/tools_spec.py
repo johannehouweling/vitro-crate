@@ -165,6 +165,10 @@ TOOL_SPECS = [
                     "type": "string",
                     "description": "Optional SHORT catalogue name for the same line, e.g. 'FRTL-5' or 'HepG2' — a name, never an accession. Tried after the full name so a descriptive phrase can still reach its record.",
                 },
+                "made_from": {
+                    "type": "string",
+                    "description": "Only for cells that were MADE FROM a catalogued line and are not that line itself, e.g. one of two cell types differentiated from one iPSC line: the short catalogue name of that line. The line is then the cell line and carries the accession, and the named cells become a Sample made from it that states its own cell_type, tissue and organ (pass them in hints). The result gives the Sample as entity_id and the line as line_id: give each such population its own TestSystemPreparation step with cell_line set to the line_id and that Sample as its result. Two populations of one line are never two names for it, so do not pass one catalog_name for both. A name, never an accession.",
+                },
                 "verify": {
                     "type": "boolean",
                     "description": "Confirm the accession against its Cellosaurus record (default true). Passing false also skips the record fetch, so no enrichment lands — use only when you will verify later.",

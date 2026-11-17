@@ -351,6 +351,20 @@ def _plan_schema() -> dict[str, Any]:
                             "e.g. 'FRTL-5' or 'HepG2'. A name, never an accession."
                         ),
                     },
+                    # Cells that were made from a line are not that line: two cell
+                    # types differentiated from one iPSC line share its accession,
+                    # and read as "the same line" they became one entity (S-VHPS17).
+                    "made_from": {
+                        **str_field,
+                        "description": (
+                            "Only for cells that were MADE FROM a catalogued line and are "
+                            "not that line, e.g. a cell type differentiated from an iPSC "
+                            "line: the short catalogue name of the line they were made "
+                            "from. The line then carries the record and these cells are a "
+                            "sample made from it. A name, never an accession. Leave out "
+                            "for the line itself."
+                        ),
+                    },
                     "source_kind": {
                         "type": "string",
                         "enum": ["cell line", "primary cells"],
