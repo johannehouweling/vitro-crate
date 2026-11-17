@@ -103,6 +103,9 @@ _REF_FIELDS = frozenset(
         "author",
         "mentions",
         "chemicals",
+        # The compounds a step's protocol applied that are no test article: the
+        # substrate a readout measures. Reagents of its protocol record.
+        "reagents",
         "cell_lines",
         "biological_models",
         "biologicalModels",
@@ -275,6 +278,14 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "chemicals": (
                 "Exposure: MolecularEntity id(s) the cells are exposed to; the "
                 "reagents of its protocol record."
+            ),
+            "reagents": (
+                "EndpointReadout: MolecularEntity id(s) of its substrate, when the "
+                "substrate is a chemical (the labelled hormone an uptake assay "
+                "measures). Resolve it with resolve_compound first: it becomes a reagent "
+                "of the readout's protocol record and carries the identifiers, while "
+                "`substrate` keeps the name as the documents state it. Never a test "
+                "chemical: those are the Exposure's `chemicals`."
             ),
             "labprotocol": "LabProtocol id(s) the step's protocol record is based on.",
         },
@@ -3696,8 +3707,11 @@ def _build_process(
     obj = _resolve_many(idx, f.get("object")) or _resolve_many(idx, f.get("input"))
     result = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
     chems = _resolve_many(idx, f.get("chemicals")) if ptype == "Exposure" else []
+    # What the step's protocol applied: the compounds an Exposure exposed the
+    # cells to, and any other reagent a step names (a readout's substrate).
+    reagents = [*chems, *_resolve_many(idx, f.get("reagents"))]
     protocol = _protocol_record(
-        crate, pid, ptype, name, documents, chems, reserved, stated, f.get("preparation_type")
+        crate, pid, ptype, name, documents, reagents, reserved, stated, f.get("preparation_type")
     )
 
     if ptype == "TestSystemPreparation":

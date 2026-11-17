@@ -428,6 +428,9 @@ for this step:
 |Assay Kit|MAY|`http://www.bioassayontology.org/bao#BAO_0000248`|
 |Substrate|MAY|`http://www.bioassayontology.org/bao#BAO_0003063`|
 
+A substrate that is a chemical is also a `reagent` of the step's [protocol record](#labprotocol---protocol-record):
+a MolecularEntity that carries its identifiers, while the `Substrate` parameter keeps its name as stated.
+
 > **Note:** `propertyID` IRIs are given in each ontology's native canonical form (OBO Foundry PURLs, EFO under
 > `www.ebi.ac.uk/efo/`, BAO under `www.bioassayontology.org/bao#`) rather than routed through a single resolver.
 

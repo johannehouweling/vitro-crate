@@ -64,6 +64,9 @@ _OUTPUT_REQUIRED_TYPES = frozenset({"EndpointReadout", "DataAnalysis"})
 # Mirrors composites._DOMAIN_WIRING.
 _PROCESS_LINK_HOMES: dict[tuple[str, str], str] = {
     ("MolecularEntity", "Exposure"): "chemicals",
+    # A compound a readout consumes is its substrate: a reagent of its protocol
+    # record, never a test chemical of the exposure.
+    ("MolecularEntity", "EndpointReadout"): "reagents",
     ("CellLineSample", "TestSystemPreparation"): "cell_line",
 }
 
