@@ -486,6 +486,39 @@ _ASSAY_MENTION_FIELDS = {
     "key_events": "keyEvent",
     "mentions": "mentions",
 }
+# The properties that link a pathway to its events and one event to another. The
+# crate describes the pathway a Study addresses and the key events an Assay
+# measures; the rest of a pathway is on AOP-Wiki, at each entity's address, so
+# none of these is written.
+AOP_LINK_FIELDS: tuple[str, ...] = (
+    "has_molecular_initiating_event",
+    "has_key_event",
+    "has_adverse_outcome",
+    "has_key_event_relationship",
+    "upstream_event",
+    "downstream_event",
+)
+
+
+def _measured_key_events(state: CrateState) -> list[Entity]:
+    """The KeyEvent entities an Assay names as what it measures, in state order.
+
+    Read from the Assay's mention fields through the resolver the build wires
+    them with, so a key event is written exactly when an Assay's reference
+    reaches it.
+    """
+    events: dict[str, Any] = {}
+    for event in state.list_entities("KeyEvent"):
+        _idx_add(events, event, event)
+    named = [
+        event
+        for assay in state.list_entities("Assay")
+        for field in _ASSAY_MENTION_FIELDS
+        for event in _resolve_many(events, assay.fields.get(field))
+    ]
+    return [event for event in state.list_entities("KeyEvent") if any(event is n for n in named)]
+
+
 # The ontology whose own terms name what a characteristic states: an organ or a
 # tissue is an UBERON structure, a cell type a CL cell. The word the documents use
 # stays the value; `composites.resolve_characteristic_terms` adds the term that
@@ -1909,13 +1942,14 @@ def _add_leaves(
             ),
         )
 
-    # AOP-Wiki subgraph nodes (Issue #180). Each is a contextual entity typed by
-    # its own AOP class (AdverseOutcomePathway / KeyEvent / KeyEventRelationship)
-    # whose @id is the resolvable AOP-Wiki IRI. Their link properties
-    # (has_*/upstream_event/downstream_event) are already {"@id": …} reference
-    # objects pointing at sibling AOP node @ids, so the subgraph is cross-linked
-    # verbatim — no fabricated ids (D5). They are kept out of _REF_FIELDS so
-    # _scalar_props preserves them rather than stripping them as resolver inputs.
+    # The pathway a Study addresses and the key events an Assay measures (Issue
+    # #180). Each is a contextual entity typed by its own AOP class
+    # (AdverseOutcomePathway / KeyEvent) whose @id is the resolvable AOP-Wiki IRI,
+    # with the facts the lookup gave for it — no fabricated ids (D5). The rest of
+    # a pathway is on AOP-Wiki at that IRI and is not written, whatever the state
+    # holds: a key event no Assay names, a KeyEventRelationship, and the
+    # properties that link a pathway to its events and one event to another
+    # (AOP_LINK_FIELDS).
     #
     # Each also carries schema:DefinedTerm, exactly as the csvw:Column nodes do.
     # The AOP classes resolve to AOPO, http://aopkb.org/aop_ontology#… (profiles/context.py),
@@ -1928,8 +1962,8 @@ def _add_leaves(
     # so this states what the node already is, under a term the base profile
     # reads. The AOP class stays first and unchanged, so the tox and ISA shapes
     # that match on it are untouched.
-    for aop_type in ("AdverseOutcomePathway", "KeyEvent", "KeyEventRelationship"):
-        for aop_entity in state.list_entities(aop_type):
+    for aop_entities in (state.list_entities("AdverseOutcomePathway"), _measured_key_events(state)):
+        for aop_entity in aop_entities:
             _idx_add(
                 idx,
                 aop_entity,
@@ -1939,7 +1973,7 @@ def _add_leaves(
                         _mint_id(aop_entity),
                         properties={
                             "@type": [aop_entity.type, "schema:DefinedTerm"],
-                            **_scalar_props(aop_entity),
+                            **_scalar_props(aop_entity, skip=AOP_LINK_FIELDS),
                         },
                     )
                 ),

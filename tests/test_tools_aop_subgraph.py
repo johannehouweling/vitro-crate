@@ -96,6 +96,34 @@ def _by_type(state: CrateState, type_name: str) -> list:
     return [e for e in state.list_entities() if e.type == type_name]
 
 
+# The properties that link a pathway to its events and one event to another.
+_LINK_PROPERTIES = frozenset(
+    {
+        "has_molecular_initiating_event",
+        "has_key_event",
+        "has_adverse_outcome",
+        "has_key_event_relationship",
+        "upstream_event",
+        "downstream_event",
+    }
+)
+
+
+def _typed(node: dict, wanted: str) -> bool:
+    """Whether *node* carries *wanted* among its types, prefixed or not."""
+    raw = node.get("@type")
+    values = raw if isinstance(raw, list) else [raw]
+    return any(str(v).split(":")[-1] == wanted for v in values if v)
+
+
+def _graph(state: CrateState) -> list[dict]:
+    from builder.tools.builder import assemble_crate
+
+    return assemble_crate(
+        state, materialize_payload=False, include_all_scanned=False
+    ).metadata.generate()["@graph"]
+
+
 class TestMaterializeState:
     def test_materializes_typed_entities(self):
         state = CrateState()
@@ -186,50 +214,38 @@ class TestMaterializeState:
 
 
 class TestMaterializeBuild:
-    def test_graph_contains_cross_linked_subgraph(self):
+    def test_graph_contains_the_pathway_and_nothing_else_of_it(self):
         state = CrateState()
         materialize_aop_subgraph(state, "610")
         report = build_and_validate(state)
         # The build itself succeeds (no exception → report has conformance).
         assert "conformance" in report
 
-        from builder.tools.builder import assemble_crate
+        graph = _graph(state)
 
-        graph = assemble_crate(
-            state, materialize_payload=False, include_all_scanned=False
-        ).metadata.generate()["@graph"]
-
-        # Membership, not equality: each AOP node carries its AOP class AND
+        # Membership, not equality: the AOP node carries its AOP class AND
         # schema:DefinedTerm, because the AOP classes resolve to
         # aopkb.org/aop_ontology#… and the base profile asks a described contextual
         # entity for a schema.org type. The AOP class stays first.
-        def _typed(node, wanted):
-            types = node.get("@type")
-            return wanted in (types if isinstance(types, list) else [types])
-
         aop = next(n for n in graph if _typed(n, "AdverseOutcomePathway"))
-        kes = [n for n in graph if _typed(n, "KeyEvent")]
-        kers = [n for n in graph if _typed(n, "KeyEventRelationship")]
         assert aop["@type"][0] == "AdverseOutcomePathway"
         assert "schema:DefinedTerm" in aop["@type"]
-        assert len(kes) == 4
-        assert len(kers) == 3
 
-        # The AOP @id is the resolvable AOP-Wiki IRI and its has_* arrays point at
-        # the KeyEvent / KER node @ids (cross-linked, not fabricated).
+        # The AOP @id is the resolvable AOP-Wiki IRI, and the node carries its own
+        # facts: every value below is the fixture's.
         assert aop["@id"] == "https://aopwiki.org/aops/610"
-        ke_ids = {n["@id"] for n in kes}
-        ker_ids = {n["@id"] for n in kers}
-        mies = aop["has_molecular_initiating_event"]
-        mie_targets = {r["@id"] for r in (mies if isinstance(mies, list) else [mies])}
-        assert mie_targets <= ke_ids
-        ker_targets = {r["@id"] for r in aop["has_key_event_relationship"]}
-        assert ker_targets == ker_ids
+        assert aop["identifier"] == "610"
+        assert aop["url"] == "https://aopwiki.org/aops/610"
+        assert aop["alternateName"] == "MC-I inhibition to Parkinsonism"
+        assert "parkinsonian motor deficits" in aop["name"]
 
-        # Each KER links upstream/downstream KeyEvent @ids.
-        ker = kers[0]
-        assert ker["upstream_event"]["@id"] in ke_ids
-        assert ker["downstream_event"]["@id"] in ke_ids
+        # The rest of the pathway stays on AOP-Wiki: no assay names a key event
+        # here, so the graph describes none, and nothing links the pathway to one.
+        assert [n for n in graph if _typed(n, "KeyEvent")] == []
+        assert [n for n in graph if _typed(n, "KeyEventRelationship")] == []
+        assert not _LINK_PROPERTIES & set(aop)
+        assert "aopwiki.org/events" not in json.dumps(graph)
+        assert "aopwiki.org/relationships" not in json.dumps(graph)
 
 
 class TestMaterializeStudyWiring:
@@ -303,12 +319,12 @@ class TestMaterializeStudyWiring:
         assert "aop" not in viability.fields
 
 
-class TestTheSubgraphSurvivesExport:
+class TestThePathwaySurvivesExport:
     """Read the bytes, not a reader.
 
     This asserted build → read → build through ``readers.existing_crate``, which had
     no production caller and did not round-trip a real crate (#711). What the test was
-    really for is that the subgraph reaches the file a third party opens, so it now
+    really for is that the pathway reaches the file a third party opens, so it now
     reads ``ro-crate-metadata.json`` itself — the same claim, one layer closer to it,
     and it fails if export drops a node rather than if a private reader does.
     """
@@ -316,17 +332,9 @@ class TestTheSubgraphSurvivesExport:
     @staticmethod
     def _nodes(graph: list[dict], type_name: str) -> list[dict]:
         """Nodes of *type_name*, tolerating a list ``@type`` and a prefixed term."""
-        out = []
-        for node in graph:
-            raw = node.get("@type")
-            values = raw if isinstance(raw, list) else [raw]
-            if any(str(v).split(":")[-1] == type_name for v in values if v):
-                out.append(node)
-        return out
+        return [node for node in graph if _typed(node, type_name)]
 
-    def test_the_written_crate_carries_the_whole_subgraph(self, tmp_path):
-        import json
-
+    def test_the_written_crate_carries_the_pathway_alone(self, tmp_path):
         from builder.tools.builder import export_crate
 
         state = CrateState()
@@ -335,15 +343,160 @@ class TestTheSubgraphSurvivesExport:
 
         doc = json.loads((tmp_path / "crate" / "ro-crate-metadata.json").read_text())
         graph = doc["@graph"]
-        # The AOP-610 fixture is 1 MIE + 2 KE + 1 AO + 3 relationships.
+        # The AOP-610 fixture is 1 MIE + 2 KE + 1 AO + 3 relationships, and none of
+        # the seven is in the file: no assay names an event of it.
         assert len(self._nodes(graph, "AdverseOutcomePathway")) == 1
-        assert len(self._nodes(graph, "KeyEvent")) == 4
-        assert len(self._nodes(graph, "KeyEventRelationship")) == 3
+        assert self._nodes(graph, "KeyEvent") == []
+        assert self._nodes(graph, "KeyEventRelationship") == []
         # The AOP keeps its resolvable IRI as its @id — not a minted '#' anchor, which
         # is what makes it citable outside this crate.
-        assert self._nodes(graph, "AdverseOutcomePathway")[0]["@id"] == (
-            "https://aopwiki.org/aops/610"
+        pathway = self._nodes(graph, "AdverseOutcomePathway")[0]
+        assert pathway["@id"] == "https://aopwiki.org/aops/610"
+        assert not _LINK_PROPERTIES & set(pathway)
+
+
+class TestTheWriterLeavesTheRestOfAPathwayOut:
+    """Whatever a session holds, the crate carries a pathway and the key events an assay names.
+
+    A session saved while the builder stored a whole pathway holds every key event,
+    every key event relationship and the properties that link them. Such a session
+    is left as it is, so the writer is where the rule holds.
+    """
+
+    _PATHWAY = "https://aopwiki.org/aops/610"
+    _MEASURED = "https://aopwiki.org/events/177"
+
+    def _saved_session(self, **assay_fields) -> CrateState:
+        """A session saved with the whole of AOP 610, read back from its saved form.
+
+        Every node of the lookup's answer is stored under its AOP-Wiki address with
+        every field it carries, which is what the builder stored then.
+        """
+        from builder.state import Entity, EntityProvenance
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "Saved with the whole pathway"
+        scaffold_isa_backbone(
+            state,
+            investigation={"name": "I"},
+            study={"name": "S", "aop": [{"@id": self._PATHWAY}]},
+            assay={"name": "Complex I activity assay", **assay_fields},
         )
+        answer = aopwiki.lookup_aop("610")
+        for node in (answer["aop"], *answer["events"], *answer["relationships"]):
+            entity = Entity(
+                entity_id=node["@id"],
+                type=node["@type"],
+                _provenance=EntityProvenance(created_by="lookup"),
+            )
+            entity.set_fields_from_dict(
+                {k: v for k, v in node.items() if k not in ("@id", "@type")}, source="lookup"
+            )
+            state.add_entity(entity)
+        return CrateState.from_dict(state.to_dict())
+
+    def test_the_session_holds_the_whole_pathway(self):
+        # The control for every test below: the rest of the pathway is there to be
+        # left out, links included.
+        state = self._saved_session(keyEvent={"@id": self._MEASURED})
+
+        assert len(_by_type(state, "KeyEvent")) == 4
+        assert len(_by_type(state, "KeyEventRelationship")) == 3
+        assert _LINK_PROPERTIES <= {
+            key for entity in state.list_entities() for key in entity.fields
+        }
+
+    def test_the_pathway_is_written_without_its_links(self):
+        graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
+
+        pathway = next(n for n in graph if n["@id"] == self._PATHWAY)
+        assert pathway["@type"] == ["AdverseOutcomePathway", "schema:DefinedTerm"]
+        assert pathway["identifier"] == "610"
+        assert pathway["alternateName"] == "MC-I inhibition to Parkinsonism"
+        assert not _LINK_PROPERTIES & set(pathway)
+
+    def test_only_the_key_event_an_assay_names_is_written(self):
+        graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
+
+        events = [n for n in graph if _typed(n, "KeyEvent")]
+        assert [n["@id"] for n in events] == [self._MEASURED]
+        # The measured event keeps its own facts, as the lookup gave them.
+        assert events[0]["@type"] == ["KeyEvent", "schema:DefinedTerm"]
+        assert events[0]["name"] == "Mitochondrial dysfunction"
+        assert events[0]["eventType"] == "Key Event"
+        assert events[0]["identifier"] == "177"
+        assert events[0]["short_name"] == "Event 177"
+
+    def test_no_relationship_and_no_link_property_is_written(self):
+        graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
+
+        assert [n for n in graph if _typed(n, "KeyEventRelationship")] == []
+        assert not [n["@id"] for n in graph if _LINK_PROPERTIES & set(n)]
+        assert "aopwiki.org/relationships" not in json.dumps(graph)
+
+    def test_nothing_written_points_at_an_event_left_out(self):
+        graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
+
+        written = json.dumps(graph)
+        for left_out in (888, 889, 890):
+            assert f"aopwiki.org/events/{left_out}" not in written
+
+    def test_the_study_and_the_assay_name_them_as_before(self):
+        graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
+
+        study = next(n for n in graph if n.get("additionalType") == "Study")
+        assay = next(n for n in graph if n.get("additionalType") == "Assay")
+        assert study["aop"] == {"@id": self._PATHWAY}
+        assert assay["keyEvent"] == {"@id": self._MEASURED}
+
+    @pytest.mark.parametrize(
+        ("field", "written_as"),
+        [
+            ("key_event", "keyEvent"),
+            ("keyEvent", "keyEvent"),
+            ("key_events", "keyEvent"),
+            ("mentions", "mentions"),
+        ],
+    )
+    def test_an_assay_names_its_key_event_under_any_of_its_fields(self, field, written_as):
+        graph = _graph(self._saved_session(**{field: self._MEASURED}))
+
+        assert [n["@id"] for n in graph if _typed(n, "KeyEvent")] == [self._MEASURED]
+        assay = next(n for n in graph if n.get("additionalType") == "Assay")
+        assert assay[written_as] == {"@id": self._MEASURED}
+
+    def test_an_assay_naming_two_key_events_gets_both(self):
+        both = [self._MEASURED, "https://aopwiki.org/events/888"]
+        graph = _graph(self._saved_session(keyEvent=[{"@id": i} for i in both]))
+
+        assert sorted(n["@id"] for n in graph if _typed(n, "KeyEvent")) == sorted(both)
+
+    def test_a_key_event_no_assay_names_is_not_written(self):
+        graph = _graph(self._saved_session())
+
+        assert [n for n in graph if _typed(n, "KeyEvent")] == []
+        assert [n["@id"] for n in graph if _typed(n, "AdverseOutcomePathway")] == [self._PATHWAY]
+
+    def test_the_session_is_left_as_it_is(self):
+        state = self._saved_session(keyEvent={"@id": self._MEASURED})
+        before = state.to_dict()["entities"]
+
+        _graph(state)
+
+        assert state.to_dict()["entities"] == before
+
+    def test_the_written_file_holds_the_same(self, tmp_path):
+        from builder.tools.builder import export_crate
+
+        state = self._saved_session(keyEvent={"@id": self._MEASURED})
+        export_crate(state, str(tmp_path / "crate"), validate=False)
+
+        graph = json.loads((tmp_path / "crate" / "ro-crate-metadata.json").read_text())["@graph"]
+        assert [n["@id"] for n in graph if _typed(n, "AdverseOutcomePathway")] == [self._PATHWAY]
+        assert [n["@id"] for n in graph if _typed(n, "KeyEvent")] == [self._MEASURED]
+        assert [n for n in graph if _typed(n, "KeyEventRelationship")] == []
+        assert not [n["@id"] for n in graph if _LINK_PROPERTIES & set(n)]
 
 
 class TestLinkAssayToKeyEvent:
