@@ -2713,7 +2713,7 @@ def resolve_cell_line(
         entity.fields.pop("accession", None)
 
     # The organ, tissue and cell type the caller stated, each with the term its
-    # ontology calls exactly that. Enrichment like the accession: never fatal.
+    # ontology has for that word. Enrichment like the accession: never fatal.
     try:
         resolve_characteristic_terms(state, entity.entity_id)
     except Exception:
@@ -2732,14 +2732,15 @@ def resolve_cell_line(
 
 
 def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None) -> dict[str, Any]:
-    """Give each stated organ, tissue and cell type the ontology term called exactly that.
+    """Give each stated organ, tissue and cell type the ontology term that word names.
 
     A source of cells states these in the documents' words ("Brain", "kidney
-    epithelial cell"), and the word stays the value. Where the ontology the
-    characteristic belongs to (:data:`CHARACTERISTIC_ONTOLOGIES`) has one term of
-    its own with exactly that label, the term is kept beside the word and the
-    build writes it as the characteristic's ``valueReference``. A word no term is
-    called stays alone: nothing is matched loosely and nothing is guessed (D5).
+    epithelial cell"), and the word stays the value. Where the word names one
+    term of the ontology the characteristic belongs to
+    (:data:`CHARACTERISTIC_ONTOLOGIES`), by its label or an exact synonym, the
+    term is kept beside the word and the build writes it as the characteristic's
+    ``valueReference``. A word that names no term stays alone: nothing is matched
+    loosely and nothing is guessed (D5).
 
     Each distinct word is asked about once per call. A term already confirmed for
     the word as it stands is not asked about again; any other term in the field,
@@ -2789,7 +2790,7 @@ def resolve_characteristic_terms(state: CrateState, entity_id: str | None = None
                 if not answer.get("found"):
                     outcome["unavailable" if answer.get("transient") else "not_found"].append(entry)
                     continue
-                term = dict(answer["data"])
+                term = {**answer["data"], "confirmedFor": word}
                 source.fields[held] = term
                 source.set_field_status(held, "verified", "lookup")
                 if "ols" not in source._provenance.lookups_used:

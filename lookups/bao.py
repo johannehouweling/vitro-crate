@@ -8,7 +8,8 @@ Measurement Ontology (UO) for quantities, and any other OLS-hosted ontology
 
 ``lookup_ontology_term`` is the generic primitive; ``lookup_bao_term`` and
 ``lookup_unit`` are thin, ontology-pinned wrappers over it. ``lookup_exact_term``
-answers the other question: the term that is called exactly a given word.
+answers the other question: the one term a given word names, by its label or an
+exact synonym.
 """
 
 from __future__ import annotations
@@ -78,15 +79,18 @@ def lookup_ontology_term(query: str, ontology: str, rows: int = 1) -> dict:
 
 @functools.lru_cache(maxsize=1024)
 def lookup_exact_term(label: str, ontology: str) -> dict:
-    """The one term of *ontology* that is called exactly *label*.
+    """The one term of *ontology* that the word *label* names.
 
     :func:`lookup_ontology_term` returns the best match for a description, and
     the search finds some term for nearly any word. This asks a narrower
-    question, the only one whose answer may stand beside a stated value: is a
-    term of this ontology called exactly this? The service is asked for an exact
-    label among the ontology's own, current terms, and the answer is checked
-    again here: the label is the word (case and spacing aside), the term belongs
-    to the ontology, and it is the only one.
+    question, the only one whose answer may stand beside a stated value: does
+    the word name a term of this ontology? It does when exactly one of the
+    ontology's own, current terms has it as its label, or else when exactly one
+    has it as a synonym the ontology itself marks as exact. A narrow, broad or
+    related synonym names something else and is not accepted. A plural that
+    names nothing is asked about once more as its singular ("Dopaminergic
+    neurons"). The service is asked for an exact match and the answer is checked
+    again here.
 
     Args:
         label: the word as stated, e.g. "Brain".
@@ -94,22 +98,31 @@ def lookup_exact_term(label: str, ontology: str) -> dict:
 
     Returns:
         dict with keys @id (term IRI), @type ("DefinedTerm"), name (the term's
-        label) and termCode (its CURIE). {} when no term, or more than one, is
-        called that. Raises TransientLookupError on a transient API failure.
+        label) and termCode (its CURIE). {} when the word names no term, or more
+        than one. Raises TransientLookupError on a transient API failure.
     """
     word = " ".join(str(label or "").split())
     if not word or not ontology:
         return {}
+    found = _named(word, ontology)
+    if not found and len(word) > 2 and word.endswith("s") and not word.endswith("ss"):
+        found = _named(word[:-1], ontology)
+    return found
+
+
+def _named(word: str, ontology: str) -> dict:
+    """The term of *ontology* whose label, or else whose exact synonym, is *word*."""
     data = http_get_json(
         _BASE,
         params={
             "q": word,
             "ontology": ontology,
             "exact": "true",
-            "queryFields": "label",
+            "queryFields": "label,synonym",
             "local": "true",
             "obsoletes": "false",
-            "rows": 5,
+            "rows": 20,
+            "fieldList": "iri,label,short_form,obo_id,exact_synonyms",
         },
     )
     response = data.get("response") if isinstance(data, dict) else None
@@ -120,18 +133,27 @@ def lookup_exact_term(label: str, ontology: str) -> dict:
         for doc in docs or []
         if isinstance(doc, dict)
         and doc.get("iri")
-        and " ".join(str(doc.get("label") or "").split()).casefold() == word.casefold()
+        and doc.get("label")
         and str(doc.get("short_form") or "").startswith(prefix)
     ]
-    if len({doc["iri"] for doc in own}) != 1:
+    wanted = _folded(word)
+    by_label = [doc for doc in own if _folded(doc["label"]) == wanted]
+    by_synonym = [doc for doc in own if wanted in map(_folded, doc.get("exact_synonyms") or [])]
+    named = by_label or by_synonym
+    if len({doc["iri"] for doc in named}) != 1:
         return {}
-    term = own[0]
+    term = named[0]
     return {
         "@id": term["iri"],
         "@type": "DefinedTerm",
         "name": " ".join(str(term["label"]).split()),
         "termCode": term.get("obo_id") or str(term["short_form"]).replace("_", ":", 1),
     }
+
+
+def _folded(text: object) -> str:
+    """*text* with case and spacing set aside, the way a name is compared."""
+    return " ".join(str(text or "").split()).casefold()
 
 
 def lookup_bao_term(query: str) -> dict:

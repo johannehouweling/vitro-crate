@@ -1,0 +1,66 @@
+{
+ "response": {
+  "docs": [
+   {
+    "iri": "http://purl.obolibrary.org/obo/UBERON_0002031",
+    "short_form": "UBERON_0002031",
+    "label": "epithelium of bronchus",
+    "obo_id": "UBERON:0002031",
+    "exact_synonyms": [
+     "bronchial epithelium",
+     "bronchus epithelium",
+     "bronchi epithelial tissue",
+     "bronchi epithelium",
+     "bronchial trunk epithelial tissue",
+     "bronchial trunk epithelium",
+     "bronchus epithelial tissue",
+     "epithelial tissue of bronchi",
+     "epithelial tissue of bronchial trunk",
+     "epithelial tissue of bronchus",
+     "epithelium of bronchi",
+     "epithelium of bronchial trunk"
+    ]
+   }
+  ],
+  "numFound": 1,
+  "start": 0
+ },
+ "responseHeader": {
+  "QTime": 0,
+  "status": 0
+ },
+ "facet_counts": {
+  "facet_fields": {
+   "ontologyPreferredPrefix": [
+    "UBERON",
+    "1"
+   ],
+   "isDefiningOntology": [
+    "true",
+    "1"
+   ],
+   "ontologyId": [
+    "uberon",
+    "1",
+    "emapa",
+    "1",
+    "bto",
+    "1",
+    "ncit",
+    "1"
+   ],
+   "ontologyIri": [
+    "http://purl.obolibrary.org/obo/uberon.owl",
+    "1"
+   ],
+   "isObsolete": [
+    "false",
+    "1"
+   ],
+   "type": [
+    "class",
+    "1"
+   ]
+  }
+ }
+}

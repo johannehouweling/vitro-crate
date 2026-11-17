@@ -405,10 +405,11 @@ def lookup_ontology_term(query: str, ontology: str) -> dict[str, Any]:
 
 
 def lookup_exact_term(label: str, ontology: str) -> dict[str, Any]:
-    """The term of an OLS4-hosted ontology that is called exactly *label*.
+    """The term of an OLS4-hosted ontology that the word *label* names.
 
-    Not a search: ``found`` is true only when the ontology has one term of its
-    own with that label, so the term may stand beside the word as stated. Not
+    Not a search: ``found`` is true only when the word is the label, or else an
+    exact synonym, of one term of the ontology's own (a plural counting as its
+    singular), so the term may stand beside the word as stated. Not
     cached here, because the client keeps every definitive answer and raises on
     an outage: a failure is asked about again.
 
@@ -418,7 +419,7 @@ def lookup_exact_term(label: str, ontology: str) -> dict[str, Any]:
 
     Returns:
         Standard lookup dict with keys:
-            found: True if exactly one term is called that.
+            found: True if the word names exactly one term.
             data: Dict with @id, @type, name, termCode keys.
             error: Error message or None on success.
             transient: True when the service could not be asked.
@@ -433,7 +434,7 @@ def lookup_exact_term(label: str, ontology: str) -> dict[str, Any]:
         return _failure(f"OLS lookup failed: {exc}", transient=True)
     if result.get("@id"):
         return _success(result)
-    return _failure(f"No '{ontology}' term is called '{label}'")
+    return _failure(f"'{label}' names no '{ontology}' term")
 
 
 @functools.lru_cache(maxsize=256)

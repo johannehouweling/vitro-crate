@@ -1,0 +1,63 @@
+{
+ "response": {
+  "docs": [
+   {
+    "iri": "http://purl.obolibrary.org/obo/CL_0000700",
+    "short_form": "CL_0000700",
+    "label": "dopaminergic neuron",
+    "obo_id": "CL:0000700",
+    "exact_synonyms": [
+     "dopaminergic cell"
+    ]
+   }
+  ],
+  "numFound": 1,
+  "start": 0
+ },
+ "responseHeader": {
+  "QTime": 0,
+  "status": 0
+ },
+ "facet_counts": {
+  "facet_fields": {
+   "ontologyPreferredPrefix": [
+    "CL",
+    "1"
+   ],
+   "isDefiningOntology": [
+    "true",
+    "1"
+   ],
+   "ontologyId": [
+    "fbbt",
+    "1",
+    "wbbt",
+    "1",
+    "cl",
+    "1",
+    "bto",
+    "1",
+    "mesh",
+    "1",
+    "zfa",
+    "1",
+    "plana",
+    "1",
+    "ecao",
+    "1"
+   ],
+   "ontologyIri": [
+    "http://purl.obolibrary.org/obo/cl.owl",
+    "1"
+   ],
+   "isObsolete": [
+    "false",
+    "1"
+   ],
+   "type": [
+    "class",
+    "1"
+   ]
+  }
+ }
+}
