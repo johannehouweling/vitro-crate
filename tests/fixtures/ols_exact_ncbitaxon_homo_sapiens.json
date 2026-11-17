@@ -1,0 +1,57 @@
+{
+ "response": {
+  "docs": [
+   {
+    "iri": "http://purl.obolibrary.org/obo/NCBITaxon_9606",
+    "short_form": "NCBITaxon_9606",
+    "label": "Homo sapiens",
+    "obo_id": "NCBITaxon:9606",
+    "exact_synonyms": [
+     "human"
+    ]
+   }
+  ],
+  "numFound": 1,
+  "start": 0
+ },
+ "responseHeader": {
+  "QTime": 0,
+  "status": 0
+ },
+ "facet_counts": {
+  "facet_fields": {
+   "ontologyPreferredPrefix": [
+    "NCBITaxon",
+    "1"
+   ],
+   "isDefiningOntology": [
+    "true",
+    "1"
+   ],
+   "ontologyId": [
+    "ncit",
+    "1",
+    "mesh",
+    "1",
+    "snomed",
+    "1",
+    "vto",
+    "1",
+    "ncbitaxon",
+    "1"
+   ],
+   "ontologyIri": [
+    "http://purl.obolibrary.org/obo/ncbitaxon.owl",
+    "1"
+   ],
+   "isObsolete": [
+    "false",
+    "1"
+   ],
+   "type": [
+    "class",
+    "1"
+   ]
+  }
+ }
+}

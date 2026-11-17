@@ -502,7 +502,14 @@ def term_field(field: str) -> str:
     return f"{field}_term"
 
 
-TERM_FIELDS: frozenset[str] = frozenset(map(term_field, CHARACTERISTIC_ONTOLOGIES))
+# The species of a source of cells is no characteristic: `taxonomicRange` holds a
+# term, as it does for a cell line whose record names the organism. The term
+# NCBITaxon has for a species stated in words is looked up the same way and is
+# then the property's value.
+SPECIES_FIELD = "taxonomicRange"
+STATED_TERM_ONTOLOGIES: dict[str, str] = {**CHARACTERISTIC_ONTOLOGIES, SPECIES_FIELD: "ncbitaxon"}
+
+TERM_FIELDS: frozenset[str] = frozenset(map(term_field, STATED_TERM_ONTOLOGIES))
 
 # Discriminator / id-source fields consumed structurally, never emitted as literals.
 _STRUCT_FIELDS = frozenset(
@@ -2030,9 +2037,11 @@ def _add_leaves(
         sample_type = _source_term(crate, str(cl.fields.get("source_kind")))
         characteristics = _cell_line_characteristics(crate, cl)
         # The organism a lookup returned is a term: written as its own
-        # DefinedTerm entity and referenced. A species given in words stays a string.
-        organism = cl.fields.get("taxonomicRange")
-        taxon = organism if isinstance(organism, dict) and organism.get("@id") else None
+        # DefinedTerm entity and referenced. A species given in words is written
+        # as the term a lookup confirmed for that word, and stays a string without one.
+        organism = cl.fields.get(SPECIES_FIELD)
+        recorded = isinstance(organism, dict) and organism.get("@id")
+        taxon = organism if recorded else confirmed_term(cl, SPECIES_FIELD)
         node = CellLineSample(
             crate,
             identifier=_mint_id(cl),

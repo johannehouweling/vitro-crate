@@ -1140,7 +1140,13 @@ returns the term only while that status holds and the field still states that
 word. A term a model or a person wrote, or one for an earlier wording, is
 therefore never written, and the composite removes it; the three fields are
 identifier fields (`field_kinds.IDENTIFIER_FIELDS`) and refused as
-`resolve_cell_line` hints. An unreachable service is no answer: the word is
+`resolve_cell_line` hints. The species a source of cells states in words is asked
+about the same way, in NCBITaxon (`_crate_mapping.STATED_TERM_ONTOLOGIES`). It is
+no characteristic: `taxonomicRange` holds a term for a cell line whose record
+names its organism, and the term confirmed for a stated species is written in
+its place the same way, so primary cells state "Homo sapiens" as the term every
+cell line states. Without a confirmed term the word stays.
+An unreachable service is no answer: the word is
 reported `unavailable` and asked about again on a later call. The composite runs
 at the end of `resolve_cell_line`, for what that call was told; once in the
 pipeline spine after the drafter (§14, step 4) and once more when the question
