@@ -196,3 +196,27 @@ class TestAChemicalTheWikiHasNoItemFor:
 
     def test_then_the_local_id(self):
         assert _mint_id(_chemical("chem_x", "Test item X")) == "#MolecularEntity_chem_x"
+
+
+class TestAChemicalIsNotTheSameAsItself:
+    """The by-name record of the wiki states its item as ``sameAs``."""
+
+    def test_the_link_is_left_out_when_the_item_is_the_address(self):
+        chem = _chemical(
+            "chem_caffeine", "Caffeine", wiki_id="Q2026", sameAs={"@id": WIKI + "Q2026"}
+        )
+        (node,) = _chemicals(_graph(_state(chem)))
+        assert node["@id"] == WIKI + "Q2026"
+        assert "sameAs" not in node
+
+    def test_the_link_stays_when_the_item_was_not_found_by_inchikey(self):
+        chem = _chemical("chem_caffeine", "Caffeine", sameAs={"@id": WIKI + "Q2026"}, **CAFFEINE)
+        (node,) = _chemicals(_graph(_state(chem)))
+        assert node["@id"] == PUBCHEM + "2519"
+        assert node["sameAs"] == {"@id": WIKI + "Q2026"}
+
+    def test_a_link_to_another_record_stays(self):
+        chem = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", sameAs={"@id": CHEBI})
+        (node,) = _chemicals(_graph(_state(chem)))
+        assert node["@id"] == WIKI + "Q2026"
+        assert node["sameAs"] == {"@id": CHEBI}
