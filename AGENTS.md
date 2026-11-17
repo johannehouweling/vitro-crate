@@ -1268,7 +1268,9 @@ PubChem CID's is `{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`; DTXSID's 
 `compoundwiki_id` gains a fourth, `Compound Wiki` (`propertyID`
 `{"@id": https://compoundcloud.wikibase.cloud/entity}`); `resolve_compound` finds that
 id by the InChIKey the lookup returned, an exact statement search on the wiki, and
-keeps none when two items state one InChIKey (D5). These source fields
+keeps none when two items state one InChIKey (D5). It drops a `compoundwiki_id` a
+caller hands in as a hint, so the id it writes is the wiki's own answer and is
+recorded as looked up. These source fields
 are consumed structurally (kept off the node as raw literals). A Person's
 `affiliation` and a Publication's `author` are resolved to `{"@id"}` references
 (via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so
