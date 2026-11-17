@@ -3530,6 +3530,8 @@ ledger", #399). The sequence:
    configured — that gate is what keeps the no-provider path both deterministic and
    offline. Whatever is still missing comes back as `unresolved_compounds` so the
    summary can say so out loud (#338).
+   A compound the retry resolves keeps the Compound Wiki id it was given, recorded
+   as looked up, so it is identified by that item like one resolved at first.
    Behind the same gate the spine then calls `resolve_characteristic_terms` once.
    `resolve_cell_line` looks up the terms of what the plan states, but the drafter
    states an organ or a tissue afterwards, so this is where those words get the
