@@ -4144,6 +4144,73 @@ class TestCompoundIdentifierRetry:
         # …and the recovered identifier landed on THAT node, not on a phantom.
         assert chems[0].fields.get("cas") == self._CAS
 
+    def test_the_compound_wiki_id_the_retry_finds_names_the_node_it_fills(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """The node the crate references is identified by the item the retry found.
+
+        The retry mints a twin for a node whose id is not ``chem_<name>`` and
+        folds it back. The Compound Wiki id the twin was given comes with it,
+        still recorded as looked up: the build takes only such an id as the
+        chemical's ``@id`` (D5).
+        """
+        import builder.tools.composites as composites_mod
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+        from builder.tools._crate_mapping import _mint_id
+
+        self._record_lookup(
+            monkeypatch,
+            hits={
+                "Methimazole": {
+                    "cas": self._CAS,
+                    "pubchem_cid": self._CID,
+                    "inchikey": "PMRYVIKBURPHAH-UHFFFAOYSA-N",
+                }
+            },
+        )
+        monkeypatch.setattr(composites_mod, "compound_wiki_id", lambda inchikey: "Q5113")
+        state = self._state_with("Methimazole")
+        state.remove_entity("chem_methimazole")
+        state.add_entity(_entity("chem1", "MolecularEntity", name="Methimazole"))
+        engine = _engine(state)
+
+        _retry_unresolved_compounds(engine)
+
+        chems = [e for e in engine.state.list_entities() if e.type == "MolecularEntity"]
+        assert [c.entity_id for c in chems] == ["chem1"]
+        assert chems[0].fields.get("compoundwiki_id") == "Q5113"
+        status = chems[0].get_field_status("compoundwiki_id")
+        assert status is not None and status.source == "lookup"
+        assert _mint_id(chems[0]) == "https://compoundcloud.wikibase.cloud/entity/Q5113"
+
+    def test_a_compound_wiki_id_no_lookup_wrote_is_not_folded_back(
+        self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
+    ) -> None:
+        """Only an id a lookup wrote moves onto the node (D5).
+
+        The entity the retry reuses here is no fresh twin: it was drafted under
+        another name with the same CID and a typed Compound Wiki id. Folding it
+        back must not turn that typed id into a looked-up one.
+        """
+        from builder.agents.pipeline.pipeline import _retry_unresolved_compounds
+
+        self._record_lookup(
+            monkeypatch, hits={"Methimazole": {"cas": self._CAS, "pubchem_cid": self._CID}}
+        )
+        state = self._state_with("Methimazole")
+        state.remove_entity("chem_methimazole")
+        state.add_entity(_entity("chem1", "MolecularEntity", name="Methimazole"))
+        drafted = _entity("chem_thiamazole", "MolecularEntity", name="Thiamazole")
+        drafted.set_fields_from_dict({"pubchem_cid": self._CID, "compoundwiki_id": "Q5113"})
+        state.add_entity(drafted)
+        engine = _engine(state)
+
+        _retry_unresolved_compounds(engine)
+
+        chem = engine.state.get_entity("chem1")
+        assert chem is not None and chem.fields.get("pubchem_cid") == self._CID
+        assert "compoundwiki_id" not in chem.fields
+
     def test_a_chebi_identified_compound_is_never_re_queried(
         self, monkeypatch: pytest.MonkeyPatch, _clear_compound_cache
     ) -> None:

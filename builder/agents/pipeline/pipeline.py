@@ -2644,9 +2644,13 @@ def _fold_back_compound_twin(engine: AgentEngine, target_id: str, outcome: Any) 
     node the rest of the crate already references and deletes it, so the retry
     fills the compound the Exposure points at rather than a parallel orphan.
 
+    A Compound Wiki id a lookup gave the twin moves with it and stays recorded as
+    looked up, so the node is identified by that item as the twin would have been.
+
     Silent no-op when the composite reused the intended node (the common case) or
     reported no entity at all — there is then nothing to fold.
     """
+    from builder.tools._crate_mapping import _compound_wiki_iri
     from builder.tools.composites import _COMPOUND_DATA_FIELDS
 
     twin_id = (outcome or {}).get("entity_id") if isinstance(outcome, dict) else None
@@ -2666,6 +2670,15 @@ def _fold_back_compound_twin(engine: AgentEngine, target_id: str, outcome: Any) 
         # Through set_fields, never by assigning fields directly, so the values
         # carry the same provenance and field status the composite gave them.
         engine.run_tool("set_fields", entity_id=target_id, fields=recovered)
+    if _compound_wiki_iri(twin):
+        # The build takes this id as the chemical's @id only while it is recorded
+        # as looked up (D5), so it is written with that source.
+        engine.run_tool(
+            "set_fields",
+            entity_id=target_id,
+            fields={"compoundwiki_id": twin.fields["compoundwiki_id"]},
+            source="lookup",
+        )
     engine.run_tool("remove_entity", entity_id=twin_id)
     logger.debug(
         "folded duplicate MolecularEntity %r back into %r (%d field(s))",
