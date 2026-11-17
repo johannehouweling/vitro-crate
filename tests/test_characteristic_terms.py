@@ -29,7 +29,7 @@ from builder.tools._crate_mapping import (
 )
 from builder.tools.builder import assemble_crate
 from builder.tools.composites import resolve_cell_line, resolve_characteristic_terms
-from builder.tools.drafters import draft_cell_line_sample, draft_study
+from builder.tools.drafters import draft_cell_line_sample, draft_sample, draft_study
 from builder.tools.field_kinds import drafter_visible_fields, is_identifier_field
 from builder.tools.hitl import HumanResponse, InputResponse
 from builder.tools.management import set_fields
@@ -346,7 +346,18 @@ class TestResolveCharacteristicTerms:
         with pytest.raises(ValueError, match="cell_nowhere"):
             resolve_characteristic_terms(CrateState(), entity_id="cell_nowhere")
 
-    def test_only_a_source_of_cells_is_asked_about(self, monkeypatch) -> None:
+    def test_cells_made_from_a_source_are_asked_about_too(self, monkeypatch) -> None:
+        """A sample states what it is when it is a population made from a line."""
+        asked = _known(monkeypatch, {("kidney epithelial cell", "cl"): KIDNEY_CELL})
+        state = CrateState()
+        made = draft_sample(state, {"name": "Tubular cells", "cell_type": "kidney epithelial cell"})
+        outcome = resolve_characteristic_terms(state)
+        assert asked == [("kidney epithelial cell", "cl")]
+        assert made.fields["cell_type_term"] == _for(KIDNEY_CELL, "kidney epithelial cell")
+        assert [found["entity_id"] for found in outcome["found"]] == [made.entity_id]
+        assert resolve_characteristic_terms(state, entity_id=made.entity_id)["found"]
+
+    def test_only_cells_are_asked_about(self, monkeypatch) -> None:
         asked = _known(monkeypatch, {("brain", "uberon"): BRAIN})
         state = CrateState()
         study = draft_study(state, "Brain study", {"organ": "Brain"})
