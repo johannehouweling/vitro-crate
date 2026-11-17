@@ -2654,7 +2654,7 @@ def _run_fix_loop(
 
 
 def _look_up_characteristic_terms(engine: AgentEngine) -> None:
-    """Give each stated organ, tissue and cell type the ontology term called that.
+    """Give each stated organ, tissue and cell type the ontology term it names.
 
     ``resolve_cell_line`` looks up the terms of what the plan states, but the
     drafter states an organ or a tissue afterwards, on the entity that composite

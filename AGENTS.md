@@ -967,7 +967,7 @@ materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # c
 link_assay_to_key_event(assay_id: str, event_name: str | list[str]) → {ok, assay_id, key_event_ids, matched_names, unmatched?} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event(s) it MEASURES (schema:mentions via keyEvent), each name matched INDEPENDENTLY against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING for a name matching zero or several Key Events because which Key Event an assay measures is a scientific claim (D5); links ACCUMULATE deduplicated rather than replace — removing one is `set_fields`' job (`key_event_id`/`matched_name` are kept as the first match for callers written against the one-event form)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
 resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment; `hints.source_kind="primary cells"` skips Cellosaurus
-resolve_characteristic_terms(entity_id: str | None = None) → {found, not_found, unavailable}  # composite: each stated organ / tissue / cell_type of a CellLineSample → the UBERON or CL term called exactly that word, kept beside the word and written as the characteristic's valueReference; a word no term is called stays alone (D5); idempotent, and resolve_cell_line runs it for its own hints
+resolve_characteristic_terms(entity_id: str | None = None) → {found, not_found, unavailable}  # composite: each stated organ / tissue / cell_type of a CellLineSample → the UBERON or CL term that word names (its label or an exact synonym), kept beside the word and written as the characteristic's valueReference; a word that names no term stays alone (D5); idempotent, and resolve_cell_line runs it for its own hints
 resolve_publication(title: str, verify=None) → {ok, doi, entity_id, title, score} | {ok: False, reason, title}  # composite: publication title → Crossref title-search → confidence gate → draft_publication_with_authors(doi=…), in one idempotent call; commits a DOI only on a high-confidence match (score floor AND near-exact title) and never fabricates one (D5)
 draft_publication_with_authors(doi: str) → {publication_id, doi, authors:[{name, person_id, orcid, resolution}], hitl}  # composite (engine-routed, HITL-capable): publication + every author wired as a Person, each author's @id harmonized to their ORCID via a verify-first cascade
 draft_investigation(hints: dict) → Entity
@@ -1092,17 +1092,22 @@ base conformance).
 `resolve_characteristic_terms` gives a stated organ, tissue and cell type its
 ontology term. The word the documents use stays the characteristic's `value`; the
 term is added as its `valueReference`, a `DefinedTerm` entity with the term's IRI,
-label and CURIE. One rule decides whether there is a term: the ontology the
-characteristic belongs to (`_crate_mapping.CHARACTERISTIC_ONTOLOGIES`: UBERON for
-`organ` and `tissue`, CL for `cell_type`) has exactly one term of its own whose
-label is the word, case and spacing aside (`lookups.bao.lookup_exact_term`, an
-exact-label query that is checked again on our side). Nothing is matched loosely:
-a search finds some term for nearly any word, and a near match beside a stated
-value would be an invented claim (D5). "Epithelial ovary cell" has no such term
-and stays a word. The term is held in `<field>_term` with status `verified` /
-`lookup`, and `_crate_mapping.confirmed_term` is the one reader: it returns the
-term only while that status holds and the term is still called what the field
-states. A term a model or a person wrote, or one for an earlier wording, is
+label and CURIE. One rule decides whether there is a term: the word names
+exactly one term of the ontology the characteristic belongs to
+(`_crate_mapping.CHARACTERISTIC_ONTOLOGIES`: UBERON for `organ` and `tissue`, CL
+for `cell_type`), among that ontology's own, current terms. It names a term by
+being its label, case and spacing aside, or else a synonym the ontology marks as
+exact ("Bronchial epithelium" for *epithelium of bronchus*); a narrow, broad or
+related synonym names something else. A plural that names nothing is asked about
+once more as its singular ("Dopaminergic neurons"). `lookups.bao.lookup_exact_term`
+asks the service for exact matches and checks the answer again on our side.
+Nothing is matched loosely: a search finds some term for nearly any word, and a
+near match beside a stated value would be an invented claim (D5). "Epithelial
+ovary cell" names no term and stays a word. The term is held in `<field>_term`
+with status `verified` / `lookup` and the word it was confirmed for
+(`confirmedFor`), and `_crate_mapping.confirmed_term` is the one reader: it
+returns the term only while that status holds and the field still states that
+word. A term a model or a person wrote, or one for an earlier wording, is
 therefore never written, and the composite removes it; the three fields are
 identifier fields (`field_kinds.IDENTIFIER_FIELDS`) and refused as
 `resolve_cell_line` hints. An unreachable service is no answer: the word is
@@ -1932,8 +1937,8 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
   term IRI with a relevance score. Backs `lookup_bao_term` (BAO),
   `lookup_unit` (UO units), and `lookup_ontology_term` for any OLS-hosted
   vocabulary (EFO/OBI/NCIT/UBERON/ChEBI/…). `lookup_exact_term` asks the other
-  question, the one term whose label is exactly a given word, for a stated organ,
-  tissue or cell type (§5); it is not a tool of its own.
+  question, the one term a given word names by its label or an exact synonym, for
+  a stated organ, tissue or cell type (§5); it is not a tool of its own.
 - **ORCID**: ORCID iD → name, affiliation, affiliation ROR
 - **ROR**: Organization name → ROR ID, website URL, country. The build writes the
   country as a `PostalAddress` the Organization's `address` references, one per country
@@ -3374,7 +3379,7 @@ ledger", #399). The sequence:
    Behind the same gate the spine then calls `resolve_characteristic_terms` once.
    `resolve_cell_line` looks up the terms of what the plan states, but the drafter
    states an organ or a tissue afterwards, so this is where those words get the
-   term called exactly that (§5), in time for the crate that is validated. A
+   term they name (§5), in time for the crate that is validated. A
    failure costs the terms and nothing else.
 5. **build_and_validate** in memory (no disk write).
 6. **Fix loop** — `fix_required_issues` + re-validate, **bounded to ≤3 rounds**,

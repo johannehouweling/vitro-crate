@@ -3,18 +3,9 @@
   "docs": [
    {
     "iri": "http://purl.obolibrary.org/obo/UBERON_0002113",
-    "ontology_name": "uberon",
-    "ontology_prefix": "UBERON",
     "short_form": "UBERON_0002113",
-    "description": [
-     "A paired organ of the urinary tract that produces urine and maintains bodily fluid homeostasis, blood pressure, pH levels, red blood cell production and skeleton mineralization."
-    ],
-    "narrow_synonyms": [
-     "reniculate kidney"
-    ],
     "label": "kidney",
-    "obo_id": "UBERON:0002113",
-    "type": "class"
+    "obo_id": "UBERON:0002113"
    }
   ],
   "numFound": 1,
@@ -35,6 +26,10 @@
     "1"
    ],
    "ontologyId": [
+    "uberon",
+    "1",
+    "emapa",
+    "1",
     "bto",
     "1",
     "ncit",
@@ -43,9 +38,9 @@
     "1",
     "zfa",
     "1",
-    "uberon",
-    "1",
     "ma",
+    "1",
+    "foodon",
     "1",
     "omit",
     "1",

@@ -418,8 +418,8 @@ _ASSAY_MENTION_FIELDS = {
 }
 # The ontology whose own terms name what a characteristic states: an organ or a
 # tissue is an UBERON structure, a cell type a CL cell. The word the documents use
-# stays the value; `composites.resolve_characteristic_terms` adds the term the
-# ontology calls exactly that, held in the field `term_field` names.
+# stays the value; `composites.resolve_characteristic_terms` adds the term that
+# word names in the ontology, held in the field `term_field` names.
 CHARACTERISTIC_ONTOLOGIES: dict[str, str] = {
     "organ": "uberon",
     "tissue": "uberon",
@@ -1497,8 +1497,10 @@ def confirmed_term(entity: Entity, field: str) -> dict[str, Any] | None:
     """The looked-up term of the word *entity* states in *field*, or ``None``.
 
     A term counts only while both hold: a lookup confirmed it (its status says
-    so, which no drafted or typed value can), and it is still called what the
-    field states. A word edited since, or a term a model wrote, has none (D5).
+    so, which no drafted or typed value can), and the field still states the
+    word it was confirmed for (``confirmedFor``, which the lookup's caller
+    records: the word may be the term's label, an exact synonym or a plural).
+    A word edited since, or a term a model wrote, has none (D5).
     """
     term = entity.fields.get(term_field(field))
     status = entity.get_field_status(term_field(field))
@@ -1507,7 +1509,7 @@ def confirmed_term(entity: Entity, field: str) -> dict[str, Any] | None:
     if (status.status, status.source) != ("verified", "lookup"):
         return None
     stated = entity.fields.get(field)
-    if not isinstance(stated, str) or _folded(term.get("name")) != _folded(stated):
+    if not isinstance(stated, str) or _folded(term.get("confirmedFor")) != _folded(stated):
         return None
     return term
 

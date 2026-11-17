@@ -3,8 +3,9 @@
 A record states `Organ: Brain` with the UBERON term for brain beside it. A crate
 stated the word alone, so a record written from it lost the term. The word the
 documents use stays the value. A lookup adds the term only when the ontology has
-exactly one term of its own whose label is that word: UBERON for an organ or a
-tissue, CL for a cell type. Any other outcome leaves the word alone.
+exactly one term of its own that the word names: by its label, else by a synonym
+the ontology marks as exact, a plural counting as its singular. UBERON for an
+organ or a tissue, CL for a cell type. Any other outcome leaves the word alone.
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ BRAIN = {
     "name": "brain",
     "termCode": "UBERON:0000955",
 }
+BRONCHUS = {
+    "@id": OBO + "UBERON_0002031",
+    "@type": "DefinedTerm",
+    "name": "epithelium of bronchus",
+    "termCode": "UBERON:0002031",
+}
 KIDNEY_CELL = {
     "@id": OBO + "CL_0002518",
     "@type": "DefinedTerm",
@@ -59,6 +66,12 @@ def _recorded(name: str) -> dict[str, Any]:
 
 def _answering(*docs: dict[str, Any]) -> dict[str, Any]:
     return {"response": {"numFound": len(docs), "docs": list(docs)}}
+
+
+def _asked() -> list[dict[str, str]]:
+    """The query of each request the lookup made, in order."""
+    queries = [urlsplit(str(call.request.url)).query for call in responses.calls]
+    return [{key: values[0] for key, values in parse_qs(query).items()} for query in queries]
 
 
 @pytest.fixture(autouse=True)
@@ -83,14 +96,65 @@ class TestLookupExactTerm:
         }
 
     @responses.activate
-    def test_the_service_is_asked_for_an_exact_label_of_the_ontology_s_own_terms(self) -> None:
+    def test_the_service_is_asked_for_exact_names_of_the_ontology_s_own_terms(self) -> None:
         responses.add(responses.GET, OLS, json=_recorded("cl_kidney_epithelial_cell"))
         assert lookup_exact_term("kidney epithelial cell", "cl")["termCode"] == "CL:0002518"
-        query = urlsplit(str(responses.calls[0].request.url)).query
-        asked = {key: values[0] for key, values in parse_qs(query).items()}
+        (asked,) = _asked()
         assert (asked["q"], asked["ontology"]) == ("kidney epithelial cell", "cl")
-        assert (asked["exact"], asked["queryFields"]) == ("true", "label")
+        assert (asked["exact"], asked["queryFields"]) == ("true", "label,synonym")
         assert (asked["local"], asked["obsoletes"]) == ("true", "false")
+        assert "exact_synonyms" in asked["fieldList"].split(",")
+
+    @responses.activate
+    def test_a_word_the_ontology_calls_an_exact_synonym_gets_the_term(self) -> None:
+        responses.add(responses.GET, OLS, json=_recorded("uberon_bronchial_epithelium"))
+        assert lookup_exact_term("Bronchial epithelium", "uberon") == BRONCHUS
+
+    @responses.activate
+    def test_a_synonym_the_ontology_does_not_call_exact_is_not_the_term(self) -> None:
+        """The service finds kidney for its narrow synonym; a narrower thing is not the kidney."""
+        (kidney,) = _recorded("uberon_reniculate_kidney")["response"]["docs"]
+        assert kidney["short_form"] == "UBERON_0002113"
+        responses.add(responses.GET, OLS, json=_recorded("uberon_reniculate_kidney"))
+        assert lookup_exact_term("reniculate kidney", "uberon") == {}
+
+    @responses.activate
+    def test_a_term_called_the_word_wins_over_one_it_is_a_synonym_of(self) -> None:
+        (kidney,) = _recorded("uberon_kidney")["response"]["docs"]
+        (bronchus,) = _recorded("uberon_bronchial_epithelium")["response"]["docs"]
+        responses.add(
+            responses.GET, OLS, json=_answering({**bronchus, "exact_synonyms": ["kidney"]}, kidney)
+        )
+        assert lookup_exact_term("kidney", "uberon")["@id"] == KIDNEY
+
+    @responses.activate
+    def test_a_synonym_of_two_terms_names_neither(self) -> None:
+        (bronchus,) = _recorded("uberon_bronchial_epithelium")["response"]["docs"]
+        twin = {**bronchus, "iri": OBO + "UBERON_9999999", "short_form": "UBERON_9999999"}
+        responses.add(responses.GET, OLS, json=_answering(bronchus, twin))
+        assert lookup_exact_term("Bronchial epithelium", "uberon") == {}
+
+    @responses.activate
+    def test_a_plural_gets_the_term_of_its_singular(self) -> None:
+        responses.add(responses.GET, OLS, json=_recorded("cl_dopaminergic_neurons"))
+        responses.add(responses.GET, OLS, json=_recorded("cl_dopaminergic_neuron"))
+        found = lookup_exact_term("Dopaminergic neurons", "cl")
+        assert (found["name"], found["termCode"]) == ("dopaminergic neuron", "CL:0000700")
+        assert [asked["q"] for asked in _asked()] == ["Dopaminergic neurons", "Dopaminergic neuron"]
+
+    @responses.activate
+    def test_a_word_that_names_a_term_is_not_also_asked_about_as_a_plural(self) -> None:
+        (kidney,) = _recorded("uberon_kidney")["response"]["docs"]
+        responses.add(responses.GET, OLS, json=_answering({**kidney, "label": "pancreas"}))
+        assert lookup_exact_term("Pancreas", "uberon")["name"] == "pancreas"
+        assert len(_asked()) == 1
+
+    @responses.activate
+    @pytest.mark.parametrize("word", ["Epithelial ovary cell", "glass", "s"])
+    def test_only_a_word_ending_in_one_s_has_a_singular(self, word: str) -> None:
+        responses.add(responses.GET, OLS, json=_recorded("uberon_none"))
+        assert lookup_exact_term(word, "uberon") == {}
+        assert len(_asked()) == 1
 
     @responses.activate
     def test_a_word_no_term_is_called_finds_nothing(self) -> None:
@@ -155,6 +219,11 @@ def _stating(field: str, value: str, *, entity: Entity) -> dict[str, str]:
     return {"entity_id": entity.entity_id, "field": field, "value": value}
 
 
+def _for(term: dict[str, Any], word: str) -> dict[str, Any]:
+    """A term as the state keeps it: with the stated word a lookup confirmed it for."""
+    return {**term, "confirmedFor": word}
+
+
 class TestResolveCharacteristicTerms:
     def test_a_stated_word_gets_the_term_called_that(self, monkeypatch) -> None:
         asked = _known(monkeypatch, {("brain", "uberon"): BRAIN})
@@ -165,7 +234,7 @@ class TestResolveCharacteristicTerms:
 
         assert asked == [("Brain", "uberon")]
         assert cells.fields["organ"] == "Brain", "the word the documents use stays the value"
-        assert cells.fields["organ_term"] == BRAIN
+        assert cells.fields["organ_term"] == _for(BRAIN, "Brain")
         status = cells.get_field_status("organ_term")
         assert status is not None and (status.status, status.source) == ("verified", "lookup")
         assert "ols" in cells._provenance.lookups_used
@@ -213,7 +282,7 @@ class TestResolveCharacteristicTerms:
         resolve_characteristic_terms(state)
         again = resolve_characteristic_terms(state)
         assert asked == [("Brain", "uberon")]
-        assert cells.fields["organ_term"] == BRAIN
+        assert cells.fields["organ_term"] == _for(BRAIN, "Brain")
         assert again["found"] == [
             {**_stating("organ", "Brain", entity=cells), "term": BRAIN["@id"]}
         ]
@@ -251,7 +320,8 @@ class TestResolveCharacteristicTerms:
         second = _source(state, "donor B cells", organ=" brain ")
         resolve_characteristic_terms(state)
         assert asked == [("Brain", "uberon")]
-        assert first.fields["organ_term"] == second.fields["organ_term"] == BRAIN
+        assert first.fields["organ_term"] == _for(BRAIN, "Brain")
+        assert second.fields["organ_term"] == _for(BRAIN, "brain")
 
     def test_one_source_can_be_named(self, monkeypatch) -> None:
         asked = _known(monkeypatch, {("brain", "uberon"): BRAIN})
@@ -300,7 +370,8 @@ class TestResolveCellLine:
         told = {"source_kind": "primary cells", "cell_type": "kidney epithelial cell"}
         outcome = resolve_cell_line(state, "kidney tubuloids, donor T19", hints=told)
         cells = state.get_entity(outcome["entity_id"])
-        assert cells is not None and cells.fields["cell_type_term"] == KIDNEY_CELL
+        assert cells is not None
+        assert cells.fields["cell_type_term"] == _for(KIDNEY_CELL, "kidney epithelial cell")
 
     def test_a_term_handed_in_is_refused(self, monkeypatch) -> None:
         _known(monkeypatch, {})
@@ -352,6 +423,24 @@ class TestTheCrate:
         (sample,) = [node for node in graph if "Sample" in node["@type"]]
         assert not set(sample) & TERM_FIELDS
         assert not [node for node in graph if "term" in str(node.get("name", "")).lower().split()]
+
+    def test_a_term_found_by_a_synonym_is_the_reference_of_the_stated_word(
+        self, monkeypatch
+    ) -> None:
+        _known(monkeypatch, {("bronchial epithelium", "uberon"): BRONCHUS})
+        state = CrateState()
+        cells = _source(state, tissue="Bronchial epithelium")
+        resolve_characteristic_terms(state)
+        assert cells.fields["tissue_term"] == _for(BRONCHUS, "Bronchial epithelium")
+
+        graph = _graph(state)
+
+        (tissue,) = _characteristics(graph, "Tissue")
+        assert (tissue["value"], tissue["valueReference"]) == (
+            "Bronchial epithelium",
+            {"@id": BRONCHUS["@id"]},
+        )
+        assert [node for node in graph if node["@id"] == BRONCHUS["@id"]] == [BRONCHUS]
 
     def test_a_word_without_a_term_is_written_as_before(self, monkeypatch) -> None:
         _known(monkeypatch, {})
@@ -449,7 +538,7 @@ class TestThePipeline:
         run_pipeline(engine)
         assert asked == [("Brain", "uberon")]
         (cells,) = engine.state.list_entities("CellLineSample")
-        assert cells.fields["organ_term"] == BRAIN
+        assert cells.fields["organ_term"] == _for(BRAIN, "Brain")
 
     @pytest.mark.timeout(600)
     def test_the_spine_without_a_provider_asks_nothing(self, monkeypatch) -> None:
@@ -497,7 +586,7 @@ def test_the_question_round_ends_by_looking_the_terms_up(monkeypatch) -> None:
     human = _SilentHuman()
     run_guidance(AgentEngine(state=state, human_interface=human), human, max_rounds=2)
     assert asked == [("Brain", "uberon")]
-    assert cells.fields["organ_term"] == BRAIN
+    assert cells.fields["organ_term"] == _for(BRAIN, "Brain")
 
 
 def test_the_agent_can_ask_for_the_terms_itself() -> None:
