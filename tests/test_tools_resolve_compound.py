@@ -372,6 +372,54 @@ class TestOnlyTheWikiGivesACompoundWikiId:
         assert seen == []
 
 
+class TestAResolvedChemicalIsIdentifiedByItsWikiItem:
+    """The build takes the id the wiki gave as the chemical's ``@id``, and no other."""
+
+    WIKI = "https://compoundcloud.wikibase.cloud/entity/"
+    PUBCHEM = "https://pubchem.ncbi.nlm.nih.gov/compound/443515"
+
+    @staticmethod
+    def _address(state: CrateState) -> str:
+        from builder.tools._crate_mapping import _mint_id
+
+        (mol,) = _by_type(state, "MolecularEntity")
+        return _mint_id(mol)
+
+    def test_the_item_the_wiki_gives_is_the_address(self, offline_lookup, monkeypatch):
+        monkeypatch.setattr(composites, "compound_wiki_id", lambda key: "Q1881")
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.WIKI + "Q1881"
+
+    def test_without_an_item_the_pubchem_address_stays(self, offline_lookup):
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_outage_leaves_the_pubchem_address(self, offline_lookup, monkeypatch):
+        def boom(key):  # noqa: ANN001
+            raise RuntimeError("wiki down")
+
+        monkeypatch.setattr(composites, "compound_wiki_id", boom)
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_id_the_caller_hands_in_is_not_the_address(self, offline_lookup):
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_id_typed_onto_the_entity_is_not_the_address(self, offline_lookup):
+        from builder.tools.drafters import draft_molecular_entity
+
+        state = CrateState()
+        draft_molecular_entity(state, "Silychristin A", {"compoundwiki_id": "Q2026"})
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.PUBCHEM
+
+
 class TestResolveCompoundIdempotent:
     def test_second_call_no_duplicate(self, offline_lookup):
         state = CrateState()
