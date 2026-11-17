@@ -7,7 +7,8 @@ Measurement Ontology (UO) for quantities, and any other OLS-hosted ontology
 (EFO/OBI/NCIT/UBERON/ChEBI, …).
 
 ``lookup_ontology_term`` is the generic primitive; ``lookup_bao_term`` and
-``lookup_unit`` are thin, ontology-pinned wrappers over it.
+``lookup_unit`` are thin, ontology-pinned wrappers over it. ``lookup_exact_term``
+answers the other question: the term that is called exactly a given word.
 """
 
 from __future__ import annotations
@@ -73,6 +74,64 @@ def lookup_ontology_term(query: str, ontology: str, rows: int = 1) -> dict:
         raise
     except Exception:
         return {}
+
+
+@functools.lru_cache(maxsize=1024)
+def lookup_exact_term(label: str, ontology: str) -> dict:
+    """The one term of *ontology* that is called exactly *label*.
+
+    :func:`lookup_ontology_term` returns the best match for a description, and
+    the search finds some term for nearly any word. This asks a narrower
+    question, the only one whose answer may stand beside a stated value: is a
+    term of this ontology called exactly this? The service is asked for an exact
+    label among the ontology's own, current terms, and the answer is checked
+    again here: the label is the word (case and spacing aside), the term belongs
+    to the ontology, and it is the only one.
+
+    Args:
+        label: the word as stated, e.g. "Brain".
+        ontology: OLS ontology short name, e.g. "uberon", "cl".
+
+    Returns:
+        dict with keys @id (term IRI), @type ("DefinedTerm"), name (the term's
+        label) and termCode (its CURIE). {} when no term, or more than one, is
+        called that. Raises TransientLookupError on a transient API failure.
+    """
+    word = " ".join(str(label or "").split())
+    if not word or not ontology:
+        return {}
+    data = http_get_json(
+        _BASE,
+        params={
+            "q": word,
+            "ontology": ontology,
+            "exact": "true",
+            "queryFields": "label",
+            "local": "true",
+            "obsoletes": "false",
+            "rows": 5,
+        },
+    )
+    response = data.get("response") if isinstance(data, dict) else None
+    docs = response.get("docs") if isinstance(response, dict) else None
+    prefix = f"{ontology.upper()}_"
+    own = [
+        doc
+        for doc in docs or []
+        if isinstance(doc, dict)
+        and doc.get("iri")
+        and " ".join(str(doc.get("label") or "").split()).casefold() == word.casefold()
+        and str(doc.get("short_form") or "").startswith(prefix)
+    ]
+    if len({doc["iri"] for doc in own}) != 1:
+        return {}
+    term = own[0]
+    return {
+        "@id": term["iri"],
+        "@type": "DefinedTerm",
+        "name": " ".join(str(term["label"]).split()),
+        "termCode": term.get("obo_id") or str(term["short_form"]).replace("_", ":", 1),
+    }
 
 
 def lookup_bao_term(query: str) -> dict:

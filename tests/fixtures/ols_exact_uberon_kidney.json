@@ -1,0 +1,69 @@
+{
+ "response": {
+  "docs": [
+   {
+    "iri": "http://purl.obolibrary.org/obo/UBERON_0002113",
+    "ontology_name": "uberon",
+    "ontology_prefix": "UBERON",
+    "short_form": "UBERON_0002113",
+    "description": [
+     "A paired organ of the urinary tract that produces urine and maintains bodily fluid homeostasis, blood pressure, pH levels, red blood cell production and skeleton mineralization."
+    ],
+    "narrow_synonyms": [
+     "reniculate kidney"
+    ],
+    "label": "kidney",
+    "obo_id": "UBERON:0002113",
+    "type": "class"
+   }
+  ],
+  "numFound": 1,
+  "start": 0
+ },
+ "responseHeader": {
+  "QTime": 0,
+  "status": 0
+ },
+ "facet_counts": {
+  "facet_fields": {
+   "ontologyPreferredPrefix": [
+    "UBERON",
+    "1"
+   ],
+   "isDefiningOntology": [
+    "true",
+    "1"
+   ],
+   "ontologyId": [
+    "bto",
+    "1",
+    "ncit",
+    "1",
+    "mesh",
+    "1",
+    "zfa",
+    "1",
+    "uberon",
+    "1",
+    "ma",
+    "1",
+    "omit",
+    "1",
+    "xao",
+    "1"
+   ],
+   "ontologyIri": [
+    "http://purl.obolibrary.org/obo/uberon.owl",
+    "1"
+   ],
+   "isObsolete": [
+    "false",
+    "1"
+   ],
+   "type": [
+    "class",
+    "1"
+   ]
+  }
+ }
+}

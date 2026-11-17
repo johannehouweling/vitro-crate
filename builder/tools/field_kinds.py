@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from builder.state import CrateState
-from builder.tools._crate_mapping import _REF_FIELDS, draft_hints_schema
+from builder.tools._crate_mapping import _REF_FIELDS, TERM_FIELDS, draft_hints_schema
 
 __all__ = [
     "CITATION_FIELDS",
@@ -100,6 +100,8 @@ IDENTIFIER_FIELDS: frozenset[str] = frozenset(
         "property_id",
         "unit_code",
         "url",
+        # the looked-up term of a stated organ, tissue or cell type
+        *TERM_FIELDS,
     }
 )
 

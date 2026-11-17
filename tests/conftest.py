@@ -83,6 +83,26 @@ def _stub_composites_cellosaurus(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stub_composites_exact_term(monkeypatch):
+    """Keep the composites' ontology-term lookup offline.
+
+    ``resolve_cell_line`` and the pipeline spine look up the term of a stated
+    organ, tissue and cell type, so every test that drives either over a cell
+    source would reach the ontology service. A miss by default, scoped to the
+    name bound in ``composites`` like the stubs above; a test that needs a term
+    re-patches ``composites.lookup_exact_term``.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(
+        composites,
+        "lookup_exact_term",
+        lambda label, ontology: {"found": False, "data": {}, "error": "offline stub (conftest)"},
+        raising=False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _stub_compound_wiki(monkeypatch):
     """Keep ``lookup_compound``'s Compound Wiki fallback offline.
 
