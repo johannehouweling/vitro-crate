@@ -28,6 +28,7 @@ from builder.tools.provenance import link
 
 T3 = "3,3',5-triiodo-L-thyronine"
 SILYCHRISTIN = "Silychristin"
+DMSO = "Dimethyl sulfoxide"
 
 
 def _study(*, substrate: bool = True) -> tuple[CrateState, dict[str, str]]:
@@ -149,6 +150,7 @@ def _run_plan(monkeypatch, compounds: list[dict[str, str]], readout: dict[str, s
     known = {
         SILYCHRISTIN.casefold(): {"cas": "33889-69-9", "pubchem_cid": "441764"},
         T3.casefold(): {"cas": "6893-02-3", "pubchem_cid": "5920"},
+        DMSO.casefold(): {"cas": "67-68-5", "pubchem_cid": "679"},
     }
 
     def lookup(name: str) -> dict[str, Any]:
@@ -230,6 +232,71 @@ class TestThePipeline:
             monkeypatch, self.PLAN, {"endpoint": "T3 uptake", "substrate": "[125I]-T3"}
         )
         assert _step(state, "EndpointReadout").fields.get("substrate") == "[125I]-T3"
+
+
+@pytest.mark.timeout(600)
+class TestAStudyThatNamesNoTestCompound:
+    """An exposure applies something. When the plan names no test compound, the
+    substrate is what the cells were exposed to, and it is the readout's as well."""
+
+    ALONE = [{"name": T3, "role": "substrate"}]
+
+    def test_its_substrate_is_what_the_cells_were_exposed_to(self, monkeypatch) -> None:
+        state = _run_plan(monkeypatch, self.ALONE, {"endpoint": "T3 uptake"})
+        (t3,) = [e.entity_id for e in state.list_entities("MolecularEntity")]
+        assert _listed(_step(state, "Exposure").fields.get("chemicals")) == [t3]
+        (study,) = state.list_entities("Study")
+        assert _listed(study.fields.get("chemicals")) == [t3]
+
+    def test_the_substrate_is_the_readout_s_as_well(self, monkeypatch) -> None:
+        state = _run_plan(monkeypatch, self.ALONE, {"endpoint": "T3 uptake"})
+        (t3,) = [e.entity_id for e in state.list_entities("MolecularEntity")]
+        readout = _step(state, "EndpointReadout")
+        assert _listed(readout.fields.get("reagents")) == [t3]
+        assert readout.fields.get("substrate") == T3
+
+    def test_the_crate_says_both(self, monkeypatch) -> None:
+        graph = _graph(_run_plan(monkeypatch, self.ALONE, {"endpoint": "T3 uptake"}))
+        assert _reagents_of(graph, "Exposure") == [T3]
+        assert _reagents_of(graph, "Uptake readout") == [T3]
+
+    def test_holding_it_twice_earns_the_crate_no_finding(self, monkeypatch) -> None:
+        from builder.tools.validation import build_and_validate
+
+        def findings(role: str) -> set[tuple[str, str]]:
+            state = _run_plan(monkeypatch, [{"name": T3, "role": role}], {"endpoint": "T3 uptake"})
+            issues = build_and_validate(state, severity="optional", profile="all")["issues"]
+            return {(str(i.get("profile")), str(i.get("message"))) for i in issues}
+
+        assert findings("substrate") <= findings("test")
+
+    def test_a_crate_with_no_exposure_applies_nothing(self, monkeypatch) -> None:
+        """Only an exposure applies a compound. Without one the substrate is the readout's alone."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        steps = tuple(s for s in pipeline_mod._STANDARD_CHAIN if s["process_type"] != "Exposure")
+        monkeypatch.setattr(pipeline_mod, "_STANDARD_CHAIN", steps)
+        state = _run_plan(monkeypatch, self.ALONE, {"endpoint": "T3 uptake"})
+        kinds = [s.fields.get("process_type") for s in state.list_entities("LabProcess")]
+        assert "Exposure" not in kinds and "EndpointReadout" in kinds
+        (t3,) = [e.entity_id for e in state.list_entities("MolecularEntity")]
+        assert _listed(_step(state, "EndpointReadout").fields.get("reagents")) == [t3]
+        (study,) = state.list_entities("Study")
+        assert _listed(study.fields.get("chemicals")) == []
+
+    def test_a_control_is_not_a_test_compound(self, monkeypatch) -> None:
+        plan = [*self.ALONE, {"name": DMSO, "role": "control"}]
+        state = _run_plan(monkeypatch, plan, {"endpoint": "T3 uptake"})
+        by_name = {e.fields["name"]: e.entity_id for e in state.list_entities("MolecularEntity")}
+        applied = _listed(_step(state, "Exposure").fields.get("chemicals"))
+        assert sorted(applied) == sorted([by_name[T3], by_name[DMSO]])
+        assert _listed(_step(state, "EndpointReadout").fields.get("reagents")) == [by_name[T3]]
+
+    def test_a_compound_with_no_role_is_a_test_compound(self, monkeypatch) -> None:
+        plan = [*self.ALONE, {"name": SILYCHRISTIN}]
+        state = _run_plan(monkeypatch, plan, {"endpoint": "T3 uptake"})
+        by_name = {e.fields["name"]: e.entity_id for e in state.list_entities("MolecularEntity")}
+        assert _listed(_step(state, "Exposure").fields.get("chemicals")) == [by_name[SILYCHRISTIN]]
 
 
 def test_the_plan_can_call_a_compound_a_substrate() -> None:

@@ -1343,8 +1343,10 @@ the readout's protocol record, while `substrate` stays the name as stated, the
 step's `Substrate` parameter. `link(readout, input, compound)` lands there
 (`provenance._PROCESS_LINK_HOMES`), and a compound a readout holds is used, so the
 export does not wire it onto the Exposure. The plan marks one with
-`compounds[].role = "substrate"`; the pipeline resolves it only when the crate has
-a readout to hold it.
+`compounds[].role = "substrate"`. An exposure applies something, so where the
+crate has an Exposure, a plan that names no test compound says its substrate is
+what the cells were exposed to: only then does the pipeline keep it the Exposure's
+chemical as well. A substrate that neither step holds is not resolved.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a

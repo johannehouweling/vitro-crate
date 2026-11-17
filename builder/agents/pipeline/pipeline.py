@@ -1779,6 +1779,13 @@ def _recover_publication_query(engine: AgentEngine, title: str) -> tuple[str, st
     return None
 
 
+def _compound_role(compound: Any) -> str:
+    """The role the plan gives a compound, lower-cased: ``test``, ``control`` or
+    ``substrate``. A compound the plan gives no role is one the study tests."""
+    stated = compound.get("role") if isinstance(compound, dict) else None
+    return str(stated or "").strip().lower() or "test"
+
+
 def _materialize_plan(
     engine: AgentEngine,
     usage_sink: UsageSink | None = None,
@@ -1995,11 +2002,20 @@ def _materialize_plan(
     # Collect each resolved MolecularEntity id so the test compounds can be WIRED
     # into the Exposure below (#273) — without this they are graph orphans.
     compound_ids: list[str] = []
-    # The compounds a readout measures rather than the cells are exposed to (its
-    # substrate), by entity id with the name the plan gives each. They are the
-    # reagents of the readout's protocol record and never the Exposure's
-    # chemicals, so one is only resolved when there is a readout to hold it.
+    # The compounds a readout measures (its substrate), by entity id with the name
+    # the plan gives each. They are the reagents of the readout's protocol record.
+    # An exposure applies something, so where the crate has one, a plan that names
+    # no test compound says its substrate is what the cells were exposed to: only
+    # then is a substrate the Exposure's chemical as well. One that neither step
+    # holds is not resolved.
     substrates: dict[str, str] = {}
+    has_exposure = any(step.get("process_type") == "Exposure" for step in chain_steps_summary)
+    names_a_test_compound = any(
+        _compound_role(compound) not in ("control", "substrate")
+        for compound in plan.get("compounds") or []
+        if str((compound or {}).get("name") or "").strip()
+    )
+    substrate_is_applied = has_exposure and not names_a_test_compound
     readout_id = next(
         (
             str(step.get("process_id"))
@@ -2021,8 +2037,10 @@ def _materialize_plan(
         name = str((compound or {}).get("name") or "").strip()
         if not name:
             continue
-        is_substrate = str((compound or {}).get("role") or "").strip().lower() == "substrate"
-        if is_substrate and readout_id is None:
+        is_substrate = _compound_role(compound) == "substrate"
+        is_applied = substrate_is_applied or not is_substrate
+        is_measured = is_substrate and readout_id is not None
+        if not is_applied and not is_measured:
             logger.info(
                 "%s is a readout's substrate, and the crate has no readout to hold it.", name
             )
@@ -2038,9 +2056,9 @@ def _materialize_plan(
         # on a miss (which mints no entity, so there is nothing to wire). Capture
         # the id (PubChem AND ChEBI hits alike) for the Exposure/Study linking.
         cid = resolved.get("entity_id") if isinstance(resolved, dict) else None
-        if cid and is_substrate:
+        if cid and is_measured:
             substrates[str(cid)] = name
-        elif cid:
+        if cid and is_applied:
             compound_ids.append(str(cid))
 
     # --- cell lines: resolve_cell_line mints the CellLineSample + its accession ---
