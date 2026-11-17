@@ -1065,6 +1065,28 @@ unverified; a *definitive* step-2 miss clears it. A primary-cell source
 both steps and keeps no accession: Cellosaurus holds no record for primary cells
 (FAQ Q19), so any name hit would be a different entity.
 
+**Cells made from a line are a sample of it** (`made_from`). Two cell types
+differentiated from one iPSC line share that line's accession, and a name that
+reaches a record only says which line, not that the cells are the line.
+`resolve_cell_line(name, made_from="<catalogue name>", hints=…)` resolves the line
+as above (it is the `CellLineSample` and carries the accession) and records the
+named cells as a `Sample` that `derives_from` it and states its own `cell_type`,
+`tissue` and `organ`; the result gives the Sample as `entity_id` and the line as
+`line_id`. The population is never looked up, and an accession handed in as
+`made_from` is ignored (D5). Each population is the `result` of a
+`TestSystemPreparation` step of its own from that line: `draft_process_chain`
+lets preparation steps that each name their `cell_line` run side by side and
+hands what all of them made to the next step, and the build writes a Sample's
+characteristics like a cell line's. The pipeline does the same from the plan,
+whose `cell_lines[]` carry `made_from`; two differently named entries that give
+one `catalog_name` are read as two populations of that line, since they cannot
+both be it (`_lines_cells_were_made_from`, `_prepare_populations`). Without
+`made_from`, two names that resolve to one accession are still one line under two
+names **unless they state different cells** (`cell_type`, `tissue`, `organ`):
+then nothing is merged or overwritten, the second is kept as a source of its own
+without the accession, and the result's `fix` says to resolve both with
+`made_from`.
+
 **A miss is NOT a failure** — the one deliberate divergence from
 `resolve_compound`, which returns `{ok: False}` and mints nothing. A
 `CellLineSample` with only a name is a valid ISA Sample and is what the arm

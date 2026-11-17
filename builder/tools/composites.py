@@ -339,6 +339,10 @@ def draft_process_chain(
     skipped: list[dict[str, str]] = []
     # The most recent step's produced output id(s) — fed to the next step's input.
     upstream_output: list[str] = []
+    # Whether that output is what preparation steps made: preparations that each
+    # start from a line of their own run side by side, and the step after them
+    # takes what all of them made.
+    upstream_is_prepared = False
 
     for step in ordered:
         ptype = str(step["process_type"])
@@ -369,8 +373,11 @@ def draft_process_chain(
         proc = draft_process(state, assay_id, ptype, hints)
 
         # --- inputs: explicit wins; otherwise inherit the upstream output ---
+        # A preparation that names its line starts from that line, not from what
+        # the preparation before it made.
+        own_line = ptype == "TestSystemPreparation" and hints.get("cell_line") not in (None, "", [])
         inputs = _explicit_ids(step, "object", "input", "samples")
-        if not inputs and upstream_output:
+        if not inputs and upstream_output and not own_line:
             inputs = list(upstream_output)
         for tid in inputs:
             if state.get_entity(tid) is not None:
@@ -433,7 +440,12 @@ def draft_process_chain(
         # output), falling back to this step's inputs so a no-output step (e.g. a
         # bare Exposure relying on the build's typed-table fallback) still hands
         # the material flow downstream.
-        upstream_output = outputs or inputs
+        produced = outputs or inputs
+        if own_line and upstream_is_prepared:
+            upstream_output = [*upstream_output, *(p for p in produced if p not in upstream_output)]
+        else:
+            upstream_output = produced
+        upstream_is_prepared = ptype == "TestSystemPreparation"
 
     result: dict[str, Any] = {
         "assay_id": assay_id,
@@ -2346,6 +2358,118 @@ def _search_cell_line_accession(
     return "", "", ""
 
 
+# What says which cells a source is. Two names that resolve to one accession and
+# differ in one of these are two populations of that line, never one line twice.
+_CELLS_ARE: tuple[str, ...] = ("cell_type", "tissue", "organ")
+
+# What a cell line holds as the catalogued line it is. The rest is said of the cells.
+_LINE_OWN_FIELDS: frozenset[str] = frozenset(
+    {"name", "accession", "source_kind", *_CELL_LINE_DATA_FIELDS}
+)
+
+
+def _states_other_cells(entity: Entity, name: str, hints: Mapping[str, Any] | None) -> bool:
+    """Whether *hints* describe other cells than *entity*, which goes by another name.
+
+    One line under two spellings states the same cells, or states them once. Two
+    populations made from one line state different ones, and folding the second
+    into the first would overwrite what the first is.
+    """
+
+    def folded(value: Any) -> str:
+        return " ".join(str(value or "").split()).casefold()
+
+    if folded(entity.fields.get("name")) == folded(name):
+        return False
+    return any(
+        folded(entity.fields.get(key))
+        and folded((hints or {}).get(key))
+        and folded(entity.fields.get(key)) != folded((hints or {}).get(key))
+        for key in _CELLS_ARE
+    )
+
+
+def _own_source_beside(
+    state: CrateState, line: Entity, name: str, hints: Mapping[str, Any] | None, query: str
+) -> dict[str, Any]:
+    """Keep *name* apart from the *line* entity whose accession it also resolved to.
+
+    Nothing says which of the two is the catalogued line, so the accession stays
+    where it is and this one is a source of its own without one. The result says
+    how to record both properly.
+    """
+    stated = {k: v for k, v in (hints or {}).items() if k not in _CELL_LINE_REFUSED_HINTS}
+    existing = state.get_entity(_make_entity_id("cell", name, stated))
+    if existing is not None and existing.type == "CellLineSample":
+        existing.set_fields_from_dict({**stated, "name": name}, source="llm")
+        entity = existing
+    else:
+        entity = draft_cell_line_sample(state, name, stated)
+    held = str(line.fields.get("accession") or "")
+    catalogued = query or held
+    return {
+        "entity_id": entity.entity_id,
+        "name": name,
+        "accession": "",
+        "match": "none",
+        "query": "",
+        "verifications": [],
+        "verified": None,
+        "source": "cellosaurus",
+        "fix": (
+            f"{name!r} and {line.fields.get('name')!r} both resolve to {catalogued} ({held}) "
+            "but state different cells, so they are two populations made from that line, "
+            f"not the line itself. Resolve each with made_from={catalogued!r} instead of "
+            "catalog_name: the line then carries the accession and each population is a "
+            "sample made from it."
+        ),
+    }
+
+
+def _resolve_population(
+    state: CrateState,
+    name: str,
+    line_name: str,
+    hints: Mapping[str, Any] | None,
+    verify: bool | None,
+    timeout: float | None,
+) -> dict[str, Any]:
+    """Cells made from a line: the line, and a Sample that derives from it.
+
+    The line is resolved like any cell line and carries the accession. The
+    population is not looked up: it has no record of its own, and what the caller
+    states about it (its cell type, its tissue) is said of it, not of the line.
+    A cell source that an earlier call minted under the population's name, and
+    that nothing refers to yet, gives way to the sample and hands it what it
+    stated.
+    """
+    from builder.tools.management import find_referrers, remove_entity
+
+    stated = {
+        k: v
+        for k, v in (hints or {}).items()
+        if k not in _CELL_LINE_REFUSED_HINTS and k not in _LINE_OWN_FIELDS
+    }
+    stand_in = state.get_entity(_make_entity_id("cell", name, {}))
+    if (
+        stand_in is not None
+        and stand_in.type == "CellLineSample"
+        and not find_referrers(state, stand_in.entity_id)
+    ):
+        earlier = {k: v for k, v in stand_in.fields.items() if k not in _LINE_OWN_FIELDS}
+        stated = {**earlier, **stated}
+        remove_entity(state, stand_in.entity_id)
+
+    line = resolve_cell_line(state, line_name, verify=verify, timeout=timeout)
+    fields = {**stated, "name": name, "derives_from": line["entity_id"]}
+    population = state.get_entity(_make_entity_id("sample", name, fields))
+    if population is not None and population.type == "Sample":
+        population.set_fields_from_dict(fields, source="llm")
+    else:
+        population = draft_sample(state, fields)
+    return {**line, "entity_id": population.entity_id, "name": name, "line_id": line["entity_id"]}
+
+
 def resolve_cell_line(
     state: CrateState,
     name: str,
@@ -2353,6 +2477,7 @@ def resolve_cell_line(
     catalog_name: str | None = None,
     verify: bool | None = None,
     timeout: float | None = None,
+    made_from: str | None = None,
 ) -> dict[str, Any]:
     """Resolve a cell-line name to a ``CellLineSample`` + Cellosaurus accession.
 
@@ -2410,6 +2535,12 @@ def resolve_cell_line(
         catalog_name: Optional short catalogue name for the same line, e.g.
             ``"FRTL-5"`` for a descriptive phrase naming it. A catalogue *name*
             is a name, so it is D5-clean; one shaped like an accession is refused.
+        made_from: The catalogue name of the line these cells were made from,
+            when they are not that line itself: one of two cell types
+            differentiated from one iPSC line. The line is resolved as the
+            ``CellLineSample`` and the named cells become a ``Sample`` that
+            derives from it and states what *hints* say of them
+            (:func:`_resolve_population`). One shaped like an accession is ignored.
         verify: When ``None``/``True`` (the default), run step 2. Passing
             ``False`` skips it — and with it the record, since step 2 is the only
             fetch: the accession is then kept unverified and no enrichment
@@ -2427,6 +2558,9 @@ def resolve_cell_line(
         can surface a ``catalog``-tier commit for confirmation — that prompt is
         deliberately NOT here and NOT in ``run_pipeline``, whose contract is to
         stay non-blocking so ``--arch pipeline`` and the corpus eval run headless.
+        With *made_from*, ``entity_id`` is the population's Sample and ``line_id``
+        the line it derives from. ``fix`` is present when the name was kept apart
+        from a line it also resolved to, and says how to record both.
     """
     budget = DEFAULT_RESOLVE_TIMEOUT if timeout is None else timeout
 
@@ -2434,6 +2568,12 @@ def resolve_cell_line(
     # preserved for display; `_make_entity_id` lowercases for the id. Keeps
     # "Hep G2" and "Hep  G2" one entity, and is what gets searched.
     display_name = " ".join(str(name).split()) or name
+
+    # Cells made from a line are a sample of it. An accession is no line's name
+    # (D5), so one handed in here is ignored and the cells are resolved as named.
+    line_name = " ".join(str(made_from or "").split())
+    if line_name and not _ACCESSION_SHAPED.match(line_name):
+        return _resolve_population(state, display_name, line_name, hints, verify, timeout)
 
     # The hint, else the kind the name's entity already records.
     existing = state.get_entity(_make_entity_id("cell", display_name, hints or {}))
@@ -2506,6 +2646,8 @@ def resolve_cell_line(
 
     # --- mint or reuse ------------------------------------------------------
     by_accession = _find_cell_line_by_accession(state, accession) if accession else None
+    if by_accession is not None and _states_other_cells(by_accession, display_name, hints):
+        return _own_source_beside(state, by_accession, display_name, hints, query)
     if by_accession is not None:
         entity = by_accession
         # Keep the name the line was first minted under and record this call's
