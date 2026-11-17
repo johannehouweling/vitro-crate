@@ -1270,7 +1270,8 @@ PubChem CID's is `{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`; DTXSID's 
 id by the InChIKey the lookup returned, an exact statement search on the wiki, and
 keeps none when two items state one InChIKey (D5). It drops a `compoundwiki_id` a
 caller hands in as a hint, so the id it writes is the wiki's own answer and is
-recorded as looked up. These source fields
+recorded as looked up. Such an id is also the chemical's `@id` (§10); one a model
+or a person wrote is an identifier value and nothing more. These source fields
 are consumed structurally (kept off the node as raw literals). A Person's
 `affiliation` and a Publication's `author` are resolved to `{"@id"}` references
 (via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so
@@ -2048,6 +2049,20 @@ identifier the lookup actually produced over a local fragment (Issue #179, D5:
 never fabricated; a compound with no `pubchem_cid` and no ChEBI identity still
 falls back to the fragment). `pubchem_cid` (the PubChem compound URL) still wins
 when both are present.
+
+**A chemical is identified by its Compound Wiki address.** Where `resolve_compound`
+found the chemical's item (the one item that states the InChIKey the lookup
+returned, §5), the `MolecularEntity`'s `@id` is that item's address,
+`https://compoundcloud.wikibase.cloud/entity/Q<n>`. The PubChem compound URL is the
+`@id` only of a chemical the wiki has no item for, and the ChEBI PURL and the
+fragment follow as above. The id must be one a lookup wrote, which its completion
+record says (`_crate_mapping._compound_wiki_iri`): a `compoundwiki_id` a model or a
+person wrote is still written as an identifier value and never becomes the `@id`
+(D5). The item a name search hits in `lookup_compound`'s fallback does not count
+either; it is the `@id` only when the InChIKey search finds it too. The identifier
+values (CAS, PubChem CID, DTXSID, Compound Wiki) are the same whichever address the
+chemical has. An unreachable wiki reads as no item, so the chemical then keeps its
+PubChem address.
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.

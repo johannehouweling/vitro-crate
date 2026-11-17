@@ -32,6 +32,7 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
 from builder.tools.document_discovery import CLASS_PROTOCOL, SCRIPT_SUFFIXES
+from lookups.compoundwiki import BASE as COMPOUND_WIKI
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, LabProtocol, Sample, param_id
 from profiles.models.tox import (
@@ -222,7 +223,10 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "inchikey": "InChIKey, if known.",
             "smiles": "SMILES string, if known.",
             "molecular_formula": "Molecular formula, if known.",
-            "pubchem_cid": "PubChem CID (resolves the entity @id when present).",
+            "pubchem_cid": (
+                "PubChem CID (resolves the entity @id unless a lookup found the compound "
+                "in the Compound Wiki)."
+            ),
         },
     ),
     "CellLineSample": EntityDraftSchema(
@@ -1052,6 +1056,22 @@ def _chebi_purl(entity: Entity) -> str | None:
     return None
 
 
+def _compound_wiki_iri(entity: Entity) -> str | None:
+    """The Compound Wiki address of a MolecularEntity a lookup found there, or None.
+
+    ``resolve_compound`` asks the wiki which one item states the InChIKey the
+    lookup returned, and records the ``compoundwiki_id`` it writes as looked up.
+    Only that record makes the id an address: an id a caller, a model or a person
+    wrote stays an identifier value, and a value that is no bare ``Q`` id is never
+    joined into an address (D5).
+    """
+    status = entity.get_field_status("compoundwiki_id")
+    wiki_id = str(entity.fields.get("compoundwiki_id") or "")
+    if status is None or status.source != "lookup" or not re.fullmatch(r"Q[0-9]+", wiki_id):
+        return None
+    return f"{COMPOUND_WIKI}/entity/{wiki_id}"
+
+
 def _mint_id(entity: Entity) -> str:
     """A spec-correct @id: resolvable URI when available, else `#`-fragment.
 
@@ -1067,10 +1087,14 @@ def _mint_id(entity: Entity) -> str:
         r = str(f["ror"]).strip()
         return r if r.startswith("http") else f"https://ror.org/{r.lstrip('/')}"
     if t == "MolecularEntity":
-        # A PubChem CID is the preferred clean external @id. A ChEBI-fallback
+        # A chemical is identified by its Compound Wiki address where a lookup
+        # found it there, and by its PubChem address otherwise. A ChEBI-fallback
         # compound (no CID) carries a resolvable ChEBI PURL on sameAs / chebiId —
         # use it instead of a `#MolecularEntity_<eid>` fragment so the @id is
         # externally resolvable (#179, D5: only ids the lookup produced).
+        wiki_iri = _compound_wiki_iri(entity)
+        if wiki_iri:
+            return wiki_iri
         if f.get("pubchem_cid"):
             return f"https://pubchem.ncbi.nlm.nih.gov/compound/{f['pubchem_cid']}"
         chebi_purl = _chebi_purl(entity)

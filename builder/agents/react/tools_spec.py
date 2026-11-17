@@ -133,7 +133,7 @@ TOOL_SPECS = [
     },
     {
         "name": "resolve_compound",
-        "description": "Resolve a chemical NAME to a verified MolecularEntity in ONE call (the chemistry counterpart of scaffold_isa_backbone): it looks the compound up (lookup_compound: PubChem -> ChEBI fallback), mints/reuses the MolecularEntity carrying the looked-up CAS + PubChem CID (which the build turns into [CAS, PubChem CID] identifier PropertyValues), then VERIFIES each minted identifier against source. D5: a value that does not resolve is cleared, never kept as a fabricated id — the per-field verdicts are returned. Idempotent (keyed by name, no duplicate). Prefer this over lookup_compound + draft_molecular_entity + verify_identifier for a single compound. On a lookup miss returns {ok:false, error}. Example: resolve_compound(name='Silychristin A', hints={'description': 'a flavonolignan'}).",
+        "description": "Resolve a chemical NAME to a verified MolecularEntity in ONE call (the chemistry counterpart of scaffold_isa_backbone): it looks the compound up (lookup_compound: PubChem -> ChEBI fallback), mints/reuses the MolecularEntity carrying the looked-up CAS + PubChem CID (which the build turns into [CAS, PubChem CID] identifier PropertyValues), then VERIFIES each minted identifier against source. Where the Compound Wiki has the compound, its item's address becomes the entity @id; only this tool finds it, and a compoundwiki_id passed in hints is dropped. D5: a value that does not resolve is cleared, never kept as a fabricated id — the per-field verdicts are returned. Idempotent (keyed by name, no duplicate). Prefer this over lookup_compound + draft_molecular_entity + verify_identifier for a single compound. On a lookup miss returns {ok:false, error}. Example: resolve_compound(name='Silychristin A', hints={'description': 'a flavonolignan'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -260,7 +260,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_molecular_entity",
-        "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '<CID returned by lookup_compound>', 'identifier': '<CAS RN returned by lookup_compound>'}).",
+        "description": "Create a MolecularEntity from a compound name. Look the compound up first (lookup_compound) so you can pass a verified pubchem_cid; prefer resolve_compound, which also finds the compound's Compound Wiki item, its @id where there is one. Example: draft_molecular_entity(name='Silychristin A', hints={'pubchem_cid': '<CID returned by lookup_compound>', 'identifier': '<CAS RN returned by lookup_compound>'}).",
         "parameters": {
             "type": "object",
             "properties": {
