@@ -46,6 +46,8 @@ Fully offline: no network, no live LLM.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -724,8 +726,8 @@ class TestRealInputPipeline:
     def test_every_step_follows_one_protocol_record(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """#783 / #799, pipeline arm: each step executes exactly one protocol record
         the build wrote, typed by its step, and no deposited file is executed. The
-        Exposure's record lists the compounds the run resolved as its reagents, and
-        the readout's is based on the deposit's own SOP."""
+        Exposure's record lists the test chemicals the run resolved as its reagents;
+        the readout's lists its substrate and is based on the deposit's own SOP."""
         from urllib.parse import unquote
 
         from builder.agents.pipeline.pipeline import run_pipeline
@@ -763,8 +765,10 @@ class TestRealInputPipeline:
             records[kind_of[record["intendedUse"]["@id"]]] = record
         assert sorted(records) == sorted(expected), records
 
-        compounds = {n["@id"] for n in graph if "MolecularEntity" in types(n)}
-        assert compounds and set(ids(records["Exposure"].get("reagent"))) == compounds
+        tested = {n["name"]: n["@id"] for n in graph if "MolecularEntity" in types(n)}
+        substrate = tested.pop("Thyroxine")
+        assert tested and set(ids(records["Exposure"].get("reagent"))) == set(tested.values())
+        assert ids(records["EndpointReadout"].get("reagent")) == [substrate]
         sop = _SOP.relative_to(FIXTURE_DIR).as_posix()
         assert sop in [unquote(i) for i in ids(records["EndpointReadout"].get("isBasedOn"))]
 
@@ -798,7 +802,9 @@ class TestRealInputPipeline:
         assert path and Path(path).is_file()
         body = Path(path).read_text(encoding="utf-8")
         assert len(body.strip().splitlines()) > 1, "the table is header-only"
-        assert "Thyroxine" in body, "the proposed rows must carry the real compound"
+        proposed = sorted(row["compound"] for row in csv.DictReader(io.StringIO(body)))
+        tested = sorted(label for _token, label in _TEST_CHEMICALS)
+        assert proposed == tested, "one row per test chemical, and none for the substrate"
 
     def test_raw_and_processed_data_files_attached_to_crate(
         self, monkeypatch: pytest.MonkeyPatch
