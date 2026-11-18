@@ -1134,6 +1134,16 @@ class TestLinkAssayToAKeyEventOfThePathway:
             "https://aopwiki.org/events/9177",
         }
 
+    def test_an_ambiguous_name_stores_no_event(self):
+        # Several matches write nothing (D5): neither event a shared name could mean
+        # is stored for having been a candidate.
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate(("610", "611"))
+        link_assay_to_key_event(state, assay_id, "Mitochondrial dysfunction")
+
+        assert _by_type(state, "KeyEvent") == []
+
     def test_never_fabricates_an_iri_from_the_name(self):
         # D5 control: the committed reference must be an id the LOOKUP gave for an
         # event of the pathway, so an id minted from the name

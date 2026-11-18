@@ -130,6 +130,21 @@ def _gives_nothing(aop_id: str) -> dict:
     return {"found": False, "data": {}, "error": "AOP-Wiki unavailable (transient)"}
 
 
+def _lists_one_name_twice(aop_id: str) -> dict:
+    """A stand-in for ``lookup_aop`` that lists two events under one name."""
+    answer = _lists_three_events(aop_id)
+    answer["data"]["events"].append(
+        {
+            "@id": "https://aopwiki.org/events/9258",
+            "@type": "KeyEvent",
+            "name": "Inhibition, MCT8",
+            "eventType": "Key Event",
+            "identifier": "9258",
+        }
+    )
+    return answer
+
+
 @pytest.fixture
 def pathway_engine(monkeypatch):
     """A crate with a Study, an Assay and their pathway, and none of its events."""
@@ -395,6 +410,17 @@ class TestAnAnswerStoresTheEventItNames:
 
         assert "keyEvent" not in _assay(pathway_engine).fields
         assert "Inhibition, MCT8" in human.notes[0]
+
+    def test_a_name_two_listed_events_share_stores_neither(self, pathway_engine, monkeypatch):
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.tools import lookups as tool_lookups
+
+        monkeypatch.setattr(tool_lookups, "lookup_aop", _lists_one_name_twice)
+
+        assert _apply_value(pathway_engine, self._gap(), "Inhibition, MCT8") is False
+
+        assert "keyEvent" not in _assay(pathway_engine).fields
+        assert pathway_engine.state.list_entities("KeyEvent") == []
 
     def test_the_user_is_told_when_aop_wiki_gave_no_events(self, pathway_engine, monkeypatch):
         from builder.agents.pipeline.guidance import _apply_value
