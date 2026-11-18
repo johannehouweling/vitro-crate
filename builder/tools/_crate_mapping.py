@@ -1972,12 +1972,7 @@ def _add_leaves(
             name = chem.fields.get("name")
             if name and name not in (node.get("name"), *_child_ids(node, "alternateName")):
                 node.append_to("alternateName", name)
-            logger.info(
-                "%s names the chemical already written at %s, so its name is kept as "
-                "an alternate name",
-                chem.entity_id,
-                chem_id,
-            )
+            logger.info("%s is written as the chemical already at %s", chem.entity_id, chem_id)
             _idx_add(idx, chem, node)
             continue
         props = _scalar_props(chem)
