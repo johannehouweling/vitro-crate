@@ -258,6 +258,25 @@ class TestTheDraftedSampleDerivesFromTheFirstLineStated:
         assert sample.fields.get("derives_from") == lines[0]
 
 
+def _drafted_culture(derives_from: str | None) -> CrateState:
+    """A culture of both lines whose drafted output Sample derives from *derives_from*."""
+    state = _two_lines()
+    lineage = {"derives_from": derives_from} if derives_from else {}
+    state.add_entity(_ent("sample_cultured", "Sample", name="Cultured cells", **lineage))
+    state.add_entity(
+        _ent(
+            "proc_culture",
+            "LabProcess",
+            name="Cell culture",
+            process_type="TestSystemPreparation",
+            assay_id="assay_1",
+            cell_line=LINES,
+            result="sample_cultured",
+        )
+    )
+    return state
+
+
 class TestThePartGrowingItsLineTakesTheDraftedSample:
     """Forced each way round, rather than left to a hash seed."""
 
@@ -273,25 +292,20 @@ class TestThePartGrowingItsLineTakesTheDraftedSample:
     def test_the_part_growing_the_line_it_derives_from_takes_it(
         self, derives_from: str | None, taker: str
     ) -> None:
-        state = _two_lines()
-        lineage = {"derives_from": derives_from} if derives_from else {}
-        state.add_entity(_ent("sample_cultured", "Sample", name="Cultured cells", **lineage))
-        state.add_entity(
-            _ent(
-                "proc_culture",
-                "LabProcess",
-                name="Cell culture",
-                process_type="TestSystemPreparation",
-                assay_id="assay_1",
-                cell_line=LINES,
-                result="sample_cultured",
-            )
-        )
-        cultures = _cultures(state)
+        cultures = _cultures(_drafted_culture(derives_from))
         yields = {culture["step"]: [s["name"] for s in culture["yields"]] for culture in cultures}
         assert yields[taker] == ["Cultured cells"], yields
         assert sum(names == ["Cultured cells"] for names in yields.values()) == 1, yields
         _assert_each_part_yields_its_own_line(cultures)
+
+    def test_one_deriving_from_a_line_the_culture_does_not_grow_goes_to_the_first(self) -> None:
+        """Derived from none of the lines the culture grows, as from no line at all."""
+        state = _drafted_culture("cell_mo313")
+        state.add_entity(_ent("cell_mo313", "CellLineSample", name="MO3.13"))
+        cultures = _cultures(state)
+        yields = {culture["step"]: [s["name"] for s in culture["yields"]] for culture in cultures}
+        assert yields == {"Culture H4": ["Cultured (H4)"], "Culture SK-N-AS": ["Cultured cells"]}
+
 
 class TestTheExposedSampleStaysWithItsLine:
     """The drafted cultured Sample derives from H4, so the second part takes it. An
