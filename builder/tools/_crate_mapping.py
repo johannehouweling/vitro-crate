@@ -1964,11 +1964,13 @@ def _add_leaves(
             node.append_to("identifier", pv)
     # A reference may hold one of a chemical's addresses instead of its id in the
     # state, such as the PubChem address a chemical had before the Compound Wiki
-    # named it. It reaches the chemical written at that address, and otherwise
-    # the one that has the address beside the one it is identified by.
+    # named it, or the id it is written at, such as the local id of one given a
+    # wiki address as its own id. It reaches the chemical written at that address,
+    # and otherwise the one that has the address beside the one it is identified by.
     for chem in state.list_entities("MolecularEntity"):
-        node = chem_nodes[_mint_id(chem)]
-        for address in _compound_addresses(chem):
+        chem_id = _mint_id(chem)
+        node = chem_nodes[chem_id]
+        for address in (chem_id, *_compound_addresses(chem)):
             idx.setdefault(address, chem_nodes.get(address, node))
 
     for pv in state.list_entities("PropertyValue"):
