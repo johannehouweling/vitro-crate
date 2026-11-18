@@ -3622,8 +3622,9 @@ def _add_processes(
     # Every id a drafted step mints, so that no protocol record takes one.
     reserved = frozenset(_mint_id(p) for p in ordered)
     # What the lab stated about a step: the protocols the drafter recorded. They are
-    # no crate nodes of their own; each is written on the documents the step that
-    # names it executes, or fills that step's record.
+    # no crate nodes of their own; each fills the record of the step that names it or,
+    # where that step executes documents, their empty description and url and an
+    # alternateName (see `_execute_documents`).
     stated_idx: dict[str, Any] = {}
     for protocol in state.list_entities("LabProtocol"):
         _idx_add(stated_idx, protocol, protocol)
