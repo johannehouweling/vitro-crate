@@ -3634,7 +3634,8 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
   and stop, so the crate listed a pathway's key events without ever saying which one
   the assay measures. Each `aops[]` item now also carries `measured_event_name` — a
-  NAME, never an id (D5) — and after the pathway is stored the spine calls
+  NAME, never an id (D5): an AOP-Wiki address or number there, which the tool would
+  match, is not passed on — and after the pathway is stored the spine calls
   `link_assay_to_key_event(assay_id, event_name)`, which matches that name against
   the pathway's events on AOP-Wiki, stores the one named and commits ITS IRI onto the Assay's
   `keyEvent` (camelCase: it is the `Assay:keyEvent` MIT slot). A zero or ambiguous

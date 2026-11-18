@@ -2379,6 +2379,17 @@ def _materialize_plan(
         event_name = str((aop or {}).get("measured_event_name") or "").strip()
         if not event_name or not assay_id:
             continue
+        if "://" in event_name or event_name.isdigit():
+            # A NAME, never an id (D5): the composite also matches an AOP-Wiki
+            # address or number, for a source that states one, but in the plan such
+            # a value came from the model, so it is not passed on.
+            logger.info(
+                "assay left unlinked: the plan states the event AOP %s's assay "
+                "measures as %r, an id rather than a name",
+                aop_id,
+                event_name,
+            )
+            continue
         # `keyEvent` holds ONE reference (it is not a collection field), so a
         # second plan item naming an event would overwrite the first silently and
         # still increment the counter — the run would claim two links where the

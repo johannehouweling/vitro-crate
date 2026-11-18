@@ -1369,6 +1369,45 @@ class TestMaterializePlan:
         assert result["key_events"] == 0
         assert result["aops"] == 1  # the pathway itself still landed
 
+    @pytest.mark.parametrize("stated", ["https://aopwiki.org/events/1", "1"])
+    def test_plan_cannot_name_the_measured_event_by_an_id(
+        self, monkeypatch: pytest.MonkeyPatch, stated: str
+    ) -> None:
+        """D5: ``measured_event_name`` is a NAME, never an id.
+
+        ``link_assay_to_key_event`` also matches an AOP-Wiki address or number, for
+        a source that states one. In the plan such a value came from the model, so
+        it links nothing, although the stubbed lookup lists the event it names.
+        """
+        import copy
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.tools import lookups as tool_lookups
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(
+            monkeypatch, {"aops": [{"aop_id": "610", "measured_event_name": stated}]}
+        )
+        self._stub_lookups(monkeypatch)
+        listed = tool_lookups.lookup_aop
+
+        def with_numbers(aop_id):
+            answer = copy.deepcopy(listed(aop_id))
+            for event in answer["data"]["events"]:
+                event["identifier"] = event["@id"].rsplit("/", 1)[-1]
+            return answer
+
+        monkeypatch.setattr(tool_lookups, "lookup_aop", with_numbers)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        assert "keyEvent" not in self._by_type(engine, "Assay")[0].fields
+        assert self._by_type(engine, "KeyEvent") == []
+        assert result["key_events"] == 0
+        assert result["aops"] == 1
+
     def test_plan_cannot_supply_an_event_identifier(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
