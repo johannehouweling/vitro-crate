@@ -1281,6 +1281,109 @@ def extract_deposit_funding(text: str) -> list[dict[str, str]]:
     return found
 
 
+# What each convention calls the name and the identifier of a person and of an
+# organisation, and the key the identifier is kept under. BioStudies gives each
+# author and each organisation a SECTION of its own, whose attributes name it and
+# its identifier; DataCite names them in the ``creators`` and ``contributors``
+# FIELDS, where each identifier states its scheme.
+_PEOPLE_SECTIONS = {
+    "author": {"name": "name", "orcid": "orcid"},
+    "organisation": {"name": "name", "rorid": "ror"},
+    "organization": {"name": "name", "rorid": "ror"},
+}
+_PEOPLE_FIELDS = {"creators", "contributors"}
+_PEOPLE_SCHEMES = {"orcid": "orcid", "ror": "ror"}
+
+
+def extract_deposit_people(
+    text: str,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]] | None:
+    """The people and organisations a structured metadata document identifies.
+
+    ``(people, organisations)``: one ``{"name": <name>, "orcid": <ORCID iD>}`` per
+    person and one ``{"name": <name>, "ror": <ROR id>}`` per organisation, in document
+    order, each only where both are stated, since a name alone identifies nobody. A
+    BioStudies descriptor states them as
+
+    .. code-block:: json
+
+        {"type": "author",
+         "attributes": [{"name": "Name", "value": "Timo Hamers"},
+                        {"name": "ORCID", "value": "0000-0002-5733-3290"}]}
+        {"type": "organisation",
+         "attributes": [{"name": "Name", "value": "VU - Vrije Universiteit Amsterdam"},
+                        {"name": "RORID", "value": "https://ror.org/008xxew50"}]}
+
+    and a DataCite record as the ``nameIdentifiers`` of its ``creators`` and
+    ``contributors`` and the identifiers of their ``affiliation``, an ORCID or a ROR
+    by the scheme stated beside it. Both values are kept verbatim, and nothing else is
+    kept: the same sections hold an e-mail address, a role and a country, and none of
+    them identifies anyone. A funder is the funding's, read by its name
+    (:func:`extract_deposit_funding`), and is not read here.
+
+    ``None`` when the document identifies nobody, prose included: only a document
+    whose top level is a mapping is a metadata record.
+    """
+    parsed = _parse_structured(text)
+    if parsed is None:
+        return None
+
+    people: list[dict[str, str]] = []
+    organisations: list[dict[str, str]] = []
+
+    def _keep(name: Any, key: str, identifier: Any) -> None:
+        if not (isinstance(name, str) and name.strip()):
+            return
+        if not (isinstance(identifier, str) and identifier.strip()):
+            return
+        stated = {"name": name.strip(), key: identifier.strip()}
+        kept = people if key == "orcid" else organisations
+        if stated not in kept:
+            kept.append(stated)
+
+    def _section(node: dict[str, Any], names: dict[str, str]) -> None:
+        stated: dict[str, Any] = {}
+        for attribute in node.get("attributes") or []:
+            if isinstance(attribute, dict):
+                key = names.get(str(attribute.get("name") or "").strip().casefold())
+                if key:
+                    stated.setdefault(key, attribute.get("value"))
+        key = "orcid" if "orcid" in names.values() else "ror"
+        _keep(stated.get("name"), key, stated.get(key))
+
+    def _named(entry: dict[str, Any]) -> None:
+        for identifier in entry.get("nameIdentifiers") or []:
+            if isinstance(identifier, dict):
+                scheme = str(identifier.get("nameIdentifierScheme") or "").strip().casefold()
+                if key := _PEOPLE_SCHEMES.get(scheme):
+                    _keep(entry.get("name"), key, identifier.get("nameIdentifier"))
+        for affiliation in entry.get("affiliation") or []:
+            if isinstance(affiliation, dict):
+                scheme = str(affiliation.get("affiliationIdentifierScheme") or "")
+                if scheme.strip().casefold() == "ror":
+                    _keep(affiliation.get("name"), "ror", affiliation.get("affiliationIdentifier"))
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            names = _PEOPLE_SECTIONS.get(str(node.get("type") or "").strip().casefold())
+            if names is not None:
+                _section(node, names)
+                return
+            for key, child in node.items():
+                if str(key).strip().casefold() in _PEOPLE_FIELDS:
+                    for entry in child if isinstance(child, list) else []:
+                        if isinstance(entry, dict):
+                            _named(entry)
+                else:
+                    _walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                _walk(child)
+
+    _walk(parsed)
+    return (people, organisations) if people or organisations else None
+
+
 def extract_deposit_licence(text: str, *, filename: str = "") -> str | None:
     """The licence a structured metadata document declares (#535).
 
