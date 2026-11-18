@@ -2710,6 +2710,10 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             _append_unique(root, "hasPart", node)
 
     root_ident = root.get("identifier") or "./"
+    # A descriptor is built under the root's identifier, unless that is a web address
+    # (the deposit's DOI): built under one, it reads as an address that resolves to
+    # nothing. It is then built under the deposit's accession, or under nothing.
+    nest_ident = root_ident if "://" not in str(root_ident) else state.metadata.accession or "."
     # ISA caps a Study's or Assay's schema:identifier at one: the minted one (#739).
     isa_skip = (*_AGENT_REFERENCE_FIELDS, *_identifier_terms())
     # A Study or an Assay with a folder of its own is that folder (#852): a
@@ -2728,7 +2732,7 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             "additionalType": "Study",
             **_scalar_props(st, skip=isa_skip),
         }
-        descriptor = _isa_identifier(st, root_ident, "study")
+        descriptor = _isa_identifier(st, nest_ident, "study")
         props["identifier"] = folder if folder and folder not in stated else descriptor
         stated.add(props["identifier"])
         node = crate.add(
@@ -2749,7 +2753,11 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             **_scalar_props(asy, skip=isa_skip),
         }
         parent = _resolve_one(idx, asy.fields.get("study_id")) or root
-        above = descriptors.get(parent.id) or parent.get("identifier") or root_ident
+        above = (
+            descriptors.get(parent.id)
+            or (parent is not root and parent.get("identifier"))
+            or nest_ident
+        )
         props["identifier"] = (
             folder if folder and folder not in stated else _isa_identifier(asy, above, "assay")
         )
