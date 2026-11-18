@@ -587,6 +587,211 @@ def assay_lane_graph() -> dict[str, Any]:
     }
 
 
+def executed_document_graph() -> dict[str, Any]:
+    """Two assays whose steps execute the deposited documents themselves.
+
+    The shape a crate has where the deposit holds a document for a step: the
+    step's ``executesLabProtocol`` names the file, which is typed ``LabProtocol``
+    as well as ``File`` and carries the ``intendedUse`` that types the step and
+    the ``reagent`` the step applied. Every other fixture here gives each step a
+    record of its own, so in none of them is a protocol a file, and in none is
+    one protocol executed by two steps.
+
+    * **Assay E** has two readouts that execute one SOP, which lists their
+      substrate; an analysis that executes a script; and an exposure that keeps
+      a record, because the deposit holds no document for it.
+    * **Assay F** has one readout that executes two documents.
+    * Both assays culture the same cell line and execute its one culture
+      document, which therefore belongs to neither assay alone.
+
+    No step carries an ``additionalType``: each is typed by what it executes.
+    """
+    growth = "http://www.ebi.ac.uk/efo/EFO_0003789"
+    treatment = "http://www.ebi.ac.uk/efo/EFO_0003969"
+    measuring = "http://www.bioassayontology.org/bao#BAO_0000523"
+    transforming = "http://purl.obolibrary.org/obo/OBI_0200000"
+    culture_document = "cell_line_protocols/cell%20culture%20SK-N-AS.docx"
+    return {
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "about": {"@id": "./"}},
+            {
+                "@id": "./",
+                "@type": "Dataset",
+                "additionalType": "Investigation",
+                "name": "An investigation",
+                "hasPart": [{"@id": "#study"}],
+            },
+            {
+                "@id": "#study",
+                "@type": "Dataset",
+                "additionalType": "Study",
+                "name": "A study",
+                "hasPart": [{"@id": "#assay-e"}, {"@id": "#assay-f"}, {"@id": culture_document}],
+            },
+            {"@id": growth, "@type": "DefinedTerm", "name": "growth protocol"},
+            {"@id": treatment, "@type": "DefinedTerm", "name": "treatment protocol"},
+            {"@id": measuring, "@type": "DefinedTerm", "name": "assay protocol"},
+            {"@id": transforming, "@type": "DefinedTerm", "name": "data transformation"},
+            {
+                "@id": "#cellline",
+                "@type": "Sample",
+                "additionalType": "CellLineSample",
+                "name": "SK-N-AS",
+            },
+            {
+                "@id": culture_document,
+                "@type": ["File", "LabProtocol"],
+                "name": "cell culture SK-N-AS.docx",
+                "intendedUse": {"@id": growth},
+            },
+            # --- assay E: a shared SOP, a script and a record ------------------
+            {
+                "@id": "#assay-e",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "Uptake assay",
+                "about": [
+                    {"@id": "#culture-e"},
+                    {"@id": "#exposure-e"},
+                    {"@id": "#readout-e1"},
+                    {"@id": "#readout-e2"},
+                    {"@id": "#analysis-e"},
+                ],
+                "hasPart": [{"@id": "assay_e/SOP.docx"}, {"@id": "assay_e/fit_curves.R"}],
+            },
+            {
+                "@id": "#culture-e",
+                "@type": "LabProcess",
+                "name": "Culture SK-N-AS",
+                "object": {"@id": "#cellline"},
+                "result": {"@id": "#cultured-e"},
+                "executesLabProtocol": {"@id": culture_document},
+            },
+            {"@id": "#cultured-e", "@type": "Sample", "name": "Cultured (SK-N-AS)"},
+            {
+                "@id": "#exposure-e",
+                "@type": "LabProcess",
+                "name": "Exposure",
+                "object": {"@id": "#cultured-e"},
+                "result": {"@id": "#exposed-e"},
+                "executesLabProtocol": {"@id": "#exposure-e_protocol"},
+            },
+            {
+                "@id": "#exposure-e_protocol",
+                "@type": "LabProtocol",
+                "name": "Exposure protocol",
+                "intendedUse": {"@id": treatment},
+                "reagent": [{"@id": "#compound"}],
+            },
+            {"@id": "#compound", "@type": "MolecularEntity", "name": "Amiodarone"},
+            {"@id": "#exposed-e", "@type": "Sample", "name": "Exposed (SK-N-AS)"},
+            {
+                "@id": "#readout-e1",
+                "@type": "LabProcess",
+                "name": "Uptake readout, first run",
+                "object": {"@id": "#exposed-e"},
+                "result": {"@id": "raw/e1.csv"},
+                "executesLabProtocol": {"@id": "assay_e/SOP.docx"},
+            },
+            {
+                "@id": "#readout-e2",
+                "@type": "LabProcess",
+                "name": "Uptake readout, second run",
+                "object": {"@id": "#exposed-e"},
+                "result": {"@id": "raw/e2.csv"},
+                "executesLabProtocol": {"@id": "assay_e/SOP.docx"},
+            },
+            {
+                "@id": "assay_e/SOP.docx",
+                "@type": ["File", "LabProtocol"],
+                "name": "SOP.docx",
+                "intendedUse": {"@id": measuring},
+                "reagent": [{"@id": "#substrate"}],
+            },
+            {"@id": "#substrate", "@type": "MolecularEntity", "name": "Thyroxine"},
+            {
+                "@id": "raw/e1.csv",
+                "@type": "File",
+                "name": "e1.csv",
+                "encodingFormat": "text/csv",
+            },
+            {
+                "@id": "raw/e2.csv",
+                "@type": "File",
+                "name": "e2.csv",
+                "encodingFormat": "text/csv",
+            },
+            {
+                "@id": "#analysis-e",
+                "@type": "LabProcess",
+                "name": "Uptake analysis",
+                "object": [{"@id": "raw/e1.csv"}, {"@id": "raw/e2.csv"}],
+                "result": {"@id": "processed/e.csv"},
+                "executesLabProtocol": {"@id": "assay_e/fit_curves.R"},
+            },
+            {
+                "@id": "assay_e/fit_curves.R",
+                "@type": ["File", "SoftwareSourceCode", "LabProtocol"],
+                "name": "fit_curves.R",
+                "intendedUse": {"@id": transforming},
+            },
+            {
+                "@id": "processed/e.csv",
+                "@type": "File",
+                "name": "e.csv",
+                "encodingFormat": "text/csv",
+            },
+            # --- assay F: one readout, two documents --------------------------
+            {
+                "@id": "#assay-f",
+                "@type": "Dataset",
+                "additionalType": "Assay",
+                "name": "Efflux assay",
+                "about": [{"@id": "#culture-f"}, {"@id": "#readout-f"}],
+                "hasPart": [{"@id": "assay_f/lysis.docx"}, {"@id": "assay_f/counting.docx"}],
+            },
+            {
+                "@id": "#culture-f",
+                "@type": "LabProcess",
+                "name": "Culture SK-N-AS",
+                "object": {"@id": "#cellline"},
+                "result": {"@id": "#cultured-f"},
+                "executesLabProtocol": {"@id": culture_document},
+            },
+            {"@id": "#cultured-f", "@type": "Sample", "name": "Cultured (SK-N-AS)"},
+            {
+                "@id": "#readout-f",
+                "@type": "LabProcess",
+                "name": "Efflux readout",
+                "object": {"@id": "#cultured-f"},
+                "result": {"@id": "raw/f1.csv"},
+                "executesLabProtocol": [
+                    {"@id": "assay_f/lysis.docx"},
+                    {"@id": "assay_f/counting.docx"},
+                ],
+            },
+            {
+                "@id": "assay_f/lysis.docx",
+                "@type": ["File", "LabProtocol"],
+                "name": "lysis.docx",
+                "intendedUse": {"@id": measuring},
+            },
+            {
+                "@id": "assay_f/counting.docx",
+                "@type": ["File", "LabProtocol"],
+                "name": "counting.docx",
+                "intendedUse": {"@id": measuring},
+            },
+            {
+                "@id": "raw/f1.csv",
+                "@type": "File",
+                "name": "f1.csv",
+                "encodingFormat": "text/csv",
+            },
+        ]
+    }
+
+
 def assay_lane_real_shapes_graph() -> dict[str, Any]:
     """The two shapes a real deposit has and ``assay_lane_graph`` does not.
 

@@ -476,10 +476,10 @@ class TestTheCsvwShapeLooksWhereTheTableIs:
 class TestTheExposureProtocolShapes:
     """#783 — the protocol record rules, both directions, on a built document.
 
-    Every ISA-Tox step MUST execute a protocol and SHOULD execute one; the
+    Every ISA-Tox step MUST execute a protocol, and may execute several; the
     Exposure's MUST name a test or control compound among its reagents, because
     it is not toxicology if nothing was exposed to a chemical. The built crate
-    satisfies all three, so each is broken on the assembled document.
+    satisfies both, so each is broken on the assembled document.
     """
 
     @staticmethod
@@ -565,9 +565,9 @@ class TestTheExposureProtocolShapes:
         del source["sampleType"]
         assert [i.severity for i in self._findings(doc, must)] == ["required"]
 
-    def test_a_second_protocol_warns_and_none_violates(self):
+    def test_a_second_protocol_is_accepted_and_none_violates(self):
         doc = self._document()
-        assert not self._findings(doc, "LabProtocol"), "the built crate executes one each"
+        assert not self._findings(doc, "LabProtocol"), "every built step executes a protocol"
         by_id = _by_id(doc["@graph"])
         exposure, culture = by_id["#LabProcess_proc_exp"], by_id["#LabProcess_proc_tsp"]
         # A step with no record is typed by nothing but the old label (#799).
@@ -575,14 +575,11 @@ class TestTheExposureProtocolShapes:
         exposure["executesLabProtocol"] = [
             exposure["executesLabProtocol"], culture.pop("executesLabProtocol")
         ]
-        at_most = self._findings(doc, "at most one LabProtocol")
-        must = self._findings(doc, "MUST execute a LabProtocol")
-        assert [(i.severity, str(i.entity_id).endswith("proc_exp")) for i in at_most] == [
-            ("recommended", True)
-        ], at_most
-        assert [(i.severity, str(i.entity_id).endswith("proc_tsp")) for i in must] == [
+        found = self._findings(doc, "LabProtocol")
+        assert [(i.severity, str(i.entity_id).endswith("proc_tsp")) for i in found] == [
             ("required", True)
-        ], must
+        ], found
+        assert "MUST execute a LabProtocol" in found[0].message
 
 
 def test_property_url_stays_an_id_reference_not_a_bare_string():

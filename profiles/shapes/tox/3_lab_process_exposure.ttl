@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
 # LabProcess - Exposure: exposes the test system to one or more chemicals.
-# A LabProcess whose protocol record's intendedUse is EFO:0003969 treatment protocol;
+# A LabProcess whose executed protocol's intendedUse is EFO:0003969 treatment protocol;
 # the additionalType label "Exposure" is read as an alias. It consumes the test
 # system and produces the exposed test system.
 #
-# The compounds are the reagents of the protocol record the step executes: ISA
+# The compounds are the reagents of the protocol the step executes: ISA
 # restricts schema:object to File, Sample and BioSample, so a MolecularEntity cannot
 # be the step's input. The per-well condition table is a data file about the exposed
 # Samples (8_condition_table_csvw.ttl).

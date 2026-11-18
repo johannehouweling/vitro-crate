@@ -86,13 +86,13 @@ class TestBuildAndValidateRouting:
 
     def test_only_the_record_rules_change_the_answering_field(self):
         """The analysis-script rule is answered by the step's ``labprotocol``, which
-        its record is based on. A finding that merely contains the word, such as a
+        names the script. A finding that merely contains the word, such as a
         detached protocol whose id mentions reagents, keeps its own property."""
         from builder.tools.validation import answering_field, verify_isa_reachability
 
         script = (
-            "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) based on a deposited analysis "
-            "script (schema:SoftwareSourceCode)"
+            "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) that is, or is "
+            "based on, a deposited analysis script (schema:SoftwareSourceCode)"
         )
         assert answering_field(script, "executesLabProtocol") == "labprotocol"
         (detached,) = verify_isa_reachability(

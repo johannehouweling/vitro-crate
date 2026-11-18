@@ -185,8 +185,7 @@ class TestTheWrittenCrate:
         assert _ids(readout["output"]) == ["#raw/readout.csv"]
         assert _ids(analysis["input"]) == ["#raw/readout.csv"]
         assert _ids(analysis["output"]) == ["#processed/ic50.csv"]
-        record = nodes[_ids(analysis["executesLabProtocol"])[0]]
-        assert _ids(record["isBasedOn"]) == ["#scripts/analysis.R"]
+        assert _ids(analysis["executesLabProtocol"]) == ["#scripts/analysis.R"]
 
     def test_the_root_and_the_assay_still_list_them(self, exported):
         public, full = _nodes(exported["public"]), _nodes(exported["full"])

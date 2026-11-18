@@ -63,10 +63,10 @@ _SECTION_CLASSES: dict[str, URIRef] = {
 }
 
 # The tox shapes select their focus node from the data (a sh:SPARQLTarget on a
-# sampleType, a protocol record's intendedUse, a Study's or Assay's additionalType,
+# sampleType, an executed protocol's intendedUse, a Study's or Assay's additionalType,
 # or the root), so no class reaches them: each section names its own.
 # test_every_data_targeted_shape_belongs_to_a_section keeps this list complete.
-_EVERY_STEP = ("LabProcessExecutesAProtocol", "LabProcessExecutesOneProtocol")
+_EVERY_STEP = ("LabProcessExecutesAProtocol",)
 _SECTION_SHAPES: dict[str, set[str]] = {
     "Investigation": {"InvestigationMustHaveDescriptors"},
     "Study - Adverse Outcome Pathway": {"StudyShouldReferenceAOP"},

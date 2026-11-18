@@ -401,10 +401,7 @@ _FIX_TEMPLATES: dict[str, str] = {
     "author": "Add an `author` to `{entity}`.",
     "datePublished": "Add a `datePublished` to `{entity}`.",
     "chemicals": "Set `chemicals` on `{entity}` to the compound(s) the cells were exposed to.",
-    "labprotocol": (
-        "Set `labprotocol` on `{entity}` to the deposited analysis script its protocol "
-        "record is based on."
-    ),
+    "labprotocol": "Set `labprotocol` on `{entity}` to the deposited analysis script it ran.",
 }
 
 
@@ -425,12 +422,12 @@ _PARAMETER_PREDICATES = frozenset({"additionalProperty", "parameterValue"})
 
 def answering_field(message: str, prop: str | None, process_type: str | None = None) -> str | None:
     """The field that answers a finding: the property SHACL reports, except for
-    the rules the build fills from another field of the step. Two reach through a
-    step's protocol record (`chemicals`, `labprotocol`; D17), and the two
+    the rules the build fills from another field of the step. Two reach through
+    the protocol a step executes (`chemicals`, `labprotocol`; D17), and the two
     "at least one parameter" rules are answered by the step's own parameter field
     (:data:`STEP_PARAMETER_FIELD`), which needs the step's ``process_type``.
 
-    The record rules are matched on their own words: a bare "reagent" also
+    The protocol rules are matched on their own words: a bare "reagent" also
     matched a detached protocol whose id contains the word."""
     if "whose reagents include" in message:
         return "chemicals"

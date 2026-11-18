@@ -723,11 +723,11 @@ class TestRealInputPipeline:
             "the LabProtocol must be linked to a LabProcess"
         )
 
-    def test_every_step_follows_one_protocol_record(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """#783 / #799, pipeline arm: each step executes exactly one protocol record
-        the build wrote, typed by its step, and no deposited file is executed. The
-        Exposure's record lists the test chemicals the run resolved as its reagents;
-        the readout's lists its substrate and is based on the deposit's own SOP."""
+    def test_every_step_follows_one_typed_protocol(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """#783 / #799, pipeline arm: each step executes one protocol, typed by its
+        step. The readout executes the deposit's own SOP, which lists its substrate.
+        The other steps have no document and execute a record the build wrote; the
+        Exposure's record lists the test chemicals the run resolved as its reagents."""
         from urllib.parse import unquote
 
         from builder.agents.pipeline.pipeline import run_pipeline
@@ -756,21 +756,23 @@ class TestRealInputPipeline:
         steps = [n for n in graph if "LabProcess" in types(n)]
         assert len(steps) == len(expected) and not [n for n in steps if n.get("additionalType")]
         kind_of = {iri(curie): kind for kind, curie in expected.items()}
-        records = {}
+        protocols = {}
         for step in steps:
             executed = ids(step.get("executesLabProtocol"))
             assert len(executed) == 1, (step["@id"], executed)
-            record = by_id[executed[0]]
-            assert "LabProtocol" in types(record) and "File" not in types(record), record
-            records[kind_of[record["intendedUse"]["@id"]]] = record
-        assert sorted(records) == sorted(expected), records
+            protocol = by_id[executed[0]]
+            assert "LabProtocol" in types(protocol), protocol
+            protocols[kind_of[protocol["intendedUse"]["@id"]]] = protocol
+        assert sorted(protocols) == sorted(expected), protocols
+        deposited = {kind for kind, protocol in protocols.items() if "File" in types(protocol)}
+        assert deposited == {"EndpointReadout"}, protocols
+        sop = _SOP.relative_to(FIXTURE_DIR).as_posix()
+        assert unquote(protocols["EndpointReadout"]["@id"]) == sop
 
         tested = {n["name"]: n["@id"] for n in graph if "MolecularEntity" in types(n)}
         substrate = tested.pop("Thyroxine")
-        assert tested and set(ids(records["Exposure"].get("reagent"))) == set(tested.values())
-        assert ids(records["EndpointReadout"].get("reagent")) == [substrate]
-        sop = _SOP.relative_to(FIXTURE_DIR).as_posix()
-        assert sop in [unquote(i) for i in ids(records["EndpointReadout"].get("isBasedOn"))]
+        assert tested and set(ids(protocols["Exposure"].get("reagent"))) == set(tested.values())
+        assert ids(protocols["EndpointReadout"].get("reagent")) == [substrate]
 
     def test_a_deposit_with_no_design_table_still_yields_a_populated_one(
         self, monkeypatch: pytest.MonkeyPatch

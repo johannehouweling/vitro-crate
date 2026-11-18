@@ -243,8 +243,8 @@ def _reagents_of(crate: _Crate, processes: set[str]) -> set[str]:
     modelling gap: ISA restricts ``schema:object`` to File/Sample/BioSample at
     Violation severity, so a ``MolecularEntity`` can never be a process input
     directly, and ``reagent`` is a LabProtocol property ranging over it. The
-    crate's route — each step executes its protocol record, and the Exposure's
-    record lists its reagents (#783) — is the correct representation, so the
+    crate's route — each step executes its protocol, and what the Exposure
+    executes lists its reagents (#783) — is the correct representation, so the
     selection follows it.
 
     Anchored on the protocols *these* steps execute, never on every ``reagent``
@@ -275,11 +275,13 @@ def _assay_processes(crate: _Crate, assay_id: str) -> list[str]:
 
 
 def _select_assay_lane(crate: _Crate, assay_id: str) -> set[str]:
-    """One assay's chain, and nothing that belongs to another (#686).
+    """One assay's chain, and nothing that only another assay uses (#686).
 
     An assay is what produces a research object, so it is what the lane draws.
     Scoped this way the closure is small, and since #678 gave each assay its own
-    culture, no node on the lane belongs to a neighbour.
+    culture, a lane shares with a neighbour only what both assays' steps use, such
+    as the cell lines they grow, the culture documents they execute and the
+    compounds both apply.
 
     What it draws: the assay's steps, the materials those steps consumed and
     produced, the protocol under each step, and the compounds one hop past the
