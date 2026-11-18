@@ -4054,6 +4054,14 @@ def _add_processes(
             # `co_culture` keeps them together — N lines in one draft is the
             # ambiguity being removed, not evidence of a mixture.
             nodes = []
+            # One part claims the drafter's output Sample: the one growing the line
+            # that Sample derives from, so the step and the lineage name the same
+            # line, or the first where it derives from none of them. The rest
+            # synthesize their own, so nothing drafted is discarded and nothing is
+            # claimed twice.
+            drafted = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
+            lineage = _child_ids(drafted[0], "derivesFrom") if drafted else []
+            claim = next((i for i, node in enumerate(lines) if node.id in lineage), 0)
             for index, line in enumerate(lines):
                 label = _node_label(line) or f"line {index + 1}"
                 sub_pid = f"{pid}_{_slug(label)}"
@@ -4074,10 +4082,7 @@ def _add_processes(
                         reserved=reserved,
                         stated=stated,
                         cell_lines=[line],
-                        # Only the first part may claim the drafter's output
-                        # Sample; the rest synthesize their own, so nothing
-                        # drafted is discarded and nothing is claimed twice.
-                        keep_drafted_result=(index == 0),
+                        keep_drafted_result=(index == claim),
                     )
                 )
         else:
@@ -4327,9 +4332,10 @@ def _build_process(
         The line(s) this TestSystemPreparation grows, overriding what the draft names. A
         culture of several lines is built once per line, each call receiving one.
     ``keep_drafted_result``
-        Whether the drafter's output Sample is this node's cultured sample. Only
-        the first of a split may claim it; the rest synthesize their own, so no
-        drafted entity is discarded and none is claimed twice.
+        Whether the drafter's output Sample is this node's cultured sample. One
+        part of a split claims it, the part growing the line it derives from or
+        else the first; the rest synthesize their own, so no drafted entity is
+        discarded and none is claimed twice.
     ``cultures``
         The TestSystemPreparations of an Exposure's assay. Where the draft names no Sample
         but their material, the Exposure consumes where they ended.

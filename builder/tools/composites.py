@@ -215,17 +215,17 @@ _SAMPLE_PRODUCERS = frozenset({"TestSystemPreparation"})
 _BUILD_SYNTHESIZES_OUTPUT = frozenset({"Exposure"})
 
 
-def _ref_ids(value: Any) -> set[str]:
-    """Normalize a reference value (id / {@id} / list thereof) to bare ids."""
+def _ref_ids(value: Any) -> list[str]:
+    """Normalize a reference value (id / {@id} / list thereof) to bare ids.
+
+    In the order stated, each once: the first is the first stated, so a build
+    does not hang on how a process hashes strings (:func:`_input_ref`).
+    """
     if value is None:
-        return set()
+        return []
     items = value if isinstance(value, list) else [value]
-    out: set[str] = set()
-    for v in items:
-        key = v.get("@id") if isinstance(v, dict) else v
-        if key:
-            out.add(str(key).lstrip("#"))
-    return out
+    keys = (v.get("@id") if isinstance(v, dict) else v for v in items)
+    return list(dict.fromkeys(str(key).lstrip("#") for key in keys if key))
 
 
 def _explicit_ids(step: dict[str, Any], *keys: str) -> list[str]:
@@ -509,7 +509,7 @@ def _candidate_files(state: CrateState, assay_id: str) -> list[Any]:
         return list(state.scanned_files)
 
     assay = state.get_entity(assay_id)
-    attached = _ref_ids(assay.fields.get("hasPart")) if assay is not None else set()
+    attached = _ref_ids(assay.fields.get("hasPart")) if assay is not None else []
     if not attached:
         return []
     # Matched on ``dest_path``, which the scan derives deterministically, rather
@@ -673,7 +673,7 @@ def _input_ref(proc: Entity) -> Any:
     for fld in ("object", "input", "samples", "cell_line"):
         ids = _ref_ids(proc.fields.get(fld))
         if ids:
-            return next(iter(ids))
+            return ids[0]
     return None
 
 
