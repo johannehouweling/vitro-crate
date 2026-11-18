@@ -123,6 +123,7 @@ _MINTED_NAMESPACES: tuple[str, ...] = (
     "https://doi.org/",
     "https://www.cellosaurus.org/",
     "https://pubchem.ncbi.nlm.nih.gov/",
+    "https://compoundcloud.wikibase.cloud/entity/",
 )
 
 
