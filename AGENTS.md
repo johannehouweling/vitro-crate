@@ -3193,11 +3193,12 @@ INPUT (dir / zip / conversation)
 A step **executes the documents it follows**, those the deposit places on it or, where it
 places none, those the drafter named (#789): `executesLabProtocol` names each `File` by
 its path in the crate, one value per document (a readout that follows RNA isolation,
-DNase and cDNA/qPCR executes all three). A deposited document is `File` + `LabProtocol`
-(a script `File` + `SoftwareSourceCode` + `LabProtocol`) in the graph that is validated
-and in the crate that is written alike, and the builder derives nothing about it but its
-`name`. What the step states about its protocol is written on each document it executes
-(`_crate_mapping._execute_documents`):
+DNase and cDNA/qPCR executes all three). A document a step executes is `File` +
+`LabProtocol` (a script `File` + `SoftwareSourceCode` + `LabProtocol`) in the graph that
+is validated and in the crate that is written alike. In the pipeline arm it may carry a
+description written from the file's content (`file_descriptions.describe_payload_files`),
+which then answers the checks that ask a protocol for one. What the step states about its
+protocol is written on each document it executes (`_crate_mapping._execute_documents`):
 
 - `intendedUse`, the step's protocol type as an ontology term (a `DefinedTerm`):
   TestSystemPreparation one of the three preparation terms
@@ -3214,7 +3215,10 @@ and in the crate that is written alike, and the builder derives nothing about it
   the drafter recorded (`draft_protocol` with a name and description, or the plan's
   `protocols[]`), which is no crate node of its own (#789) — where the document has
   none, the rule of `draft_protocol(source_file=...)`. The document keeps its own
-  `name`; a protocol name the lab stated that differs from it is an `alternateName`.
+  `name`; a protocol name the lab stated that differs from it is an `alternateName`. A
+  description or url the document already has is kept, so a different one the lab
+  stated is not in the crate; a description written from the file's content has the
+  same `llm` source as a lab statement, and nothing tells the two apart.
 
 A document carries one protocol type and one set of reagents, so steps share one only
 where they agree: every step that would execute it states the same `intendedUse` term (no
@@ -3230,12 +3234,15 @@ Every other step executes its own **protocol record** (`_crate_mapping._protocol
 a step with no document, one whose document is not a File, and one that disagrees with
 another step on a document. The record carries the same `intendedUse` and `reagent`, is
 `isBasedOn` the step's documents, and takes its `name`, `description` and `url` from
-what the lab stated. Without a statement the record is named after its step and carries no
-description: a builder sentence would satisfy the checks that ask for one (#670). One
-based on nothing is the honest gap. Every record is a `result` of the crate's build
-`CreateAction`, beside the root; a deposited file a step executes never is. A record sits
-at `<process @id>_protocol` unless another entity holds that id, in which case it takes
-the next free `_<n>` suffix rather than replacing it.
+what the lab stated. A document that only a record is based on keeps the types it had,
+since the bundled ISA shape asks `LabProtocol` only of what a step executes: a full
+export can write an undrafted scanned document as a plain `File` where the graph that is
+validated has it `File` + `LabProtocol`. Without a statement the record is named after
+its step and carries no description: a builder sentence would satisfy the checks that
+ask for one (#670). One based on nothing is the honest gap. Every record is a `result`
+of the crate's build `CreateAction`, beside the root; a deposited file a step executes
+never is. A record sits at `<process @id>_protocol` unless another entity holds that
+id, in which case it takes the next free `_<n>` suffix rather than replacing it.
 
 ISA-JSON gives a process one protocol and has no `isBasedOn` on a protocol, so a
 conversion to ISA-JSON can carry neither all of a step's documents nor a record's link
