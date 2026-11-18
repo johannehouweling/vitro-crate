@@ -41,11 +41,13 @@ def _resolve_person_orcid(
 ) -> tuple[str | None, dict[str, str]]:
     """Resolve one unambiguous ORCID for a drafted person, best-effort.
 
-    Name-only drafting must never fabricate an identifier. The ORCID the deposit
-    states for a person of this name (*stated*) is tried first, then a single
-    full-name ORCID search result; either is verified through the record endpoint
-    before its URL is used as the entity id. Ambiguous, unavailable, unconfirmed or
-    weak results leave the deterministic local id path intact.
+    Name-only drafting must never fabricate an identifier. The bare ORCID the
+    deposit states for a person of this name (*stated*) is tried first, then a
+    single full-name ORCID search result; either is verified through the record
+    endpoint before its URL is used as the entity id. The stated ORCID gives the
+    iD alone, since the name stands as the deposit spells it; a search hit also
+    gives the names its record states. Ambiguous, unavailable, unconfirmed or weak
+    results leave the deterministic local id path intact.
     """
     explicit = hints.get("orcid") or hints.get("identifier")
     if explicit:
@@ -54,10 +56,8 @@ def _resolve_person_orcid(
         given, family = split_person_name(name)
         if not family:
             return None, {}
-        if stated:
-            orcid_id, fields = _confirmed_orcid(_bare_orcid(stated), family)
-            if orcid_id:
-                return orcid_id, fields
+        if stated and _confirmed_orcid(stated, family):
+            return f"https://orcid.org/{stated}", {"orcid": stated}
         if not given:
             return None, {}
         candidates = lookup_orcid_by_name(given, family, hints.get("affiliation"))
@@ -69,25 +69,26 @@ def _resolve_person_orcid(
         ]
         if len(strong) != 1:
             return None, {}
-        return _confirmed_orcid(str(strong[0].get("orcid", "")).rsplit("/", 1)[-1], family)
+        bare = str(strong[0].get("orcid", "")).rsplit("/", 1)[-1]
+        record = _confirmed_orcid(bare, family)
+        if not record:
+            return None, {}
+        fields = {"orcid": bare}
+        for key in ("givenName", "familyName", "name"):
+            if record.get(key):
+                fields[key] = str(record[key])
+        return f"https://orcid.org/{bare}", fields
     except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
         return None, {}
 
 
-def _confirmed_orcid(bare: str, family: str) -> tuple[str | None, dict[str, str]]:
-    """The ORCID *bare* as a URL and the names its record states, or ``(None, {})``.
-
-    It is confirmed once the record resolves and states the family name *family*.
-    """
+def _confirmed_orcid(bare: str, family: str) -> dict[str, Any]:
+    """The record of the ORCID *bare*, or ``{}`` unless it resolves and states *family*."""
     record = lookup_orcid(bare)
     record_family = record.get("familyName", "").casefold().strip()
     if not record or record_family != family.casefold().strip():
-        return None, {}
-    fields = {"orcid": bare}
-    for key in ("givenName", "familyName", "name"):
-        if record.get(key):
-            fields[key] = str(record[key])
-    return f"https://orcid.org/{bare}", fields
+        return {}
+    return record
 
 
 # The four ISA-Tox LabProcess discriminators, in the order the derivation chain

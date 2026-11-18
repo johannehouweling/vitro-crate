@@ -2366,14 +2366,14 @@ DataCite's `creators` and `contributors`. Nothing else is kept, though the same 
 e-mail address, a role and a country. The reader drafts nobody and asks no registry: it is only the
 source of an identifier for an entity someone drafts. `draft_person` tries the ORCID stated for a
 person of exactly its name, case and spacing aside, before the name search, and uses it only once
-the ORCID record resolves and states the same family name. A name the record gives two ORCIDs is
-given neither, though an ORCID or a ROR id written bare in one place and as its address in another
-is one identifier. A person the crate already holds under that ORCID is amended before any namesake
-is, so no two people take one address, and a namesake who holds another ORCID is another person.
-`draft_organization` takes the ROR id stated for an
-organisation of exactly its name once `fetch_ror_by_id` returns that record, with the website and
-country the record states, and an Organization the crate already holds under that ROR id is
-amended instead; a name the record gives two ROR ids is given neither. No ROR id is taken for a
+the ORCID record resolves and states the same family name; only the iD is taken, and the name stays
+as the deposit spells it. A name the record gives two ORCIDs is given neither, though an ORCID or a
+ROR id written bare in one place and as its address in another is one identifier. A person the crate
+already holds under that ORCID is amended before any namesake is, so no two people take one address,
+and a namesake who holds another ORCID is another person. `draft_organization` takes the ROR id
+stated for an organisation of exactly its name once `fetch_ror_by_id` returns that record, with the
+website and country the record states, and an Organization the crate already holds under that ROR id
+is amended instead; a name the record gives two ROR ids is given neither. No ROR id is taken for a
 name alone, and a declared funder is still written as it is declared.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
