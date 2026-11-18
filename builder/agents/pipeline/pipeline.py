@@ -2425,9 +2425,10 @@ def _materialize_plan(
     # --- people: a Person from the name + a deterministic given/family split,
     # plus an Organization minted (or reused) from `affiliation_name` and wired
     # onto the Person's `affiliation` reference (#179 Lane 1). The plan carries a
-    # name only — no ROR/IRI — so the Organization is identifier-free (D5); the
-    # build's `_wire_reference` resolves the affiliation to the Organization's
-    # `@id`. Organizations are de-duplicated by name so two people sharing an
+    # name only — no ROR/IRI — so the Organization's only identifier is the ROR id
+    # the deposit states for that name, once ROR confirms it (D5); the build's
+    # `_wire_reference` resolves the affiliation to the Organization's `@id`.
+    # Organizations are de-duplicated by name so two people sharing an
     # affiliation reference ONE Organization. ---
     for person in plan.get("people") or []:
         name = str((person or {}).get("name") or "").strip()

@@ -550,7 +550,8 @@ from lookups, never fabricated**: `_resolve_person_orcid` verifies the ORCID the
 deposit states for a person of that name, and failing it a single full-name ORCID
 search hit, through the record endpoint before using its URL as an entity id, and
 leaves the deterministic local id in place for anything ambiguous, unavailable,
-unconfirmed or weak.
+unconfirmed or weak. `draft_organization` takes the ROR id the deposit states for
+an organisation of that name once ROR returns that record, and none for a name alone.
 
 **Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample
 (CellLine/PrimaryCell), LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis), Person,
@@ -991,7 +992,7 @@ draft_sample(hints: dict) → Entity                       # material input/outp
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
 draft_protocol(hints: dict) → Entity                     # LabProtocol a step's protocol record can be based on
 draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). Without an orcid hint it takes the ORCID the deposit states for exactly that name, else a single strong name-search hit, once ORCID confirms it (D5)
-draft_organization(name: str, hints: dict) → Entity
+draft_organization(name: str, hints: dict) → Entity      # without a ror hint it takes the ROR id the deposit states for exactly that name, once ROR returns that record (D5)
 draft_publication(doi: str, hints: dict) → Entity
 draft_defined_term(name: str, hints: dict) → Entity
 draft_property_value(name: str, hints: dict) → Entity
@@ -2367,7 +2368,11 @@ source of an identifier for an entity someone drafts. `draft_person` tries the O
 person of exactly its name, case and spacing aside, before the name search, and uses it only once
 the ORCID record resolves and states the same family name. A name the record gives two ORCIDs is
 given neither. A person the crate already holds under that ORCID is amended before any namesake
-is, so no two people take one address.
+is, so no two people take one address. `draft_organization` takes the ROR id stated for an
+organisation of exactly its name once `fetch_ror_by_id` returns that record, with the website and
+country the record states, and an Organization the crate already holds under that ROR id is
+amended instead. No ROR id is taken for a name alone, and a declared funder is still written as it
+is declared.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 
