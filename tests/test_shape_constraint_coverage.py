@@ -192,7 +192,7 @@ def _state() -> CrateState:
             description="Deiodinase inhibition in neural cells",
         )
     )
-    # Keyed by their AOP-Wiki IRIs, as `materialize_aop_subgraph` keys them: the
+    # Keyed by their AOP-Wiki IRIs, as `resolve_aop` and `link_assay_to_key_event` key them: the
     # AOP and Key Event shapes read the IRI.
     aop, ke = "https://aopwiki.org/aops/42", "https://aopwiki.org/events/1234"
     s.add_entity(_ent(aop, "AdverseOutcomePathway", name="AOP 42"))

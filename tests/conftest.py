@@ -111,7 +111,7 @@ def _stub_lookup_aop(monkeypatch):
     puts a pathway in state and stubs nothing would therefore reach aopwiki.org.
     A miss by default, scoped to ``builder.tools.lookups.lookup_aop``, the name
     the composites import at each call; a test that needs a pathway re-patches
-    it, and ``tests/test_tools_aop_subgraph.py`` puts the real function back over
+    it, and ``tests/test_tools_resolve_aop.py`` puts the real function back over
     the recorded AOP-610 page. A test that imports ``lookup_aop`` itself holds
     the real function and is untouched.
     """

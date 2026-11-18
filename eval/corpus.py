@@ -284,7 +284,7 @@ def _drafting_state() -> CrateState:
     )
 
     # The Adverse Outcome Pathway this TPO screen investigates (AOP-Wiki 42),
-    # keyed by its resolvable IRI exactly as materialize_aop_subgraph would
+    # keyed by its resolvable IRI exactly as resolve_aop would
     # (Issue #180). AOP linking is a tox SHOULD, so it does not gate REQUIRED
     # conformance; the case's min_entities quota is what makes the A/B measure it.
     state.add_entity(

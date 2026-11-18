@@ -222,7 +222,7 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
       field so enrichment is exercised but stays byte-stable across runs;
     * ``lookup_compound`` / ``verify_identifier`` (resolve_compound's lookups) →
       canned, verified identifiers;
-    * ``lookup_aop`` (materialize_aop_subgraph's lookup) → a canned AOP subgraph.
+    * ``lookup_aop`` (resolve_aop's lookup) → a canned AOP subgraph.
 
     Mirrors the stubs in ``tests/test_agents_pipeline.py`` so this e2e test and the
     unit tests stay consistent. All stubs are deterministic, so the spine's only
@@ -326,7 +326,7 @@ def _stub_leaves(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         return {"found": False, "data": {}, "error": "not found"}
 
-    # materialize_aop_subgraph → lookup_aop (imported lazily from tool_lookups).
+    # resolve_aop → lookup_aop (imported lazily from tool_lookups).
     def fake_lookup_aop(aop_id: str) -> dict[str, Any]:
         iri = f"https://aopwiki.org/aops/{aop_id}"
         mie = "https://aopwiki.org/events/1"

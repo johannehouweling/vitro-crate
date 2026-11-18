@@ -862,7 +862,7 @@ class TestMaterializePlan:
                 ent.set_field_status(field, "verified", "lookup")
             return {"verified": True, "entity_id": entity_id, "field": field, "message": "ok"}
 
-        # materialize_aop_subgraph -> lookup_aop (imported lazily from tool_lookups).
+        # resolve_aop -> lookup_aop (imported lazily from tool_lookups).
         def fake_lookup_aop(aop_id):
             iri = f"https://aopwiki.org/aops/{aop_id}"
             mie = "https://aopwiki.org/events/1"

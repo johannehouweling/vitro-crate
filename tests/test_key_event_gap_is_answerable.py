@@ -134,7 +134,7 @@ def _gives_nothing(aop_id: str) -> dict:
 def pathway_engine(monkeypatch):
     """A crate with a Study, an Assay and their pathway, and none of its events."""
     from builder.tools import lookups as tool_lookups
-    from builder.tools.composites import materialize_aop_subgraph
+    from builder.tools.composites import resolve_aop
 
     monkeypatch.setattr(tool_lookups, "lookup_aop", _lists_three_events)
     state = CrateState()
@@ -147,7 +147,7 @@ def pathway_engine(monkeypatch):
         )
         entity.set_fields_from_dict(fields, source="llm")
         state.add_entity(entity)
-    materialize_aop_subgraph(state, "464", study_id="s1")
+    resolve_aop(state, "464", study_id="s1")
     return _Engine(state)
 
 

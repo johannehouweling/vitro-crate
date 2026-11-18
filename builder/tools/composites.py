@@ -727,7 +727,7 @@ def _materialize_aop_node(state: CrateState, node: dict[str, Any]) -> Entity | N
     return entity
 
 
-def materialize_aop_subgraph(
+def resolve_aop(
     state: CrateState,
     aop_id: str,
     study_id: str | None = None,
@@ -934,7 +934,7 @@ def link_assay_to_key_event(
             )
         else:
             error = (
-                "no pathway in the crate — run materialize_aop_subgraph first so "
+                "no pathway in the crate — run resolve_aop first so "
                 "the event can be matched against the key events AOP-Wiki lists "
                 "for it"
             )
@@ -2879,7 +2879,7 @@ TOOL_REGISTRY.register(
     "resolve_characteristic_terms", resolve_characteristic_terms, takes_state=True
 )
 TOOL_REGISTRY.register("resolve_publication", resolve_publication, takes_state=True)
-TOOL_REGISTRY.register("materialize_aop_subgraph", materialize_aop_subgraph, takes_state=True)
+TOOL_REGISTRY.register("resolve_aop", resolve_aop, takes_state=True)
 TOOL_REGISTRY.register("link_assay_to_key_event", link_assay_to_key_event, takes_state=True)
 TOOL_REGISTRY.register(
     "draft_publication_with_authors",

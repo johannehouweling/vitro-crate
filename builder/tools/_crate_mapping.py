@@ -205,7 +205,7 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
         ref_fields={
             "aop": (
                 "Entity ref of the pathway the study addresses (schema:mentions). "
-                "materialize_aop_subgraph looks the pathway up on AOP-Wiki and sets "
+                "resolve_aop looks the pathway up on AOP-Wiki and sets "
                 "this, so do not write an AOP-Wiki id here by hand."
             ),
             "organism": "Organism term/entity the study concerns (schema:mentions).",

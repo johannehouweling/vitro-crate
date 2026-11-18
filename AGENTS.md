@@ -971,7 +971,7 @@ this section (Issue #145).
 ### Entity Drafting Tools
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent-WITH-merge: a reused layer's EMPTY fields are filled from the supplied hints, fill-don't-clobber), the fast path to a BASE-passing crate
-materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → {aop_id, aop_entity_id, events, events_detail, wired_to_study} | {ok: False, error}  # composite: one AOP-Wiki id → the ONE AdverseOutcomePathway entity, at its AOP-Wiki address with its name; nothing else of the pathway is stored, and `events_detail` lists its key events for `link_assay_to_key_event`; wired onto the Study named, or the sole Study when none is named — with several Studies and no name it wires nothing and the ISA reachability check names the island
+resolve_aop(aop_id: str, study_id: str | None = None) → {aop_id, aop_entity_id, events, events_detail, wired_to_study} | {ok: False, error}  # composite: one AOP-Wiki id → the ONE AdverseOutcomePathway entity, at its AOP-Wiki address with its name; nothing else of the pathway is stored, and `events_detail` lists its key events for `link_assay_to_key_event`; wired onto the Study named, or the sole Study when none is named — with several Studies and no name it wires nothing and the ISA reachability check names the island
 link_assay_to_key_event(assay_id: str, event_name: str | list[str]) → {ok, assay_id, key_event_ids, matched_names, unmatched?} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event(s) it MEASURES (schema:mentions via keyEvent), each name matched INDEPENDENTLY against the events AOP-Wiki lists for the pathway(s) in state and the KeyEvents already there (a stated AOP-Wiki address or number is matched against the same events); stores the ONE event a name matches and commits its AOP-Wiki id, never one built from the name, and writes NOTHING for a name matching zero or several Key Events because which Key Event an assay measures is a scientific claim (D5); links ACCUMULATE deduplicated rather than replace — removing one is `set_fields`' job (`key_event_id`/`matched_name` are kept as the first match for callers written against the one-event form)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
 resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None, made_from: str | None = None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment; `hints.source_kind="primary cells"` skips Cellosaurus
@@ -1001,7 +1001,7 @@ into the `@graph` and is referenceable (via `set_fields`/`link`) as a `mentions`
 `schema:PropertyValue` node (`value` + optional `propertyID` + `unitText`/`unitCode`).
 Both back the previously-unfilled `defined_terms` / `property_values` CrateState
 collections the mapping already rendered.
-`materialize_aop_subgraph` (Issue #180) is the AOP counterpart of
+`resolve_aop` (Issue #180) is the AOP counterpart of
 `scaffold_isa_backbone`: from the single model-supplied numeric `aop_id` it calls
 `lookup_aop` and stores the pathway as ONE typed contextual entity, an
 `aopo:AdverseOutcomePathway` with the name, identifier and url the lookup gave.
@@ -3403,7 +3403,7 @@ D5 — identifiers come from lookups or the value is dropped, never fabricated):
   `schema:programmingLanguage` when the caller names it).
 
 AOP pathways and publications-with-authors are materialized from the spine by their
-own composites (`materialize_aop_subgraph`, `draft_publication_with_authors`). Root
+own composites (`resolve_aop`, `draft_publication_with_authors`). Root
 `releaseDate` / `dateModified` are set through `set_crate_metadata` and emitted
 **only when explicitly supplied** — never guessed (D5); `datePublished` is auto-set
 by ro-crate-py at crate construction, so the builder never sets or fabricates it.
@@ -3597,7 +3597,7 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
 - **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
   — deterministically turns each plan section into linked ISA-Tox entities through
   `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /
-  `draft_process_chain` / `materialize_aop_subgraph` / `draft_person`. Identifiers
+  `draft_process_chain` / `resolve_aop` / `draft_person`. Identifiers
   come from the composites' own lookups, never from the plan. The backbone is
   scaffolded BEFORE the plan is materialized, so the plan's Study name/description
   are merged onto the already-scaffolded Study (fill-don't-clobber: only when the
