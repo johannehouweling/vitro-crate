@@ -564,6 +564,47 @@ class TestTheFindingsNameTheToolThatAnswersThem:
         assert "`link_assay_to_key_event`" in fix
         assert "`mentions`" not in fix
 
+    @staticmethod
+    def _crate_and_finding(finding: str) -> tuple[CrateState, dict]:
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "No pathway yet"
+        scaffold_isa_backbone(
+            state, investigation={"name": "I"}, study={"name": "S"}, assay={"name": "A"}
+        )
+        issues = build_and_validate(state, severity="recommended", profile="tox")["issues"]
+        return state, next(i for i in issues if i["message"].startswith(finding))
+
+    def test_the_study_hint_can_be_followed_with_the_id_the_finding_gives(self):
+        # The finding names the Study by the id the crate gives it, which is the
+        # id the agent has in hand when it follows the hint.
+        state, finding = self._crate_and_finding(
+            "Study SHOULD reference its Adverse Outcome Pathway"
+        )
+        study = _by_type(state, "Study")[0]
+        assert finding["entity_id"] != study.entity_id
+
+        result = resolve_aop(state, "610", study_id=finding["entity_id"])
+
+        assert result["wired_to_study"] == study.entity_id
+        assert build_and_validate(state, severity="required", profile="isa")["conformance"] == {
+            "isa": True
+        }
+
+    def test_the_assay_hint_can_be_followed_with_the_id_the_finding_gives(self):
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, finding = self._crate_and_finding("Assay SHOULD reference the Key Event")
+        resolve_aop(state, "610")
+        assay = _by_type(state, "Assay")[0]
+        assert finding["entity_id"] != assay.entity_id
+
+        result = link_assay_to_key_event(state, finding["entity_id"], "mitochondrial dysfunction")
+
+        assert result["ok"] is True
+        assert assay.fields["keyEvent"] == "https://aopwiki.org/events/177"
+
 
 class TestLinkAssayToKeyEvent:
     """The Assay -> Key Event link (#382).
