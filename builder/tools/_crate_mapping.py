@@ -32,6 +32,8 @@ from rocrate.model import ContextEntity, DataEntity, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
+from builder.tools.deposit_structure import ROOT as DEPOSIT_ROOT
+from builder.tools.deposit_structure import _contains, normalise_structure
 from builder.tools.document_discovery import CLASS_PROTOCOL, SCRIPT_SUFFIXES
 from lookups.compoundwiki import BASE as COMPOUND_WIKI
 from profiles.licenses import describe_license
@@ -1202,6 +1204,167 @@ def _mint_id(entity: Entity) -> str:
     if eid.startswith(("#", "http://", "https://", "./")) or "://" in eid:
         return eid
     return "#" + _slug(t) + "_" + eid
+
+
+def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
+    """The folder of the deposit each Study and Assay that has one is identified by (#852).
+
+    "The folder tree is the depositor's own statement of what the studies and
+    assays are." A Study or an Assay whose files lie in one folder that is its
+    alone is that folder in the crate. The result is keyed by ``(type,
+    entity_id)`` and gives the folder's path relative to the crate root; an
+    entity left out has no folder and keeps its local id.
+
+    A folder counts only if the scan saw a file in it. It is never the deposit
+    root, which is the Investigation, and never one that another Study or Assay
+    takes or that is nested with another's. The evidence, in this order:
+
+    * The labelling the checks accepted (``deposit_structure`` from the model),
+      when it is relative to the crate root. An Assay takes the one assay folder
+      that holds its files, and when none of its files lies in an assay folder,
+      the only one, if the labelling and the state each have one assay. A Study
+      takes its study folder the same way.
+    * Without such a labelling, the deepest folder common to the deposited files
+      placed on the entity, when no file of another Assay lies at or below it.
+
+    Placed means what ``attach_files`` writes, the entity's ``hasPart``. A file
+    the build adds itself, such as a step's result, a protocol it places or the
+    condition table, is no evidence. A Study's folder holds the folders of its
+    Assays, and where a Study and an Assay would take one folder the Assay takes
+    it.
+    """
+    input_path = state.metadata.input_path
+    if not input_path:
+        return {}
+    # The scan records each file under the resolved input folder, so its crate
+    # path is the rest of its path: what `provenance._scanned_dest` gives it.
+    root = Path(input_path).resolve()
+    inside = os.path.join(str(root), "")
+    deposited: set[str] = set()
+    seen: set[str] = set()
+    for scanned in state.scanned_files:
+        path = os.path.normpath(os.path.join(root, scanned.path))
+        if not path.startswith(inside):
+            continue
+        relative = path[len(inside) :].replace(os.sep, "/")
+        deposited.add(relative)
+        parts = relative.split("/")[:-1]
+        seen.update("/".join(parts[:end]) for end in range(1, len(parts) + 1))
+    studies, assays = state.list_entities("Study"), state.list_entities("Assay")
+    placed: dict[tuple[str, str], list[str]] = {
+        (entity.type, entity.entity_id): _placed_files(state, entity, deposited)
+        for entity in (*studies, *assays)
+    }
+
+    labelled = _labelled_studies(state, root)
+    proposed: dict[tuple[str, str], str] = {}
+    for key, files in placed.items():
+        if labelled is None:
+            folder = _common_folder(files) if files else None
+        elif key[0] == "Assay":
+            labels = [assay["folder"] for study in labelled for assay in study["assays"]]
+            folder = _labelled_folder(files, labels, len(assays))
+        else:
+            folder = _labelled_folder(files, [study["folder"] for study in labelled], len(studies))
+        if folder in seen:
+            proposed[key] = folder
+
+    def nested(one: str, other: str) -> bool:
+        return _contains(one, other) or _contains(other, one)
+
+    def holds_files_of(folder: str, keys: list[tuple[str, str]]) -> bool:
+        return any(_contains(folder, path) for key in keys for path in placed[key])
+
+    folders: dict[tuple[str, str], str] = {}
+    for assay in assays:
+        key = ("Assay", assay.entity_id)
+        folder = proposed.get(key)
+        others = [other for other in placed if other[0] == "Assay" and other != key]
+        if folder is None or any(nested(folder, proposed[o]) for o in others if o in proposed):
+            continue
+        if labelled is None and holds_files_of(folder, others):
+            continue
+        folders[key] = folder
+    assay_folders = dict(folders)
+    for study in studies:
+        key = ("Study", study.entity_id)
+        folder = proposed.get(key)
+        others = [other for other in proposed if other[0] == "Study" and other != key]
+        if folder is None or any(nested(folder, proposed[other]) for other in others):
+            continue
+        own = {("Assay", a.entity_id) for a in assays if a.fields.get("study_id") == key[1]}
+        if any(_contains(taken, folder) for taken in assay_folders.values()):
+            continue  # an Assay takes the folder, or one around it
+        if any(_contains(folder, at) != (other in own) for other, at in assay_folders.items()):
+            continue  # an Assay of its own lies outside it, or another's inside
+        strangers = [other for other in placed if other != key and other not in own]
+        if labelled is None and holds_files_of(folder, strangers):
+            continue
+        folders[key] = folder
+    return folders
+
+
+def _placed_files(state: CrateState, entity: Entity, deposited: set[str]) -> list[str]:
+    """The crate paths of the deposited files ``attach_files`` placed on *entity*."""
+    paths = []
+    for key in ("hasPart", "has_part"):
+        value = entity.fields.get(key)
+        for ref in value if isinstance(value, list) else [value]:
+            ref_id = ref.get("@id") if isinstance(ref, dict) else ref
+            member = state.get_entity(str(ref_id)) if ref_id else None
+            if member is not None and member.type == "File":
+                if (path := _file_dest(member)) in deposited:
+                    paths.append(path)
+    return paths
+
+
+def _common_folder(paths: list[str]) -> str:
+    """The deepest folder that holds every one of *paths*: ``"."`` when only the root does."""
+    common: list[str] = []
+    for level in zip(*(path.split("/")[:-1] for path in paths)):
+        if len(set(level)) > 1:
+            break
+        common.append(level[0])
+    return "/".join(common) or DEPOSIT_ROOT
+
+
+def _labelled_studies(state: CrateState, root: Path) -> list[dict[str, Any]] | None:
+    """The studies of the labelling the checks accepted, when its folders are crate paths.
+
+    The labelling is relative to the folder that was scanned, the first approved
+    root as ``build._derive_structure`` reads it, and the crate to the input path.
+    Where the two differ, a labelled folder is not a path of the crate, and the
+    labelling is not used.
+    """
+    structure = state.deposit_structure
+    if not structure or structure.get("source") != "model":
+        return None
+    approved = sorted(state.approved_scan_roots)
+    scanned_from = approved[0] if approved else state.metadata.input_path
+    try:
+        if not scanned_from or Path(scanned_from).resolve() != root:
+            return None
+        return normalise_structure(structure)["studies"]
+    except (OSError, ValueError):
+        return None
+
+
+def _labelled_folder(files: list[str], folders: list[str], entities: int) -> str | None:
+    """The one labelled folder that holds *files*.
+
+    With none of *files* in a labelled folder, the only folder there is, when the
+    state has one entity to take it.
+    """
+    holding = {
+        folder
+        for folder in folders
+        if folder != DEPOSIT_ROOT and any(_contains(folder, path) for path in files)
+    }
+    if len(holding) == 1:
+        return holding.pop()
+    if not holding and len(folders) == 1 and entities == 1:
+        return folders[0]
+    return None
 
 
 def _contain_dest(raw: str, fallback: str) -> str:
