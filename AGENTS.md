@@ -2065,12 +2065,12 @@ record says (`_crate_mapping._compound_wiki_iri`): a `compoundwiki_id` a model o
 person wrote is still written as an identifier value and never becomes the `@id`
 (D5). The item a name search hits in `lookup_compound`'s fallback does not count
 either; it stays the chemical's `sameAs`, and is the `@id` instead only when the
-InChIKey search finds it too. The identifier
-values (CAS, PubChem CID, DTXSID, Compound Wiki) are the same whichever address the
-chemical has. An unreachable wiki reads as no item, so the chemical then keeps its
-PubChem address. A reference that holds one of a chemical's addresses rather than
-its state id, such as the PubChem address it had before the wiki named it, resolves
-to the chemical's node (`_crate_mapping._compound_addresses`).
+InChIKey search finds it too. The identifier values (CAS, PubChem CID, DTXSID,
+Compound Wiki) are the same whichever address the chemical has. An unreachable wiki
+reads as no item, so the chemical then keeps its PubChem address. A reference that
+holds one of a chemical's addresses rather than its state id, such as the PubChem
+address it had before the wiki named it, resolves to the chemical's node
+(`_crate_mapping._compound_addresses`).
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.
