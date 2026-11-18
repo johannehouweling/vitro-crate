@@ -796,12 +796,14 @@ def group_orphans(
 
     Thirty-six unreachable AOP nodes are one job — wire the pathway to the assay
     that measures it — not thirty-six. Clustering is by id family, which is what
-    distinguishes "the whole AOP subgraph" from "one stray PropertyValue".
+    distinguishes "the AOP-Wiki pathway" from "one stray PropertyValue". A crate
+    carries a pathway and the key events its assays measure, never the rest of it,
+    so the cluster is named for the pathway.
     """
     clusters: dict[str, list[str]] = defaultdict(list)
     for orphan in orphans:
         if "aopwiki.org" in orphan:
-            clusters["the AOP-Wiki subgraph"].append(orphan)
+            clusters["the AOP-Wiki pathway"].append(orphan)
         elif orphan.startswith(("#DefinedTerm", "./#DefinedTerm")):
             clusters["vocabulary terms"].append(orphan)
         elif orphan.startswith(("#PropertyValue", "./#PropertyValue")):
