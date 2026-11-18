@@ -18,8 +18,8 @@
  *   band          +- protocol        +- protocol      +- protocol
  *                                    +- compounds (reagent of that protocol)
  *
- * Each step's protocol is its record (#783); the documents a record is based on
- * have no tier here (#806).
+ * A step's protocol is each deposited document it executes, or else its record;
+ * a document a record is only based on has no tier here (#806).
  *
  * Two consequences the old module had to work for, and this one gets for free:
  *
@@ -63,9 +63,9 @@
   // band, so "below the chain" and "below a protocol" read as two relations
   // rather than one column of four things.
   var BAND_DROP = 42;
-  // A protocol is named for its step and runs long, so its box is wider than a
-  // chain box and sits a little left of it; a compound is one word and three fit
-  // across the space one chain box leaves.
+  // A protocol is named for its file or its step and runs long, so its box is
+  // wider than a chain box and sits a little left of it; a compound is one word
+  // and three fit across the space one chain box leaves.
   var PROTO_W = 164, PROTO_H = 26, PROTO_DX = -7;
   var COMP_W = 100, COMP_H = 19, COMP_COLS = 3, COMP_DX = -16, COMP_DROP = 34;
 
@@ -149,18 +149,21 @@
   }
 
   /* The band, and what each member hangs from — unchanged in meaning from
-   * `assay_lane_layout.js`: a protocol hangs from the step that executes it, a
+   * `assay_lane_layout.js`: a protocol hangs from every step that executes it, a
    * compound from the protocol that lists it as a reagent, and `reagent` is
    * drawn reversed so the arrow points at the work that consumes the material
-   * (#650). Ties break by id so two builds of one deposit draw alike. */
+   * (#650). A document two steps execute is one protocol with two steps. Steps
+   * are kept in id order and ties break by id, so two builds of one deposit draw
+   * alike. */
   function bandOf(visible, edges, rank) {
     var protocols = new Map();
     edges.forEach(function (e) {
       if (!visible.has(e.src) || !visible.has(e.dst)) return;
       if (!has(e, 'executes') || !rank.has(e.src)) return;
-      var current = protocols.get(e.dst);
-      if (current === undefined || e.src < current) protocols.set(e.dst, e.src);
+      if (!protocols.has(e.dst)) protocols.set(e.dst, []);
+      protocols.get(e.dst).push(e.src);
     });
+    protocols.forEach(function (steps) { steps.sort(); });
     var compounds = new Map();
     edges.forEach(function (e) {
       if (!visible.has(e.src) || !visible.has(e.dst)) return;
@@ -285,13 +288,17 @@
      * column and in that step's own ROW of the band.
      *
      * Steps that share a rank share a column, so their protocols do too, and
-     * the nth protocol down belongs to the nth step from the top.
+     * the nth protocol down belongs to the nth step from the top. A protocol
+     * several steps execute is drawn once, under the first of them, and hangs
+     * from each.
      */
     var bandTop = TOP + tallest + BAND_DROP;
     var floor = bandTop;
     var rowOf = new Map();
     var hangs = [];
-    var byStep = group(band.protocols);
+    var home = new Map();
+    band.protocols.forEach(function (by, id) { home.set(id, by[0]); });
+    var byStep = group(home);
     var steps = [];
     members.forEach(function (ids, rank) {
       ids.forEach(function (id) { if (byStep.has(id)) steps.push(id); });
@@ -301,7 +308,11 @@
       var y = rowOf.has(at.x) ? rowOf.get(at.x) : bandTop;
       byStep.get(step).forEach(function (id) {
         positions.set(id, { x: at.x + PROTO_DX, y: y, w: PROTO_W, h: PROTO_H });
-        hangs.push({ id: id, anchor: step, label: 'executes', tier: 1, column: at.x });
+        band.protocols.get(id).forEach(function (by) {
+          var from = positions.get(by);
+          if (!from) return;
+          hangs.push({ id: id, anchor: by, label: 'executes', tier: 1, column: from.x });
+        });
         y += PROTO_H + GAP_Y;
       });
       rowOf.set(at.x, y);

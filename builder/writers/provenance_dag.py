@@ -759,7 +759,7 @@ _AOP_KEYS = (
 _CONTACT_KEYS = ("contactPoint", "http://schema.org/contactPoint")
 _PROPERTYURL_KEYS = ("propertyUrl", "http://www.w3.org/ns/csvw#propertyUrl")
 _MEASTECH_KEYS = ("measurementTechnique", "measurementMethod")
-# A protocol's type: each step's protocol record points at its DefinedTerm (D17).
+# A protocol's type: what each step executes points at its DefinedTerm (D17).
 _INTENDED_USE_KEYS = ("intendedUse",)
 # The licence the Root Data Entity declares. Now that a recognised licence is a
 # described CreativeWork rather than a bare URL, `schema:license` is a real edge
