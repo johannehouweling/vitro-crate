@@ -105,7 +105,7 @@ _REF_FIELDS = frozenset(
         "mentions",
         "chemicals",
         # The compounds a step's protocol applied that are no test article: the
-        # substrate a readout measures. Reagents of its protocol record.
+        # substrate a readout measures. Reagents of the protocol it executes.
         "reagents",
         "cell_lines",
         "biological_models",
@@ -290,17 +290,20 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "result": "Output entity the process produces (alias: output).",
             "chemicals": (
                 "Exposure: MolecularEntity id(s) the cells are exposed to; the "
-                "reagents of its protocol record."
+                "reagents of the protocol it executes."
             ),
             "reagents": (
                 "EndpointReadout: MolecularEntity id(s) of its substrate, when the "
                 "substrate is a chemical (the labelled hormone an uptake assay "
                 "measures). Resolve it with resolve_compound first: it becomes a reagent "
-                "of the readout's protocol record and carries the identifiers, while "
+                "of the protocol the readout executes and carries the identifiers, while "
                 "`substrate` keeps the name as the documents state it. Never a test "
                 "chemical: those are the Exposure's `chemicals`."
             ),
-            "labprotocol": "LabProtocol id(s) the step's protocol record is based on.",
+            "labprotocol": (
+                "LabProtocol id(s) the step follows: deposited documents, or the "
+                "protocol the lab stated."
+            ),
         },
     ),
     "LabProtocol": EntityDraftSchema(
@@ -549,8 +552,8 @@ _STRUCT_FIELDS = frozenset(
         # nodes (#143 passage/growth, #180 organ/tissue, #788 cell_type) and its
         # `source_kind` discriminator — consumed structurally, never raw literals.
         "source_kind",
-        # A preparation step's `preparation_type`, consumed as its protocol record's
-        # intendedUse (#785): the step's type, never a parameter of it.
+        # A preparation step's `preparation_type`, consumed as the intendedUse of the
+        # protocol it executes (#785): the step's type, never a parameter of it.
         "preparation_type",
         "passage",
         "growth",
@@ -1775,7 +1778,7 @@ def _protocol_record(
     stated: dict[str, Any] | None = None,
     preparation: str | None = None,
 ) -> LabProtocol | None:
-    """The one protocol a step executes: a record of what the deposit states (D17).
+    """The protocol record a step is built with: what the deposit states (D17).
 
     ``intendedUse`` is the step's protocol type (:data:`_STEP_PROTOCOL_TYPES`),
     ``isBasedOn`` the step's *documents*, and ``reagent`` the compounds an Exposure
@@ -1785,6 +1788,8 @@ def _protocol_record(
     satisfy the checks that ask for a description (#670). ``None`` for an untyped
     step with no document and nothing stated. A preparation step's record takes the
     *preparation* type it states, from the profile's set (:data:`PREPARATION_TYPES`).
+    Once every step is built, :func:`_execute_documents` lets a step whose documents
+    are deposited files execute them in place of its record.
 
     The record sits at ``<pid>_protocol`` unless an entity already holds that id or
     a step in *reserved* will: a step drafted as "Exposure protocol" beside
@@ -1973,7 +1978,7 @@ def _add_leaves(
         # scalar @type. additional_types is consumed here, never emitted as a
         # stray literal (see _STRUCT_FIELDS). A source-code file is typed by its
         # extension, in both arms and with or without a scan: SoftwareSourceCode,
-        # and LabProtocol, the procedure an analysis step's record is based on
+        # and LabProtocol, the procedure an analysis step follows
         # (RO-Crate 1.2 multi-type, #786, D17).
         # A protocol document is typed as one (#646). The scan already decided
         # this — `classify_file` stamps every deposit file — and the crate used
@@ -2291,9 +2296,10 @@ def _result_file_nodes(process_node: Any) -> list[Any]:
 def _protocol_file_nodes(process_node: Any) -> list[Any]:
     """The deposited document(s) a built LabProcess's protocol record is based on.
 
-    The sibling of :func:`_result_file_nodes`. A step executes its record, and the
-    record is ``isBasedOn`` the documents (D17); a document that is not a File is
-    a reference to something outside the payload and is not nested.
+    The sibling of :func:`_result_file_nodes`. Every step is built executing a
+    record ``isBasedOn`` the documents it follows, and only once every step is
+    placed may it execute them instead (D17); a document that is not a File is a
+    reference to something outside the payload and is not nested.
     """
     return [
         doc
@@ -2411,10 +2417,10 @@ _ANALYSIS_PROTOCOL_CUE = re.compile(
     r"data\s*analys|analysis|analyz|statistic|curve\s*fit|fitting|"
     r"normalis|normaliz|quantif|calculat"
 )
-# What kind of protocol each step executes: its record's `intendedUse`, the protocol
-# type as an ontology term (ISA). No protocol-type term exists for data analysis,
-# so the OBI process class stands in, as ISA's BII-I-1 does for extraction (#799).
-# "CellCulture" is the preparation step's older name (#785).
+# What kind of protocol each step executes: the `intendedUse` of its record or of its
+# documents, the protocol type as an ontology term (ISA). No protocol-type term exists
+# for data analysis, so the OBI process class stands in, as ISA's BII-I-1 does for
+# extraction (#799). "CellCulture" is the preparation step's older name (#785).
 _STEP_PROTOCOL_TYPES: dict[str, tuple[str, str]] = {
     "TestSystemPreparation": ("EFO:0003789", "growth protocol"),
     "CellCulture": ("EFO:0003789", "growth protocol"),
@@ -2476,7 +2482,8 @@ def _scanned_protocol_document(
 
     A deposited protocol IS its file: the ``@id`` is the crate-relative path of a
     document that exists in the deposit, and only ``name`` is derived on top. What
-    kind of protocol it is belongs to the step's record, not to the document (D17).
+    kind of protocol it is goes on it only once every step is built
+    (:func:`_execute_documents`).
 
     Two independent pieces of evidence are required before a document is claimed,
     because basing a step's protocol on it asserts that it explains how this step
@@ -2540,8 +2547,8 @@ def _culture_protocols(
     *,
     materialize_payload: bool,
 ) -> list[Any]:
-    """The deposited documents a culture of *lines*'s protocol record is based on —
-    one per cell line, or none at all.
+    """The deposited documents a culture of *lines* follows — one per cell line, or
+    none at all.
 
     Culturing a cell line is a study-level activity and the deposit says so:
     S-VHPS22 keeps ``cell_line_protocols/`` beside the assays with exactly one
@@ -2552,7 +2559,7 @@ def _culture_protocols(
     A document already in the crate is preferred; failing that the deposit's scan
     is searched and the real file attached. **Never a stub.** A document the
     deposit does not hold would be a claim about a procedure nobody wrote; with
-    none, the culture's record is based on what the drafter named, if anything (D17).
+    none, the culture follows what the drafter named, if anything (D17).
     """
     out: list[Any] = []
     seen: set[Any] = set()
@@ -3044,10 +3051,15 @@ def _add_generator_provenance(state: CrateState, crate: ROCrate) -> None:
         action_props["endTime"] = gen.ended_at
     action = crate.add(ContextEntity(crate, f"#{_slug(gen.name)}_run", properties=action_props))
     action.append_to("instrument", app)
-    # The records are the only protocols a step executes (D17), so the executed
-    # protocols are exactly what the build wrote from what the deposit states.
-    executed = (i for e in crate.get_entities() for i in _child_ids(e, "executesLabProtocol"))
-    action["result"] = [{"@id": "./"}, *({"@id": i} for i in dict.fromkeys(executed))]
+    # A step executes a deposited document or a record (D17). The build wrote the
+    # records from what the deposit states; a document is the deposit's own file.
+    executed = {
+        protocol.id: protocol
+        for entity in crate.get_entities()
+        for protocol in _linked_nodes(entity, "executesLabProtocol")
+    }
+    records = (i for i, protocol in executed.items() if not _is_file_node(protocol))
+    action["result"] = [{"@id": "./"}, *({"@id": i} for i in records)]
 
     # The model is named as a PropertyValue of the run, NOT as a
     # SoftwareApplication instrument. Naming it is the point of this record — a
@@ -3592,9 +3604,11 @@ def _add_processes(
     # is enough; nothing else here depends on the draft's own order.
     cultures_by_assay: dict[Any, list[Any]] = {}
     # document id -> [(assay_id, assay node, document node)], one row per process
-    # whose record is based on it. Placement waits for all of them; see
-    # `_place_protocols`.
+    # that follows it. Placement waits for all of them; see `_place_protocols`.
     protocol_use: dict[Any, list[tuple[Any, Any, Any]]] = {}
+    # (built node, what the lab stated about its protocol), read once every step
+    # exists; see `_execute_documents`.
+    followed: list[tuple[Any, dict[str, Any]]] = []
     ordered = sorted(
         state.list_entities("LabProcess"),
         key=lambda p: (
@@ -3607,7 +3621,8 @@ def _add_processes(
     # Every id a drafted step mints, so that no protocol record takes one.
     reserved = frozenset(_mint_id(p) for p in ordered)
     # What the lab stated about a step: the protocols the drafter recorded. They are
-    # no crate nodes of their own; each fills the record of the step that names it.
+    # no crate nodes of their own; each is written on the documents the step that
+    # names it executes, or fills that step's record.
     stated_idx: dict[str, Any] = {}
     for protocol in state.list_entities("LabProtocol"):
         _idx_add(stated_idx, protocol, protocol)
@@ -3623,9 +3638,9 @@ def _add_processes(
         # stub each process pointed at, and the actual SOP nobody referenced.
         # Same failure as `data_processing` / `computational_tool` below; same
         # answer, accept both spellings.
-        # The step's record is based on the documents the deposit places on it; a
-        # document the drafter named counts only where the deposit places none, and
-        # what the lab stated fills the record (D17, #789).
+        # The step follows the documents the deposit places on it; a document the
+        # drafter named counts only where the deposit places none (D17, #789). It
+        # is built with a record based on them and filled with what the lab stated.
         named = _resolve_many(idx, _first_of(f, _PROTOCOL_ALIASES))
         stated = next(
             (p.fields for p in _resolve_many(stated_idx, _first_of(f, _PROTOCOL_ALIASES))), None
@@ -3648,8 +3663,8 @@ def _add_processes(
             # code or says it is about culturing or analysis, because measuring is
             # what an assay's SOP describes. No cue sends one to the Exposure, and
             # DataAnalysis legitimately comes up empty on the real deposit — no
-            # document there covers that step — so those records are based on what
-            # was named, or on nothing (D17).
+            # document there covers that step — so those steps follow what was
+            # named, or keep a record based on nothing (D17).
             deposited = _assay_protocol_documents(state, f.get("assay_id"), idx, ptype)
         assay_key = f.get("assay_id")
         lines = _culture_cell_lines(f, idx, name) if ptype == "TestSystemPreparation" else []
@@ -3707,6 +3722,7 @@ def _add_processes(
         if ptype == "TestSystemPreparation":
             cultures_by_assay.setdefault(assay_key, []).extend(nodes)
         for node in nodes:
+            followed.append((node, stated or {}))
             _add_named_parameters(crate, node, f.get("parameters"))
             _wire_process_node(
                 state,
@@ -3721,10 +3737,80 @@ def _add_processes(
                 first=(node is nodes[0]),
             )
 
+    _execute_documents(crate, followed)
     _place_protocols(state, idx, protocol_use)
     _chain_processes(built)
     _floor_readout_objects(crate, built)
 
+
+def _execute_documents(crate: ROCrate, followed: list[tuple[Any, dict[str, Any]]]) -> None:
+    """Let each step whose documents are deposited files execute them (D17).
+
+    *followed* pairs every built step with what the lab stated about its protocol.
+    A step is built with a record based on its documents, because it cannot see
+    its neighbours and a document carries one protocol type and one set of
+    reagents. A step therefore executes its documents only where every step that
+    would execute one of them agrees: the same ``intendedUse`` term (none is a
+    kind of its own), the same reagents, and no second stated description or
+    url. It then executes all of them and its record is removed. Where steps
+    disagree, each of them keeps its record, as does a step with a document that
+    is not a File.
+
+    What the record carried is written on each executed document: the protocol
+    type, the reagents, and the description and url the lab stated where the
+    document has none, which is the rule of ``draft_protocol``. The document
+    keeps its name, and another name the lab stated becomes an ``alternateName``.
+    It is typed ``LabProtocol`` if it was not: the export adds an undrafted
+    scanned document as a plain File. This runs once every step is built, so
+    nothing written here is lost when :func:`_scanned_protocol_document` replaces
+    a node.
+    """
+    candidates: list[tuple[Any, Any, list[Any], dict[str, Any]]] = []
+    # document id -> the protocols (type and reagents), descriptions and urls that
+    # the steps which would execute it state.
+    claims: dict[str, tuple[set[Any], set[str], set[str]]] = {}
+    for step, stated in followed:
+        records = _linked_nodes(step, "executesLabProtocol")
+        documents = _linked_nodes(records[0], "isBasedOn") if records else []
+        if not documents or not all(_is_file_node(d) for d in documents):
+            continue
+        record = records[0]
+        candidates.append((step, record, documents, stated))
+        protocol = (
+            tuple(_child_ids(record, "intendedUse")),
+            frozenset(_child_ids(record, "reagent")),
+        )
+        for document in documents:
+            protocols, descriptions, urls = claims.setdefault(document.id, (set(), set(), set()))
+            protocols.add(protocol)
+            descriptions.update(filter(None, [stated.get("description")]))
+            urls.update(filter(None, [stated.get("url")]))
+    agreed = {
+        document_id
+        for document_id, (protocols, descriptions, urls) in claims.items()
+        if len(protocols) == 1 and len(descriptions) <= 1 and len(urls) <= 1
+    }
+
+    for step, record, documents, stated in candidates:
+        if not all(document.id in agreed for document in documents):
+            continue
+        for document in documents:
+            types = document.type if isinstance(document.type, list) else [document.type]
+            if "LabProtocol" not in types:
+                # ro-crate-py guards `entity["@type"] = …`, so write the backing JSON-LD.
+                document.properties()["@type"] = [*types, "LabProtocol"]
+            for key in ("intendedUse", "reagent"):
+                if key in record:
+                    document[key] = record[key]
+            for key in ("description", "url"):
+                if stated.get(key) and document.get(key) in (None, ""):
+                    document[key] = stated[key]
+            names = document.get("alternateName") or []
+            names = [document.get("name"), *(names if isinstance(names, list) else [names])]
+            if stated.get("name") and stated["name"] not in names:
+                document.append_to("alternateName", stated["name"])
+        step["executesLabProtocol"] = documents
+        crate.delete(record)
 
 
 def _place_protocols(
@@ -3732,8 +3818,8 @@ def _place_protocols(
     idx: dict[str, Any],
     protocol_use: dict[Any, list[tuple[Any, Any, Any]]],
 ) -> None:
-    """Hang each deposited document a step's record is based on where its use says
-    it belongs (#678).
+    """Hang each deposited document a step follows where its use says it belongs
+    (#678).
 
     `_link_to_study`'s own contract is that "a protocol that governs several
     assays is a study-level document and the backbone should say so" — but the
@@ -3801,10 +3887,9 @@ def _wire_process_node(
     # through directory Datasets, and an Assay is a contextual node.
     for file_node in _result_file_nodes(node):
         _append_unique(assay, "hasPart", file_node)
-    # ...and so are the documents its protocol record is based on, but WHERE they
-    # hang depends on how many assays follow them, which is not knowable while one
-    # process is being wired. Usage is recorded here and placed once every process
-    # exists.
+    # ...and so are the documents it follows, but WHERE they hang depends on how
+    # many assays follow them, which is not knowable while one process is being
+    # wired. Usage is recorded here and placed once every process exists.
     for protocol_node in _protocol_file_nodes(node):
         protocol_use.setdefault(getattr(protocol_node, "id", None), []).append(
             (f.get("assay_id"), assay, protocol_node)
@@ -3851,9 +3936,11 @@ def _build_process(
 
     *documents* are what the record is based on: the deposit's documents for the
     step, or the ones the drafter named where it places none
-    (:func:`_protocol_record`). The keyword arguments carry what
-    :func:`_add_processes` knows across nodes: how a culture splits (#678), which
-    cultures an Exposure's assay ran (#785), and which ids the drafted steps mint:
+    (:func:`_protocol_record`). Once every step is built, the step may execute
+    its documents in place of the record (:func:`_execute_documents`). The keyword
+    arguments carry what :func:`_add_processes` knows across nodes: how a culture
+    splits (#678), which cultures an Exposure's assay ran (#785), and which ids the
+    drafted steps mint:
 
     ``cell_lines``
         The line(s) this TestSystemPreparation grows, overriding what the draft names. A
@@ -3946,8 +4033,8 @@ def _build_process(
         # The Exposure takes the cultured cell Sample(s) as object and emits the
         # EXPOSED Sample as its result (#650). ISA forbids a MolecularEntity as a
         # process object (objects MUST be File/Sample/BioSample — bundled
-        # isa-ro-crate shape), so the compounds are the reagents of the Exposure's
-        # protocol record, and the condition table is data about the exposed
+        # isa-ro-crate shape), so the compounds are the reagents of the protocol the
+        # Exposure executes, and the condition table is data about the exposed
         # Samples (#783). A draft naming a culture's input or output, or no
         # Sample, is widened to where the preparation ended (#785), which reaches
         # every line of a split (#678); one naming another Sample knows better

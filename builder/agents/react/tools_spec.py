@@ -904,7 +904,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_protocol",
-        "description": "Name the protocol a step follows, then link it with set_fields on the step's labprotocol. For a deposited protocol document pass hints.source_file (its path or File id): the document itself is returned, co-typed LabProtocol, and nothing is minted; never re-describe a deposited file. With no document, pass the name and description the lab stated; they fill the step's protocol record. Example: draft_protocol(hints={'source_file': 'assay_02/4.1 Deiodinase activity assay.docx'}).",
+        "description": "Name the protocol a step follows, then link it with set_fields on the step's labprotocol. For a deposited protocol document pass hints.source_file (its path or File id): the document itself is returned, co-typed LabProtocol, and nothing is minted; never re-describe a deposited file. With no document, pass the name and description the lab stated; they are written on the documents the step executes, or else fill its protocol record. Example: draft_protocol(hints={'source_file': 'assay_02/4.1 Deiodinase activity assay.docx'}).",
         "parameters": {
             "type": "object",
             "properties": {"hints": draft_hints_schema("LabProtocol")},
