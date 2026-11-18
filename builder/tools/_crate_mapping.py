@@ -862,8 +862,16 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
     place.
     """
     root = crate.root_dataset
+    # Two chemicals that mint one @id are written as one node, which the first in
+    # state describes (`_add_leaves`). A later one gave it only its name, so what
+    # is kept of it here would describe that node as another sample.
+    chemical_nodes: set[str] = set()
     for entity in state.list_entities():
         node = idx.get(f"{entity.type}:{entity.entity_id}") or idx.get(entity.entity_id)
+        if entity.type == "MolecularEntity" and node is not None:
+            if node.id in chemical_nodes:
+                continue
+            chemical_nodes.add(node.id)
         # A field a process constructor consumes is NOT unowned: the constructor
         # mints the parameter. Scoped to LabProcess, because the same name on
         # another entity really is unowned — `detection_instrument` on a File is
