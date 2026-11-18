@@ -1198,7 +1198,9 @@ candidates plus a none/skip option, then optionally `request_input` for a pasted
 ORCID). **D5:** an ORCID from (a) or (c), and an HITL-chosen one, is attached only
 after `lookup_orcid` resolves it and the family name matches; (b) is already
 verified; an ORCID-resolved Person also carries its ORCID `identifier`
-PropertyValue at build via the shared `_identifier_pv` path. HITL fires **only** on
+PropertyValue at build via the shared `_identifier_pv` path. A Person the crate already
+holds under that ORCID is the author, whatever id it was drafted under, so no two
+people take one address. HITL fires **only** on
 genuine ambiguity — never when an author is confidently resolved or confidently
 absent — and when no `human_interface` is available an ambiguous author falls back
 to a synthesized id rather than guessing. An ORCID-resolved author's

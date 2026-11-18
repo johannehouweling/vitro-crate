@@ -489,3 +489,29 @@ class TestNoTwoPeopleTakeOneOrcid:
         assert not namesake.fields.get("orcid")
         ids = sorted(n["@id"] for n in _typed(_graph(state), "Person"))
         assert ids == ["#Person_person_timo_hamers", HAMERS_ADDRESS]
+
+    def test_an_author_whose_orcid_a_person_already_holds_is_that_person(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A citation stub that took the deposit's ORCID keeps its id, and the next article
+        that gives its author that ORCID names the stub."""
+        from builder.tools import composites
+
+        article = {
+            "identifier": "https://doi.org/10.1234/example",
+            "name": "An uptake study",
+            "author": [
+                {"givenName": "Timo", "familyName": "Hamers", "identifier": HAMERS["orcid"]}
+            ],
+        }
+        record = {"givenName": "Timo", "familyName": "Hamers", "name": "Timo Hamers"}
+        _orcid(monkeypatch, HAMERS_RECORD)
+        monkeypatch.setattr(composites, "lookup_doi", lambda doi: {"found": True, "data": article})
+        monkeypatch.setattr(composites, "lookup_orcid", lambda bare: {"found": True, "data": record})
+        monkeypatch.setattr(composites, "cached_affiliation_from_works", lambda orcid, family: "")
+        state = _stating(HAMERS)
+        stub = composites._synthesize_citation_author(state, "Timo", "Hamers")
+        assert draft_person(state, "Timo Hamers", {}) is stub
+        composites.draft_publication_with_authors(state, "10.1234/example")
+        assert state.list_entities("Person") == [stub]
+        assert [n["@id"] for n in _typed(_graph(state), "Person")] == [HAMERS_ADDRESS]
