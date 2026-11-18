@@ -1946,10 +1946,11 @@ def _materialize_plan(
       ``source_file`` names, or else what the lab stated (name and description —
       D5: no identifier). It is linked to the ``LabProcess`` it governs via the
       ``labprotocol`` reference field: a document is what the step follows where the
-      deposit places none of its own, and what the lab stated reaches the documents
-      it executes or its record (AGENTS.md D17). The plan's ``process_hint`` is matched
-      conservatively (by ``process_type``, then by step name); no hint or no match
-      links nothing, and the link is left for the guidance loop rather than guessed
+      deposit places none of its own, and what the lab stated fills the step's record,
+      or the empty description and url of each document it executes (AGENTS.md D17).
+      The plan's ``process_hint`` is matched conservatively (by ``process_type``,
+      then by step name); no hint or no match links nothing, and the link is left
+      for the guidance loop rather than guessed
       (:func:`_select_process_for_protocol`).
     * **process chain — ALWAYS, regardless of provider (#262).** ONE
       :func:`draft_process_chain` lays the standard in-vitro chain (TestSystemPreparation →
