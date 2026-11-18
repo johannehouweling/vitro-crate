@@ -182,19 +182,21 @@ def _profile_key(profile_name: str) -> str:
 # upstream releases (see the two namespaces tracked in #525), a list needs an
 # edit per release, and skipping a check that emits nothing suppresses nothing.
 # Instead this states the invariant the crate itself must satisfy — every local
-# data entity is backed by a source `write()` will materialise — and answers it
-# from the assembled crate, which is available wherever a crate is built, for
-# any deposit.
+# file is backed by a source `write()` will materialise, and a directory is made
+# by `write()` itself — and answers it from the assembled crate, which is
+# available wherever a crate is built, for any deposit.
 
 
 def verify_payload(crate: Any) -> list[dict[str, Any]]:
-    """Report every data entity the crate declares but will not write.
+    """Report every file the crate declares but will not write.
 
     ``ROCrate.write()`` materialises a data entity from its ``source``. An entity
     whose source is ``None`` is written to the metadata and never to disk (
     ro-crate-py warns "No source for …" and continues), leaving a crate that
     describes a file it does not contain — a REQUIRED failure of the base
-    profile, and invisible to every in-memory validation.
+    profile, and invisible to every in-memory validation. A directory needs no
+    source: ``write()`` makes the folder of a ro-crate-py ``Dataset``, and each
+    file in it is a data entity of its own, checked here as a file.
 
     Checked before the write rather than after, because the maturity report is
     rendered and embedded while the crate is still in memory; a verdict reached
@@ -212,12 +214,14 @@ def verify_payload(crate: Any) -> list[dict[str, Any]]:
         Routable issue dicts in the shape :func:`build_and_validate` returns, so
         the existing write-back and the maturity report render them unchanged.
     """
+    from rocrate.model import Dataset
+
     issues: list[dict[str, Any]] = []
     for entity in crate.data_entities:
         entity_id = str(getattr(entity, "id", "") or "")
         if not entity_id or entity_id.startswith(("#", "http://", "https://")):
             continue
-        if getattr(entity, "source", None) is not None:
+        if isinstance(entity, Dataset) or getattr(entity, "source", None) is not None:
             continue
         issues.append(
             {

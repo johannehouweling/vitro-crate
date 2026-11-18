@@ -144,6 +144,13 @@ _CRATE_SETTABLE_FIELDS: frozenset[str] = frozenset(
     {"name", "title", "description", "identifier", "accession"}
 )
 
+# Local property names no answer given while the crate is built can fill. A
+# directory's `distribution` is the archive its repository serves once the crate
+# is published (RO-Crate 1.2, directories on the web). The base profile asks it,
+# as a MAY, of every folder a Study or an Assay is identified by, and the finding
+# stays in the report.
+_PUBLISHED_FIELDS: frozenset[str] = frozenset({"distribution"})
+
 
 def _local_name(iri: str | None) -> str:
     """Local part of a property IRI (after the last ``/`` or ``#``)."""
@@ -182,7 +189,9 @@ def _is_committable(
 
     * a gap that names **no field** (a node shape) — there is nothing to set;
     * an **identifier-bearing** field (D5 — the value comes from a lookup, so the
-      user's answer is refused whatever they type).
+      user's answer is refused whatever they type);
+    * a field only the repository a crate is published to can fill
+      (:data:`_PUBLISHED_FIELDS`, a directory's ``distribution``).
 
     A **reference-only** field stays committable on purpose. Prose cannot be
     committed to one, but naming an entity that already exists in the crate can —
@@ -195,7 +204,7 @@ def _is_committable(
     if not field:
         return False
 
-    if is_identifier_field(field):
+    if is_identifier_field(field) or field in _PUBLISHED_FIELDS:
         return False
 
     if entity_id is not None:

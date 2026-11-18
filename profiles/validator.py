@@ -537,6 +537,25 @@ def _routable_issue(issue, profile: str) -> RoutableIssue:
     )
 
 
+def _asks_a_folder_of_the_crate_for_a_web_archive(issue: RoutableIssue) -> bool:
+    """Whether *issue* is the web-directory finding the dict path gives a crate folder.
+
+    RO-Crate 1.2 asks a directory on the web for a ``distribution`` (RECOMMENDED),
+    and the validator tells a directory on the web by its resolved ``@id``. The
+    dict path resolves a relative id against a web address of its own
+    (``https://example.invalid/…``), so every folder the crate holds reads as one
+    on the web, which on disk none does. A finding asked of a relative id is
+    dropped here, on the dict path only, by what it asks rather than by a check id
+    (the payload note in ``builder/tools/validation.py`` says why): a directory at
+    a web address keeps it, and so does a folder's optional ``distribution``.
+    """
+    return (
+        issue.severity == "recommended"
+        and (issue.property or "").rsplit("/", 1)[-1] == "distribution"
+        and not (issue.entity_id or "").startswith(("http://", "https://"))
+    )
+
+
 def validate_crate_dict(
     metadata_doc: dict,
     *,
@@ -605,11 +624,13 @@ def _validate_one_pass(
     with _checks_must_run(key):
         result = services.validate_metadata_as_dict(metadata_doc, settings)
     # Drop file-only checks that can't apply to an in-memory document (see
-    # _DICT_PATH_NA_CHECKS), then derive pass/fail from the filtered issues.
+    # _DICT_PATH_NA_CHECKS) and the web-directory finding a folder of the crate
+    # gets there, then derive pass/fail from the filtered issues.
     issues = [
         ri
         for i in result.get_issues()
         if (ri := _routable_issue(i, key)).check_id not in _DICT_PATH_NA_CHECKS
+        and not _asks_a_folder_of_the_crate_for_a_web_archive(ri)
     ]
     _raise_on_transport_failure(issues, profile=key)
     return DictValidationResult(

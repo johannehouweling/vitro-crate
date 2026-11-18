@@ -2646,8 +2646,9 @@ payload?" is REQUIRED by the base profile and answerable only where the payload 
 in-memory gate validates a document, so that check emits *nothing* there, and its silence must never
 be read as a pass. `verify_payload` states the invariant the crate itself must satisfy instead of
 naming a check id (ids move between upstream releases, and skipping a check that emits nothing
-suppresses nothing): every local data entity is backed by a source `crate.write()` will
-materialise, since ro-crate-py writes the metadata for a source-less entity and no bytes. Export
+suppresses nothing): every local file is backed by a source `crate.write()` will materialise,
+since ro-crate-py writes the metadata for a source-less file and no bytes; a directory needs none,
+because `crate.write()` makes the folder of a ro-crate-py `Dataset` itself. Export
 runs it against the assembled crate **before** the report is embedded — a verdict reached after the
 write could never reach the report shipping inside the crate — and files what it finds as REQUIRED
 issues, so the existing rendering flips the Profile-conformance verdict (the matrix's Required column — the report's one headline verdict) without knowing this check exists.
