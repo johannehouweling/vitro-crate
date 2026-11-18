@@ -2320,10 +2320,10 @@ profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST 
   "the folder tree is the depositor's own statement of what the studies and assays are"):
   `dataset_folders` reads the labelling `deposit_structure` holds when the checks accepted it, and
   otherwise the deepest folder common to the files `attach_files` placed on the entity, except for
-  an Assay that holds every file of the deposit, as the pipeline's one Assay does; a folder
-  counts only if the scan saw it, never the deposit root, never one that holds a file placed on
-  another Assay, and never one another Study or Assay takes or is nested with (an Assay before its
-  Study). Such an entity is the directory Dataset at
+  an Assay that holds every file of the deposit, as the pipeline's one Assay does; a folder counts
+  only if the scan saw it, never the deposit root, never one that holds a file placed on another
+  Assay, and never one another Study or Assay takes or is nested with (an Assay before its Study).
+  Such an entity is the directory Dataset at
   that folder: its `@id` is the folder's path percent-encoded as a file's is and ending in `/`, its
   `@type` the plain `Dataset` ro-crate-py walks. An Assay with a folder whose Study has none is
   listed by the root as well, because ro-crate-py reaches a directory only through directories and
