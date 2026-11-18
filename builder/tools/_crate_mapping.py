@@ -17,6 +17,7 @@ local fragment; Files use a relative URI path.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -3904,8 +3905,11 @@ def _execute_documents(crate: ROCrate, followed: list[tuple[Any, dict[str, Any]]
         for document in documents:
             protocols, descriptions, urls = claims.setdefault(document.id, (set(), set(), set()))
             protocols.add(protocol)
-            descriptions.update(filter(None, [stated.get("description")]))
-            urls.update(filter(None, [stated.get("url")]))
+            # A statement may be a reference or a list as well as a text, so each
+            # is compared by its JSON.
+            for key, said in (("description", descriptions), ("url", urls)):
+                if stated.get(key):
+                    said.add(json.dumps(stated[key], sort_keys=True, default=str))
     agreed = {
         document_id
         for document_id, (protocols, descriptions, urls) in claims.items()
