@@ -468,6 +468,37 @@ class TestTheWriterLeavesTheRestOfAPathwayOut:
         assert not [n["@id"] for n in graph if _LINK_PROPERTIES & set(n)]
         assert "aopwiki.org/relationships" not in json.dumps(graph)
 
+    def test_no_entity_is_written_with_a_link_property(self):
+        # Any entity can hold a link property: `set_fields` takes one on a Study or
+        # an Assay, because the context defines the term, and a term drafted with
+        # one keeps it. None is written, so nothing in the crate points at an event
+        # or a relationship the crate leaves out.
+        from builder.tools.drafters import draft_defined_term
+        from builder.tools.management import set_fields
+
+        state = self._saved_session(keyEvent={"@id": self._MEASURED})
+        study = _by_type(state, "Study")[0]
+        assay = _by_type(state, "Assay")[0]
+        relationship = [{"@id": "https://aopwiki.org/relationships/1"}]
+        left_out = {"@id": "https://aopwiki.org/events/888"}
+        set_fields(state, study.entity_id, {"has_key_event_relationship": relationship})
+        set_fields(state, assay.entity_id, {"has_key_event": left_out})
+        term = draft_defined_term(
+            state,
+            "A term",
+            {
+                "url": "https://example.org/term/1",
+                "upstream_event": {"@id": "https://aopwiki.org/events/889"},
+            },
+        )
+        assert "has_key_event_relationship" in study.fields
+        assert "has_key_event" in assay.fields
+        assert "upstream_event" in term.fields
+
+        graph = _graph(state)
+
+        assert not [n["@id"] for n in graph if _LINK_PROPERTIES & set(n)]
+
     def test_nothing_written_points_at_an_event_left_out(self):
         graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
 
