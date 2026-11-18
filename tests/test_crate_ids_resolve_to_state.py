@@ -396,11 +396,22 @@ class TestWhoseFindingItIs:
 
 class TestAnUnnamedFolderIsCalledByItsName:
     def test_the_last_part_of_the_folder_is_what_a_reader_is_shown(self) -> None:
+        """As the deposit spells it, so that a reader finds it there."""
         from builder.tools.remediation import _entity_label
 
-        assert _entity_label("./assay_01_TH_uptake/", {}) == "assay 01 TH uptake"
-        assert _entity_label("./study_01/assay_02_deiodinase/", {}) == "assay 02 deiodinase"
+        assert _entity_label("./assay_01_TH_uptake/", {}) == "assay_01_TH_uptake"
+        assert _entity_label("./study_01/assay_02_deiodinase/", {}) == "assay_02_deiodinase"
         assert _entity_label("./Exposure%20scenarios/LDH%20analysis/", {}) == "LDH analysis"
+        assert _entity_label("./#assay%2001/", {}) == "assay 01"
+
+    def test_a_folder_named_like_a_type_keeps_its_whole_name(self) -> None:
+        """S-VHPS21 deposits its assay in ``Assay_MCT8-MDCK1/``, a name the
+        depositor gave and no type the crate put before an id."""
+        from builder.tools.remediation import _entity_label
+
+        assert _entity_label("./Assay_MCT8-MDCK1/", {}) == "Assay_MCT8-MDCK1"
+        assert _entity_label("./#Assay_OATP1C1/", {}) == "Assay_OATP1C1"
+        assert _entity_label("./Study_01/Assay_x/", {}) == "Assay_x"
 
     def test_an_address_that_ends_in_a_slash_is_shown_whole_as_before(self) -> None:
         from builder.tools.remediation import _entity_label
