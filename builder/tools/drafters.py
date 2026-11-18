@@ -832,6 +832,10 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
         )
         entity.set_fields_from_dict(merged_hints, source="llm")
         state.add_entity(entity)
+    # What the entity now holds from ROR's record was looked up, not drafted.
+    for key, value in stated.items():
+        if entity.fields.get(key) == value:
+            entity.set_field_status(key, "filled", "lookup")
     if stated:
         entity.set_field_status("ror", "verified", "lookup")
     return entity
