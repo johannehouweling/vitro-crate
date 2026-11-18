@@ -546,10 +546,11 @@ Generate metadata entities from files, conversation, or existing metadata.
 Each drafter is a **pure state mutation** over hints its caller supplies — the
 model's contribution is recorded as provenance (`created_by="llm"`,
 `source="llm"`) rather than made from inside the drafter — and **identifiers come
-from lookups, never fabricated**: `_resolve_person_orcid` verifies a single
-full-name ORCID search hit through the record endpoint before using its URL as an
-entity id, and leaves the deterministic local id in place for anything ambiguous,
-unavailable or weak.
+from lookups, never fabricated**: `_resolve_person_orcid` verifies the ORCID the
+deposit states for a person of that name, and failing it a single full-name ORCID
+search hit, through the record endpoint before using its URL as an entity id, and
+leaves the deterministic local id in place for anything ambiguous, unavailable,
+unconfirmed or weak.
 
 **Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample
 (CellLine/PrimaryCell), LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis), Person,
@@ -989,7 +990,7 @@ draft_cell_line_sample(name: str, hints: dict) → Entity
 draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
 draft_protocol(hints: dict) → Entity                     # LabProtocol a step's protocol record can be based on
-draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). ORCID stays empty (D5)
+draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). Without an orcid hint it takes the ORCID the deposit states for exactly that name, else a single strong name-search hit, once ORCID confirms it (D5)
 draft_organization(name: str, hints: dict) → Entity
 draft_publication(doi: str, hints: dict) → Entity
 draft_defined_term(name: str, hints: dict) → Entity
@@ -2360,7 +2361,10 @@ name and the ROR id of each organisation, from the same two conventions: the Bio
 `organisation` sections (`Name`, `ORCID`, `RORID`), and the `nameIdentifiers` and `affiliation` of
 DataCite's `creators` and `contributors`. Nothing else is kept, though the same sections state an
 e-mail address, a role and a country. The reader drafts nobody and asks no registry: it is only the
-source of an identifier for an entity someone drafts.
+source of an identifier for an entity someone drafts. `draft_person` tries the ORCID stated for a
+person of exactly its name, case and spacing aside, before the name search, and uses it only once
+the ORCID record resolves and states the same family name. A name the record gives two ORCIDs is
+given neither.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 

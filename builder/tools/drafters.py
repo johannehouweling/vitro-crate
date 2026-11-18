@@ -11,27 +11,51 @@ import re
 from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance
+from lookups.orcid import lookup_orcid, lookup_orcid_by_name
 from profiles.ontology_iris import iri
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str, str]]:
+def _stated(declared: list[dict[str, str]], key: str, name: str) -> str:
+    """The identifier under *key* the deposit states for exactly *name*, or ``""``.
+
+    Two names are one whatever their case and their surrounding or repeated spaces.
+    A name the deposit gives two different identifiers is given neither: which one
+    is meant would be a guess.
+    """
+    wanted = " ".join(str(name or "").split()).casefold()
+    found = {
+        str(each.get(key) or "").strip()
+        for each in declared
+        if " ".join(str(each.get("name") or "").split()).casefold() == wanted
+    } - {""}
+    return found.pop() if len(found) == 1 else ""
+
+
+def _resolve_person_orcid(
+    name: str, hints: dict, stated: str
+) -> tuple[str | None, dict[str, str]]:
     """Resolve one unambiguous ORCID for a drafted person, best-effort.
 
-    Name-only drafting must never fabricate an identifier. A single full-name
-    ORCID search result is verified through the record endpoint before its URL is
-    used as the entity id; ambiguous, unavailable, or weak results leave the
-    deterministic local id path intact.
+    Name-only drafting must never fabricate an identifier. The ORCID the deposit
+    states for a person of this name (*stated*) is tried first, then a single
+    full-name ORCID search result; either is verified through the record endpoint
+    before its URL is used as the entity id. Ambiguous, unavailable, unconfirmed or
+    weak results leave the deterministic local id path intact.
     """
     explicit = hints.get("orcid") or hints.get("identifier")
     if explicit:
         return None, {}
     try:
-        from lookups.orcid import lookup_orcid, lookup_orcid_by_name
-
         given, family = split_person_name(name)
-        if not given or not family:
+        if not family:
+            return None, {}
+        if stated:
+            orcid_id, fields = _confirmed_orcid(_bare_orcid(stated), family)
+            if orcid_id:
+                return orcid_id, fields
+        if not given:
             return None, {}
         candidates = lookup_orcid_by_name(given, family, hints.get("affiliation"))
         strong = [
@@ -42,18 +66,25 @@ def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str,
         ]
         if len(strong) != 1:
             return None, {}
-        bare = str(strong[0].get("orcid", "")).rsplit("/", 1)[-1]
-        record = lookup_orcid(bare)
-        record_family = record.get("familyName", "").casefold().strip()
-        if not record or record_family != family.casefold().strip():
-            return None, {}
-        fields = {"orcid": bare}
-        for key in ("givenName", "familyName", "name"):
-            if record.get(key):
-                fields[key] = str(record[key])
-        return f"https://orcid.org/{bare}", fields
+        return _confirmed_orcid(str(strong[0].get("orcid", "")).rsplit("/", 1)[-1], family)
     except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
         return None, {}
+
+
+def _confirmed_orcid(bare: str, family: str) -> tuple[str | None, dict[str, str]]:
+    """The ORCID *bare* as a URL and the names its record states, or ``(None, {})``.
+
+    It is confirmed once the record resolves and states the family name *family*.
+    """
+    record = lookup_orcid(bare)
+    record_family = record.get("familyName", "").casefold().strip()
+    if not record or record_family != family.casefold().strip():
+        return None, {}
+    fields = {"orcid": bare}
+    for key in ("givenName", "familyName", "name"):
+        if record.get(key):
+            fields[key] = str(record[key])
+    return f"https://orcid.org/{bare}", fields
 
 
 # The four ISA-Tox LabProcess discriminators, in the order the derivation chain
@@ -574,8 +605,12 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     ``draft_person`` path (materialize / ReAct / guidance / direct) produces an
     ISA-shaped Person — the ISA profile REQUIRES a non-empty ``schema:givenName``.
     Splitting a name is descriptive parsing, not identifier fabrication, so it is
-    D5-safe; ORCID stays empty for a later lookup. An explicit ``givenName`` /
-    ``familyName`` the caller passes is preserved (never overwritten by the split).
+    D5-safe. An explicit ``givenName`` / ``familyName`` the caller passes is
+    preserved (never overwritten by the split).
+
+    Without an ORCID in *hints*, the person takes the one the deposit states for
+    exactly this name, else a single strong name-search hit, and either only once
+    ORCID's record confirms it (:func:`_resolve_person_orcid`).
 
     Args:
         state: The crate state to add the entity to.
@@ -595,7 +630,9 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
             merged_hints["givenName"] = given
         if family:
             merged_hints["familyName"] = family
-    orcid_id, orcid_fields = _resolve_person_orcid(name, merged_hints)
+    orcid_id, orcid_fields = _resolve_person_orcid(
+        name, merged_hints, _stated(state.metadata.people, "orcid", name)
+    )
     if orcid_id:
         merged_hints.update(orcid_fields)
 

@@ -28,7 +28,11 @@ import pytest
 
 from builder.engine import AgentEngine, _read_declared_people
 from builder.state import CrateState
+from builder.tools import drafters
+from builder.tools.builder import assemble_crate
+from builder.tools.drafters import draft_person
 from builder.tools.file_readers import extract_deposit_people
+from lookups._http import TransientLookupError
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 HAMERS = {"name": "Timo Hamers", "orcid": "0000-0002-5733-3290"}
@@ -287,3 +291,181 @@ class TestTheSessionKeepsThem:
 
     def test_a_session_that_holds_none_saves_none(self) -> None:
         assert not {"people", "organizations"} & set(CrateState().metadata.to_dict())
+
+
+def _graph(state: CrateState) -> list[dict[str, Any]]:
+    crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+    return crate.metadata.generate()["@graph"]
+
+
+def _typed(graph: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+    return [n for n in graph if n.get("@type") == kind]
+
+
+class _Orcid:
+    """ORCID as the drafter asks it: a record by iD, and a search by name."""
+
+    def __init__(self, records: dict[str, tuple[str, str]], found: list[dict[str, str]]) -> None:
+        self.records = records
+        self.found = found
+        self.asked: list[str] = []
+
+    def record(self, orcid_id: str) -> dict[str, str]:
+        self.asked.append(orcid_id)
+        given, family = self.records.get(orcid_id, ("", ""))
+        return (
+            {"givenName": given, "familyName": family, "name": f"{given} {family}"}
+            if family
+            else {}
+        )
+
+    def search(self, given: str, family: str, affiliation: str | None = None) -> list[dict]:
+        self.asked.append(f"search {given} {family}")
+        return self.found
+
+
+def _orcid(
+    monkeypatch: pytest.MonkeyPatch,
+    records: dict[str, tuple[str, str]],
+    found: list[dict[str, str]] | None = None,
+) -> _Orcid:
+    orcid = _Orcid(records, found or [])
+    monkeypatch.setattr(drafters, "lookup_orcid", orcid.record)
+    monkeypatch.setattr(drafters, "lookup_orcid_by_name", orcid.search)
+    return orcid
+
+
+def _stating(*people: dict[str, str]) -> CrateState:
+    state = CrateState()
+    state.metadata.people = list(people)
+    return state
+
+
+HAMERS_RECORD = {HAMERS["orcid"]: ("Timo", "Hamers")}
+HAMERS_ADDRESS = "https://orcid.org/0000-0002-5733-3290"
+
+
+class TestADraftedPersonTakesTheOrcidTheDepositStates:
+    def test_the_stated_orcid_is_the_person_s_once_orcid_confirms_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        orcid = _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        person = draft_person(state, "Timo Hamers", {})
+        assert person.entity_id == HAMERS_ADDRESS
+        assert person.fields["orcid"] == HAMERS["orcid"]
+        status = person.get_field_status("orcid")
+        assert status is not None and (status.status, status.source) == ("verified", "lookup")
+        assert orcid.asked == [HAMERS["orcid"]], "no name search once the stated one holds"
+
+    def test_the_crate_names_the_person_by_that_orcid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        draft_person(state, "Timo Hamers", {})
+        (node,) = _typed(_graph(state), "Person")
+        assert node["@id"] == HAMERS_ADDRESS
+
+    def test_the_name_is_compared_whatever_its_case_and_spacing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        assert draft_person(state, "  timo   HAMERS ", {}).fields.get("orcid") == HAMERS["orcid"]
+
+    def test_another_name_takes_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        orcid = _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        person = draft_person(state, "T. Hamers", {})
+        assert not person.fields.get("orcid")
+        assert HAMERS["orcid"] not in orcid.asked
+
+    def test_a_record_of_another_family_name_does_not_confirm_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, {HAMERS["orcid"]: ("Martin", "Scholze")})
+        state = _stating(HAMERS)
+        person = draft_person(state, "Timo Hamers", {})
+        assert not person.fields.get("orcid")
+        assert person.entity_id == "person_timo_hamers"
+
+    def test_a_record_that_does_not_resolve_does_not_confirm_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, {})
+        person = draft_person(_stating(HAMERS), "Timo Hamers", {})
+        assert not person.fields.get("orcid")
+
+    def test_an_unreachable_orcid_confirms_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unreachable(*args: Any, **kwargs: Any) -> Any:
+            raise TransientLookupError("ORCID could not be reached")
+
+        monkeypatch.setattr(drafters, "lookup_orcid", unreachable)
+        monkeypatch.setattr(drafters, "lookup_orcid_by_name", unreachable)
+        person = draft_person(_stating(HAMERS), "Timo Hamers", {})
+        assert not person.fields.get("orcid")
+        assert person.entity_id == "person_timo_hamers"
+
+    def test_the_stated_orcid_is_tried_before_the_name_search(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stated ORCID that is not confirmed leaves the name search as it was."""
+        found = [{"orcid": "0000-0001-0000-0002", "given": "Timo", "family": "Hamers"}]
+        records = {
+            HAMERS["orcid"]: ("Martin", "Scholze"),
+            "0000-0001-0000-0002": ("Timo", "Hamers"),
+        }
+        orcid = _orcid(monkeypatch, records, found)
+        person = draft_person(_stating(HAMERS), "Timo Hamers", {})
+        assert orcid.asked == [HAMERS["orcid"], "search Timo Hamers", "0000-0001-0000-0002"]
+        assert person.fields["orcid"] == "0000-0001-0000-0002"
+
+    def test_an_orcid_handed_in_is_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        orcid = _orcid(monkeypatch, HAMERS_RECORD)
+        person = draft_person(_stating(HAMERS), "Timo Hamers", {"orcid": "0000-0001-0000-0002"})
+        assert person.fields["orcid"] == "0000-0001-0000-0002"
+        assert orcid.asked == []
+
+    def test_a_name_the_deposit_gives_two_orcids_takes_neither(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        orcid = _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS, {"name": "Timo Hamers", "orcid": "0000-0001-0000-0002"})
+        person = draft_person(state, "Timo Hamers", {})
+        assert not person.fields.get("orcid")
+        assert HAMERS["orcid"] not in orcid.asked
+
+    def test_a_person_the_crate_holds_under_that_orcid_is_amended(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        held = draft_person(state, "T. Hamers", {"orcid": HAMERS["orcid"]})
+        assert draft_person(state, "Timo Hamers", {}) is held
+        assert len(state.list_entities("Person")) == 1
+        assert [n["@id"] for n in _typed(_graph(state), "Person")] == [HAMERS_ADDRESS]
+
+    def test_a_citation_author_of_that_name_is_that_person(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With the ORCID confirmed, the publication's author is the drafted person, not a
+        ``#CitationAuthor_`` stub beside them."""
+        from builder.tools import composites
+
+        def no_search(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("the person the crate holds is the author")
+
+        article = {
+            "identifier": "https://doi.org/10.1234/example",
+            "name": "An uptake study",
+            "author": [{"givenName": "Timo", "familyName": "Hamers"}],
+        }
+        _orcid(monkeypatch, HAMERS_RECORD)
+        monkeypatch.setattr(composites, "lookup_doi", lambda doi: {"found": True, "data": article})
+        monkeypatch.setattr(composites, "lookup_orcid_by_name", no_search)
+        state = _stating(HAMERS)
+        draft_person(state, "Timo Hamers", {})
+        result = composites.draft_publication_with_authors(state, "10.1234/example")
+        assert [a["person_id"] for a in result["authors"]] == [HAMERS_ADDRESS]
+        assert [p.entity_id for p in state.list_entities("Person")] == [HAMERS_ADDRESS]

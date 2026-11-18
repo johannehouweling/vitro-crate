@@ -83,6 +83,20 @@ def _stub_composites_cellosaurus(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stub_drafters_registries(monkeypatch):
+    """Keep the drafters' confirmation of an identifier offline.
+
+    ``draft_person`` confirms the ORCID a deposit states for a person through the
+    ORCID record, so every test that drafts a person its deposit names would reach
+    ORCID. A miss by default, scoped to the name bound in ``drafters`` like the
+    stubs above; a test that needs the record re-patches ``drafters.lookup_orcid``.
+    """
+    from builder.tools import drafters
+
+    monkeypatch.setattr(drafters, "lookup_orcid", lambda orcid_id: {}, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _stub_composites_exact_term(monkeypatch):
     """Keep the composites' ontology-term lookup offline.
 
