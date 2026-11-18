@@ -625,6 +625,21 @@ class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
         assert status is not None and (status.status, status.source) == ("verified", "lookup")
         assert ror.asked == [VU["ror"]]
 
+    @pytest.mark.parametrize("path", ["drafted", "amended"])
+    def test_what_the_ror_record_states_is_recorded_as_looked_up(
+        self, monkeypatch: pytest.MonkeyPatch, path: str
+    ) -> None:
+        """The website and the country come from ROR's record, not from the model."""
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        state = _stating_organisations(VU)
+        if path == "amended":
+            draft_organization(state, "Vrije Universiteit Amsterdam", {"ror": VU["ror"]})
+        organisation = draft_organization(state, VU["name"], {})
+        for key in ("url", "addressCountry", "countryName"):
+            assert organisation.fields[key] == VU_RECORD[key]
+            status = organisation.get_field_status(key)
+            assert status is not None and (status.status, status.source) == ("filled", "lookup")
+
     def test_the_crate_names_the_organisation_by_that_ror_id(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
