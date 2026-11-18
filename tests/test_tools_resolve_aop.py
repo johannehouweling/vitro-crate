@@ -1,6 +1,6 @@
-"""Tests for the ``materialize_aop_subgraph`` composite tool (Issue #180).
+"""Tests for the ``resolve_aop`` composite tool (Issue #180).
 
-``materialize_aop_subgraph`` turns ONE AOP-Wiki id into the pathway a Study
+``resolve_aop`` turns ONE AOP-Wiki id into the pathway a Study
 addresses and wires it deterministically: one ``AdverseOutcomePathway`` entity at
 its AOP-Wiki address, wired onto the Study named by ``study_id`` — or onto the
 sole Study when none is named — via the ``aop`` / ``mentions`` reference.
@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from builder.state import CrateState
-from builder.tools.composites import materialize_aop_subgraph
+from builder.tools.composites import resolve_aop
 from builder.tools.drafters import draft_investigation, draft_study
 from builder.tools.lookups import lookup_aop as _lookup_aop
 from builder.tools.validation import build_and_validate
@@ -130,10 +130,10 @@ def _graph(state: CrateState) -> list[dict]:
     ).metadata.generate()["@graph"]
 
 
-class TestMaterializeState:
+class TestResolveAopState:
     def test_stores_the_pathway_and_nothing_else_of_it(self):
         state = CrateState()
-        result = materialize_aop_subgraph(state, "610")
+        result = resolve_aop(state, "610")
 
         # The AOP-610 fixture is 1 MIE + 2 KE + 1 AO + 3 relationships. Only the
         # pathway itself is stored; the seven stay on AOP-Wiki.
@@ -152,7 +152,7 @@ class TestMaterializeState:
         # nothing to pick the measured event WITH — the reason neither arm ever
         # linked an Assay to the event it measures.
         state = CrateState()
-        result = materialize_aop_subgraph(state, "610")
+        result = resolve_aop(state, "610")
 
         # Every value comes off the fixture through `lookup_aop`; the test writes
         # none of them into state.
@@ -177,7 +177,7 @@ class TestMaterializeState:
         scaffold = scaffold_isa_backbone(
             state, investigation={"name": "I"}, study={"name": "S"}, assay={"name": "A"}
         )
-        materialize_aop_subgraph(state, "610", study_id=scaffold["study_id"])
+        resolve_aop(state, "610", study_id=scaffold["study_id"])
         link_assay_to_key_event(
             state,
             scaffold["assay_id"],
@@ -194,7 +194,7 @@ class TestMaterializeState:
 
     def test_aop_carries_its_own_facts_and_no_link_arrays(self):
         state = CrateState()
-        materialize_aop_subgraph(state, "610")
+        resolve_aop(state, "610")
         aop = _by_type(state, "AdverseOutcomePathway")[0]
         assert aop.fields["identifier"] == "610"
         assert aop.fields["url"] == "https://aopwiki.org/aops/610"
@@ -204,7 +204,7 @@ class TestMaterializeState:
 
     def test_no_relationship_and_no_link_is_stored(self):
         state = CrateState()
-        materialize_aop_subgraph(state, "610")
+        resolve_aop(state, "610")
         assert _by_type(state, "KeyEventRelationship") == []
         assert not [e.entity_id for e in state.list_entities() if _LINK_PROPERTIES & set(e.fields)]
 
@@ -214,7 +214,7 @@ class TestMaterializeState:
         # caller reads.
         from builder.tools import lookups as tool_lookups
 
-        materialize_aop_subgraph(CrateState(), "610")
+        resolve_aop(CrateState(), "610")
 
         cached = tool_lookups.lookup_aop("610")["data"]["aop"]
         assert {
@@ -226,8 +226,8 @@ class TestMaterializeState:
 
     def test_idempotent_no_duplicates(self):
         state = CrateState()
-        materialize_aop_subgraph(state, "610")
-        materialize_aop_subgraph(state, "610")
+        resolve_aop(state, "610")
+        resolve_aop(state, "610")
         assert len(_by_type(state, "AdverseOutcomePathway")) == 1
         assert _by_type(state, "KeyEvent") == []
         assert _by_type(state, "KeyEventRelationship") == []
@@ -241,15 +241,15 @@ class TestMaterializeState:
             lambda aop_id: {"found": False, "data": {}, "error": "nope"},
         )
         state = CrateState()
-        result = materialize_aop_subgraph(state, "999999")
+        result = resolve_aop(state, "999999")
         assert result.get("ok") is False
         assert _by_type(state, "AdverseOutcomePathway") == []
 
 
-class TestMaterializeBuild:
+class TestResolveAopBuild:
     def test_graph_contains_the_pathway_and_nothing_else_of_it(self):
         state = CrateState()
-        materialize_aop_subgraph(state, "610")
+        resolve_aop(state, "610")
         report = build_and_validate(state)
         # The build itself succeeds (no exception → report has conformance).
         assert "conformance" in report
@@ -281,12 +281,12 @@ class TestMaterializeBuild:
         assert "aopwiki.org/relationships" not in json.dumps(graph)
 
 
-class TestMaterializeStudyWiring:
+class TestResolveAopStudyWiring:
     def test_wires_aop_onto_study(self):
         state = CrateState()
         inv = draft_investigation(state, {"name": "Inv"})
         study = draft_study(state, inv.entity_id, {"name": "Study"})
-        materialize_aop_subgraph(state, "610", study_id=study.entity_id)
+        resolve_aop(state, "610", study_id=study.entity_id)
 
         # The AOP id is recorded on the Study's `aop` reference field.
         refs = study.fields.get("aop")
@@ -298,7 +298,7 @@ class TestMaterializeStudyWiring:
         state = CrateState()
         inv = draft_investigation(state, {"name": "Inv"})
         study = draft_study(state, inv.entity_id, {"name": "Study"})
-        materialize_aop_subgraph(state, "610", study_id=study.entity_id)
+        resolve_aop(state, "610", study_id=study.entity_id)
 
         from builder.tools.builder import assemble_crate
 
@@ -322,7 +322,7 @@ class TestMaterializeStudyWiring:
     def test_missing_study_id_is_ignored(self):
         state = CrateState()
         # No study exists; passing a bogus id must not raise.
-        result = materialize_aop_subgraph(state, "610", study_id="nonexistent")
+        result = resolve_aop(state, "610", study_id="nonexistent")
         assert result["aop_id"] == "610"
 
     @pytest.mark.parametrize("unnamed", [{}, {"study_id": ""}])
@@ -333,7 +333,7 @@ class TestMaterializeStudyWiring:
         inv = draft_investigation(state, {"name": "Inv"})
         study = draft_study(state, inv.entity_id, {"name": "Study"})
 
-        result = materialize_aop_subgraph(state, "610", **unnamed)
+        result = resolve_aop(state, "610", **unnamed)
 
         assert result["wired_to_study"] == study.entity_id
         ids = [r.get("@id") if isinstance(r, dict) else r for r in study.fields["aop"]]
@@ -345,7 +345,7 @@ class TestMaterializeStudyWiring:
         uptake = draft_study(state, inv.entity_id, {"name": "Uptake"})
         viability = draft_study(state, inv.entity_id, {"name": "Viability"})
 
-        result = materialize_aop_subgraph(state, "610")
+        result = resolve_aop(state, "610")
 
         assert result["wired_to_study"] is None
         assert "aop" not in uptake.fields
@@ -371,7 +371,7 @@ class TestThePathwaySurvivesExport:
         from builder.tools.builder import export_crate
 
         state = CrateState()
-        materialize_aop_subgraph(state, "610")
+        resolve_aop(state, "610")
         export_crate(state, str(tmp_path / "crate"))
 
         doc = json.loads((tmp_path / "crate" / "ro-crate-metadata.json").read_text())
@@ -555,7 +555,7 @@ class TestTheFindingsNameTheToolThatAnswersThem:
     def test_the_study_is_pointed_at_the_pathway_tool(self):
         fix = self._fix_for("Study SHOULD reference its Adverse Outcome Pathway")
 
-        assert "`materialize_aop_subgraph`" in fix
+        assert "`resolve_aop`" in fix
         assert "`mentions`" not in fix
 
     def test_the_assay_is_pointed_at_the_key_event_tool(self):
@@ -636,13 +636,13 @@ class TestLinkAssayToKeyEvent:
         assert out["ok"] is False
         assert state.get_entity(assay_id).fields.get("keyEvent") is None
 
-    def test_no_key_events_says_to_materialize_first(self) -> None:
+    def test_no_key_events_says_to_resolve_the_aop_first(self) -> None:
         from builder.tools.composites import link_assay_to_key_event
 
         state, assay_id = self._crate([])
         out = link_assay_to_key_event(state, assay_id, "anything")
         assert out["ok"] is False
-        assert "materialize_aop_subgraph" in out["error"]
+        assert "resolve_aop" in out["error"]
 
     def test_the_link_reaches_the_exported_crate(self, tmp_path) -> None:
         # The point of the issue: the field existed and nothing ever populated
@@ -685,7 +685,7 @@ class TestLinkAssayToAKeyEventOfThePathway:
             assay={"name": "Complex I activity assay"},
         )
         for aop_id in aop_ids:
-            materialize_aop_subgraph(state, aop_id, study_id=scaffold["study_id"])
+            resolve_aop(state, aop_id, study_id=scaffold["study_id"])
         return state, scaffold["assay_id"]
 
     def _assay_node(self, state: CrateState):
@@ -868,7 +868,7 @@ class TestLinkAssayToAKeyEventOfThePathway:
         assert result["ok"] is False
         assert result["candidates"] == []
         assert "AOP-Wiki gave no key events" in result["error"]
-        assert "materialize_aop_subgraph" not in result["error"]
+        assert "resolve_aop" not in result["error"]
         assert "keyEvent" not in state.get_entity(assay_id).fields
 
     def test_a_stored_event_stays_a_candidate_when_aop_wiki_cannot_be_asked(self, monkeypatch):

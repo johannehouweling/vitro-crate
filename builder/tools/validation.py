@@ -455,7 +455,7 @@ def _local_name(iri: str | None) -> str:
 _TOOL_FIXES: tuple[tuple[str, str], ...] = (
     (
         "reference its Adverse Outcome Pathway",
-        "Call `materialize_aop_subgraph` with the AOP-Wiki id of the pathway `{entity}` "
+        "Call `resolve_aop` with the AOP-Wiki id of the pathway `{entity}` "
         "addresses; it looks the pathway up and links the study to it.",
     ),
     (

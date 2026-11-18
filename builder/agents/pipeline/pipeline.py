@@ -1973,7 +1973,7 @@ def _materialize_plan(
       :func:`attach_files` composite (:func:`_attach_scanned_files`), grouped by a
       deterministic raw/processed ``role``. Nothing is skipped silently — what is
       attached is logged. This runs even with NO provider.
-    * each ``aops[]`` → :func:`materialize_aop_subgraph` onto the scaffolded
+    * each ``aops[]`` → :func:`resolve_aop` onto the scaffolded
       Study (the only model input is the numeric ``aop_id``; every node id comes
       from AOP-Wiki — D5), followed by the Assay → Key Event link (#382) when the
       plan's ``measured_event_name`` says which event the assay measures. The
@@ -2359,11 +2359,9 @@ def _materialize_plan(
         if not aop_id:
             continue
         try:
-            aop_result = engine.run_tool(
-                "materialize_aop_subgraph", aop_id=aop_id, study_id=study_id
-            )
+            aop_result = engine.run_tool("resolve_aop", aop_id=aop_id, study_id=study_id)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("materialize_aop_subgraph failed for %r: %s", aop_id, exc)
+            logger.warning("resolve_aop failed for %r: %s", aop_id, exc)
             continue
         if not aop_result.get("aop_entity_id"):
             # A lookup miss put no pathway in the crate. Matching the event name

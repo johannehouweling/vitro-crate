@@ -758,7 +758,7 @@ _MUTATION_TOOLS = frozenset(
         "draft_process_chain",
         "resolve_compound",
         "resolve_publication",
-        "materialize_aop_subgraph",
+        "resolve_aop",
     }
 )
 
