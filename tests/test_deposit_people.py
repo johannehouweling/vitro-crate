@@ -436,6 +436,13 @@ class TestADraftedPersonTakesTheOrcidTheDepositStates:
         assert not person.fields.get("orcid")
         assert HAMERS["orcid"] not in orcid.asked
 
+    def test_one_orcid_written_two_ways_is_one_orcid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The record may give a person's ORCID bare in one place and as its address in
+        another: that is one ORCID, not two."""
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS, {"name": "Timo Hamers", "orcid": HAMERS_ADDRESS + "/"})
+        assert draft_person(state, "Timo Hamers", {}).entity_id == HAMERS_ADDRESS
+
     def test_a_person_the_crate_holds_under_that_orcid_is_amended(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -638,6 +645,25 @@ class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
         organisation = draft_organization(_stating_organisations(VU, other), VU["name"], {})
         assert not organisation.fields.get("ror")
         assert ror.asked == []
+
+    def test_one_ror_id_written_two_ways_is_one_ror_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD, "008xxew50": VU_RECORD})
+        state = _stating_organisations(VU, {"name": VU["name"], "ror": "008xxew50"})
+        assert draft_organization(state, VU["name"], {}).fields.get("ror") == VU["ror"]
+
+    @pytest.mark.parametrize(
+        "written", ["https://ror.org/008xxew50/", "https://ror.org/008XXEW50", "008XXEW50"]
+    )
+    def test_the_stated_ror_id_is_asked_for_as_ror_answers_it(
+        self, monkeypatch: pytest.MonkeyPatch, written: str
+    ) -> None:
+        """ROR answers a ROR id as its address or bare, in lower case and without a
+        trailing slash, and answers nothing for the other ways a record may write it."""
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD, "008xxew50": VU_RECORD})
+        state = _stating_organisations({"name": VU["name"], "ror": written})
+        assert draft_organization(state, VU["name"], {}).fields.get("ror") == VU["ror"]
 
     def test_an_organisation_the_crate_holds_under_that_ror_id_is_amended(
         self, monkeypatch: pytest.MonkeyPatch

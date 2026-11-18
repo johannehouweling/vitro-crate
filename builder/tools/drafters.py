@@ -19,15 +19,17 @@ logger = logging.getLogger(__name__)
 
 
 def _stated(declared: list[dict[str, str]], key: str, name: str) -> str:
-    """The identifier under *key* the deposit states for exactly *name*, or ``""``.
+    """The bare ORCID or ROR id (*key*) the deposit states for exactly *name*, or ``""``.
 
-    Two names are one whatever their case and their surrounding or repeated spaces.
-    A name the deposit gives two different identifiers is given neither: which one
-    is meant would be a guess.
+    Two names are one whatever their case and their surrounding or repeated spaces,
+    and an identifier is one however it is written, bare or as its address. A name
+    the deposit gives two different identifiers is given neither: which one is meant
+    would be a guess.
     """
     wanted = " ".join(str(name or "").split()).casefold()
+    bare = _bare_orcid if key == "orcid" else _bare_ror
     found = {
-        str(each.get(key) or "").strip()
+        bare(each.get(key))
         for each in declared
         if " ".join(str(each.get("name") or "").split()).casefold() == wanted
     } - {""}
@@ -774,11 +776,11 @@ def _stated_ror(state: CrateState, name: str) -> dict[str, str]:
     if not stated:
         return {}
     try:
-        record = fetch_ror_by_id(stated) or {}
+        record = fetch_ror_by_id(f"https://ror.org/{stated}") or {}
     except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
         return {}
     ror = str(record.get("@id") or "")
-    if not ror or _bare_ror(ror) != _bare_ror(stated):
+    if not ror or _bare_ror(ror) != stated:
         return {}
     facts = ("url", "addressCountry", "countryName")
     return {"ror": ror, **{key: str(record[key]) for key in facts if record.get(key)}}
