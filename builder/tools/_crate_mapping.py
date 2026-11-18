@@ -1073,11 +1073,12 @@ def _compound_wiki_iri(entity: Entity) -> str | None:
 
 
 def _compound_addresses(entity: Entity) -> list[str]:
-    """Every address a lookup gave a MolecularEntity, whichever one identifies it.
+    """The addresses a MolecularEntity is known by, the one that identifies it first.
 
-    Its Compound Wiki item, its PubChem compound and its ChEBI PURL, where it has
-    them. :func:`_mint_id` takes the first as the ``@id``; a reference may hold
-    any of them, and the build index knows the chemical by each.
+    Its Compound Wiki item where a lookup found one, its PubChem compound and its
+    ChEBI PURL, where it has them. :func:`_mint_id` takes the first as the
+    ``@id``; a reference may hold any of them, and the build index knows the
+    chemical by each.
     """
     cid = entity.fields.get("pubchem_cid")
     found = (
@@ -1108,14 +1109,9 @@ def _mint_id(entity: Entity) -> str:
         # compound (no CID) carries a resolvable ChEBI PURL on sameAs / chebiId —
         # use it instead of a `#MolecularEntity_<eid>` fragment so the @id is
         # externally resolvable (#179, D5: only ids the lookup produced).
-        wiki_iri = _compound_wiki_iri(entity)
-        if wiki_iri:
-            return wiki_iri
-        if f.get("pubchem_cid"):
-            return f"https://pubchem.ncbi.nlm.nih.gov/compound/{f['pubchem_cid']}"
-        chebi_purl = _chebi_purl(entity)
-        if chebi_purl:
-            return chebi_purl
+        addresses = _compound_addresses(entity)
+        if addresses:
+            return addresses[0]
     if t == "CellLineSample":
         # A Cellosaurus accession IS the cell line's identifier, and it
         # dereferences. Minting `#CellLineSample_cell_cho_k1` next to a field
