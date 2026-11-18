@@ -2319,7 +2319,8 @@ profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST 
 - Identifies **a Study or an Assay by its folder** where the deposit gives it one of its own (#852,
   "the folder tree is the depositor's own statement of what the studies and assays are"):
   `dataset_folders` reads the labelling `deposit_structure` holds when the checks accepted it, and
-  otherwise the deepest folder common to the files `attach_files` placed on the entity; a folder
+  otherwise the deepest folder common to the files `attach_files` placed on the entity, except for
+  an Assay that holds every file of the deposit, as the pipeline's one Assay does; a folder
   counts only if the scan saw it, never the deposit root, and never one another Study or Assay
   takes or is nested with (an Assay before its Study). Such an entity is the directory Dataset at
   that folder: its `@id` is the folder's path percent-encoded as a file's is and ending in `/`, its

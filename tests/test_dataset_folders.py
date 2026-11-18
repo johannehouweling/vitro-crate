@@ -99,10 +99,28 @@ class TestAnAssayTakesTheFolderOfItsFiles:
 
         assert _folders(state) == {}
 
+    def test_an_assay_holding_every_file_of_the_deposit_takes_none(self) -> None:
+        """The pipeline places every scanned file on its one Assay. That says what
+        the deposit holds, not which folder is the assay's, and the folder that
+        holds every file is here the study's."""
+        state = deposit_state(
+            "Exposure scenarios/README.txt",
+            "Exposure scenarios/Assays/LDH analysis/plate 1.csv",
+            "Exposure scenarios/Assays/BMD analysis/bmd.csv",
+        )
+        _study, (assay,) = backbone(state, "Everything")
+        _place_everything(state, assay)
+
+        assert _folders(state) == {}
+
+        state.deposit_structure = fallback_structure()
+
+        assert _folders(state) == {}, "a labelling that was not accepted is no evidence"
+
     def test_a_state_that_scanned_nothing_has_no_folder(self) -> None:
         """A folder counts only if the scan saw it, so the same entities without
         their scan keep their local identifiers."""
-        state = deposit_state("assay_01/plate.csv")
+        state = deposit_state("assay_01/plate.csv", "README.txt")
         _study, (assay,) = backbone(state, "Uptake")
         place(state, assay, "assay_01")
         assert _folders(state) == {_key(assay): "assay_01"}
