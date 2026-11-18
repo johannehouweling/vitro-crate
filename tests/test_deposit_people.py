@@ -688,8 +688,8 @@ class TestTheCrateSaysWhatTheDepositStates:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """S-VHPS22 states an ORCID for every author and a ROR id for both organisations.
-        ROR answers as recorded for those two ids; ORCID cannot be asked from here, so its
-        records are stood in for."""
+        ROR answers as recorded for those two ids, and stand-ins answer for the ORCID
+        records, since no test asks a registry."""
         import responses
 
         from builder.agents.pipeline import pipeline
