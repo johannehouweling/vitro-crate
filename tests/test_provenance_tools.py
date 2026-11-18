@@ -73,7 +73,9 @@ class TestAttachFiles:
         root = next(n for n in graph if n.get("@id") == "./")
         # Under the Assay (ISA placement) AND under the root (#532): the root's
         # reference is what keeps the file in the crate's file tree, which is
-        # walked through directory Datasets, not through contextual ISA nodes.
+        # walked through directory Datasets, and an ISA node without a folder of
+        # its own is none. This Assay is its folder, a1/, and the root keeps the
+        # file all the same.
         assert any("raw.csv" in str(p) for p in _haspart_ids(assay)), assay
         assert any("raw.csv" in str(p) for p in _haspart_ids(root)), root
 
