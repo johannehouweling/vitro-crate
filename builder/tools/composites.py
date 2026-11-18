@@ -493,10 +493,10 @@ def _candidate_files(state: CrateState, assay_id: str) -> list[Any]:
     """The scanned files that could be *this* assay's output.
 
     One Assay owns the whole deposit, so every scanned file is a candidate. With
-    several, which folder belongs to which assay is not derivable from the crate
-    — so the only honest scope is what has already been attached to this one, and
-    an assay with nothing attached yet gets no candidates rather than its
-    neighbour's measurements.
+    several, the files attached to this one are what tell which folder is its
+    (``dataset_folders``), so the only honest scope is what has already been
+    attached to it, and an assay with nothing attached yet gets no candidates
+    rather than its neighbour's measurements.
     """
     from builder.tools.provenance import _scanned_dest
 

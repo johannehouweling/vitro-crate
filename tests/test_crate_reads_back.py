@@ -7,11 +7,13 @@ D13 nests result files and PageTab-alias files under their Assay and then
 from the root transitively (File → Assay → Study → ./)".
 
 They do not. RO-Crate's file tree is walked from the root through **directory**
-Datasets, and the ISA Study/Assay are contextual entities identified by
-``#Study_…`` / ``#Assay_…`` — logical containers, not directories. ro-crate-py
-does not traverse them, so a file parented only there is unreachable and the
-canonical consumer refuses the whole crate. It passed all three SHACL profiles
-the entire time, because none of them asks this question.
+Datasets, and an ISA Study or Assay without a folder of its own is a contextual
+entity identified by ``#Study_…`` / ``#Assay_…`` — a logical container, not a
+directory. ro-crate-py does not traverse it, so a file parented only there is
+unreachable and the canonical consumer refuses the whole crate. It passed all
+three SHACL profiles the entire time, because none of them asks this question.
+(A Study or an Assay deposited in a folder of its own is that folder, a directory
+ro-crate-py does walk; ``test_study_and_assay_folders_in_the_crate`` reads one back.)
 
 RO-Crate permits a data entity to be ``hasPart`` of more than one Dataset, so
 the ISA nesting is kept and the root reference is kept with it.

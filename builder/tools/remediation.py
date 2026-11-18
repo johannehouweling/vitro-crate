@@ -31,6 +31,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import unquote
 
 # Findings a crate cannot act on, and why. Recommending these would send a
 # reader after something that is either impossible or actively harmful — the
@@ -308,7 +309,11 @@ def _entity_label(entity_id: str, labels: dict[str, str] | None) -> str:
         if entity_id.startswith(prefix):
             return phrasing.format(entity_id[len(prefix) :].strip("/"))
 
-    tail = entity_id.rsplit("/", 1)[-1].lstrip("#").removeprefix("./")
+    if entity_id.endswith("/") and "://" not in entity_id:
+        # A folder's id ends in "/", and its own name is what a reader knows.
+        tail = unquote(entity_id.rstrip("/").rsplit("/", 1)[-1]).lstrip("#")
+    else:
+        tail = entity_id.rsplit("/", 1)[-1].lstrip("#").removeprefix("./")
     for prefix in _ID_TYPE_PREFIXES:
         if tail.startswith(prefix):
             tail = tail[len(prefix) :]

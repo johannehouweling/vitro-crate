@@ -769,10 +769,11 @@ def _export_memo_key(
 ) -> tuple[str, str, bool] | None:
     """Memo key for an export, or None when the state cannot be fingerprinted.
 
-    Reuses ``validation_fingerprint`` — it hashes entities plus metadata, which
-    is everything ``assemble_crate`` reads, and deliberately excludes the
-    verdicts and timestamps that every export writes back. Anything the written
-    crate could differ by busts the key; a pure output does not.
+    Reuses ``validation_fingerprint`` — it hashes entities, metadata and the
+    deposit structure, which is everything ``assemble_crate`` reads, and
+    deliberately excludes the verdicts and timestamps that every export writes
+    back. Anything the written crate could differ by busts the key; a pure
+    output does not.
     """
     try:
         fingerprint = state.validation_fingerprint()
