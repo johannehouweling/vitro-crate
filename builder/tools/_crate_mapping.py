@@ -497,7 +497,7 @@ _ASSAY_MENTION_FIELDS = {
 # The properties that link a pathway to its events and one event to another. The
 # crate describes the pathway a Study addresses and the key events an Assay
 # measures; the rest of a pathway is on AOP-Wiki, at each entity's address, so
-# none of these is written.
+# none of these is written, on any entity (`_scalar_props`).
 AOP_LINK_FIELDS: tuple[str, ...] = (
     "has_molecular_initiating_event",
     "has_key_event",
@@ -978,9 +978,11 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     """Plain-value properties of an entity (references/discriminators removed).
 
     A key is emitted only when the crate's ``@context`` defines it
-    (:func:`_context_terms`), whatever its shape: the snake_case AOP-Wiki
-    vocabulary (``has_molecular_initiating_event``, ``upstream_event``, …) is
-    kept, and an invented single word (``bioassay``, ``endpoint``) is not.
+    (:func:`_context_terms`), whatever its shape: a snake_case AOP-Wiki term
+    (``short_name``) is kept, and an invented single word (``bioassay``,
+    ``endpoint``) is not. The context also defines the properties that link a
+    pathway to its events and one event to another (:data:`AOP_LINK_FIELDS`), and
+    they are never emitted: the rest of a pathway is on AOP-Wiki.
     Emitting an undefined key produces a bare JSON-LD key that fails BASE with
     "not allowed in the compacted format" — a failure the agent cannot fix by
     editing the crate, because the key is regenerated from state on every build.
@@ -998,7 +1000,7 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     consumed upstream into identifiers, parameters and paths, and listed in
     ``_REF_FIELDS`` / ``_STRUCT_FIELDS`` / the caller's ``skip``.
     """
-    drop = _REF_FIELDS | _STRUCT_FIELDS | set(skip)
+    drop = _REF_FIELDS | _STRUCT_FIELDS | set(AOP_LINK_FIELDS) | set(skip)
     props: dict[str, Any] = {}
     for key, value in entity.fields.items():
         if key in drop or key.startswith("@") or value is None:
@@ -1981,7 +1983,7 @@ def _add_leaves(
                         _mint_id(aop_entity),
                         properties={
                             "@type": [aop_entity.type, "schema:DefinedTerm"],
-                            **_scalar_props(aop_entity, skip=AOP_LINK_FIELDS),
+                            **_scalar_props(aop_entity),
                         },
                     )
                 ),
