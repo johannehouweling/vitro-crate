@@ -393,12 +393,15 @@ class TestOnlyTheWikiGivesACompoundWikiId:
         )
         assert seen == ["ABCDEFGHIJKLMN-UHFFFAOYSA-N"]
 
-    def test_an_inchikey_the_caller_hands_in_finds_no_item(self, monkeypatch):
-        """A lookup that returns no structure leaves the wiki unasked (D5).
+    def test_the_item_an_inchikey_the_caller_hands_in_finds_is_theirs(self, monkeypatch):
+        """The wiki is asked with that InChIKey, as before, and its answer is the caller's (D5).
 
         The ChEBI fallback gives a term and no InChIKey. One the caller hands in
-        is theirs, and so would the item found by it be.
+        is theirs, and so is the item found by it: an identifier value, never the
+        ``@id``.
         """
+        from builder.tools._crate_mapping import _mint_id
+
         chebi_only = {
             "found": True,
             "error": None,
@@ -418,8 +421,10 @@ class TestOnlyTheWikiGivesACompoundWikiId:
         resolve_compound(
             state, name="Caffeine", hints={"inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N"}
         )
-        assert seen == []
-        assert self._wiki_id(state) == (None, None)
+        assert seen == ["RYYVLZVUVIJVGH-UHFFFAOYSA-N"]
+        assert self._wiki_id(state) == ("Q2026", "llm")
+        (mol,) = _by_type(state, "MolecularEntity")
+        assert _mint_id(mol) == "http://purl.obolibrary.org/obo/CHEBI_27732"
 
 
 class TestAResolvedChemicalIsIdentifiedByItsWikiItem:
