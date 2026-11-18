@@ -71,11 +71,11 @@ def _two_lines() -> CrateState:
     return state
 
 
-def _culture(lines: list[str]) -> dict[str, Any]:
+def _culture(lines: list[str], name: str = "Cell culture") -> dict[str, Any]:
     """A culture step for ``draft_process_chain`` naming *lines*, in that order."""
     return {
         "process_type": "TestSystemPreparation",
-        "hints": {"name": "Cell culture", "cell_line": lines},
+        "hints": {"name": name, "cell_line": lines},
     }
 
 
@@ -145,7 +145,11 @@ def _svhps22_cultures() -> list[dict[str, Any]]:
     a deposit: scanned off disk and run through ``run_pipeline`` offline. What that
     module and ``tests/conftest.py`` stub is stubbed here as well, because their
     stubs do not reach a process of its own. The plan names each line the deposit
-    names."""
+    names.
+
+    The pipeline grows only the first line it resolves, so its own culture never
+    splits. The deposit is then given the culture an agent drafts for it: one step
+    naming every line resolved, in the order the README names them."""
     import builder.agents.pipeline.pipeline as pipeline
     from builder.engine import AgentEngine
     from builder.tools import composites, file_descriptions, lookups
@@ -186,7 +190,13 @@ def _svhps22_cultures() -> list[dict[str, Any]]:
         engine = AgentEngine(state=CrateState(), human_interface=SimulatedHumanInterface())
         engine.initialize(input_path=str(SVHPS22))
         pipeline.run_pipeline(engine)
-    return _cultures(engine.state)
+    state = engine.state
+    lines = {str(e.fields.get("name")): e.entity_id for e in state.list_entities("CellLineSample")}
+    assay = state.list_entities("Assay")[0].entity_id
+    # Named apart from the pipeline's "Cell culture", whose step and Sample it would reuse.
+    culture = _culture([lines[line] for line in SVHPS22_LINES], "Neural cell line culture")
+    draft_process_chain(state, assay, [culture])
+    return _cultures(state)
 
 
 def _in_processes(function: str) -> dict[str, Any]:
@@ -228,11 +238,10 @@ class TestEveryProcessBuildsTheSameCultures:
         assert runs[SEEDS[0]] == runs[SEEDS[1]], "one culture built differently in two processes"
 
     def test_the_svhps22_deposit_gives_the_same_culture_samples_in_two_processes(self) -> None:
-        """The deposit whose culture documents the split follows (one per line). The
-        pipeline grows the first line the plan names, so this holds its build to one
-        answer in every process; the split itself is pinned above and below."""
+        """The deposit whose culture documents the split follows (one per line)."""
         runs = _in_processes("_svhps22_cultures")
-        assert runs[SEEDS[0]], "S-VHPS22 built no culture at all"
+        parts = [c["step"] for c in runs[SEEDS[0]] if c["step"].startswith("Culture ")]
+        assert parts == [f"Culture {line}" for line in SVHPS22_LINES], runs[SEEDS[0]]
         assert runs[SEEDS[0]] == runs[SEEDS[1]], (
             "S-VHPS22 built different cultures in two processes"
         )
