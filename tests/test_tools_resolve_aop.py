@@ -893,6 +893,77 @@ class TestLinkAssayToAKeyEventOfThePathway:
         assert result["ok"] is True
         assert result["key_event_id"] == self._MITOCHONDRIAL_DYSFUNCTION
 
+    def test_the_pathway_aop_wiki_gives_no_events_for_is_named(self, monkeypatch):
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+
+        state, assay_id = self._crate()
+        monkeypatch.setattr(
+            tool_lookups,
+            "lookup_aop",
+            lambda aop_id: {"found": False, "data": {}, "error": "AOP-Wiki unavailable"},
+        )
+        result = link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+
+        assert result["ok"] is False
+        assert result["unlisted_pathways"] == ["https://aopwiki.org/aops/610"]
+        assert "https://aopwiki.org/aops/610" in result["error"]
+
+    def test_a_name_compared_without_the_pathways_events_is_not_called_unmatched(self, monkeypatch):
+        # The crate holds the event one Assay measures. With AOP-Wiki down, only
+        # that event can be compared, so another event of the pathway matches
+        # nothing. The answer names the pathway AOP-Wiki gave no events for, so the
+        # name is not taken for one that names no event of it.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+        from builder.tools.drafters import draft_assay
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+        second = draft_assay(
+            state, _by_type(state, "Study")[0].entity_id, {"name": "Second complex I assay"}
+        )
+        monkeypatch.setattr(
+            tool_lookups,
+            "lookup_aop",
+            lambda aop_id: {"found": False, "data": {}, "error": "AOP-Wiki unavailable"},
+        )
+        result = link_assay_to_key_event(
+            state, second.entity_id, "Degeneration of dopaminergic neurons"
+        )
+
+        assert result["ok"] is False
+        assert result["unlisted_pathways"] == ["https://aopwiki.org/aops/610"]
+        assert "AOP-Wiki gave no key events for https://aopwiki.org/aops/610" in result["error"]
+        assert "keyEvent" not in second.fields
+
+    def test_a_link_made_without_the_pathways_events_says_so(self, monkeypatch):
+        # One name matches the event the crate holds and the other is compared
+        # with that event alone; the link is made and the outage reported with it.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+        from builder.tools.drafters import draft_assay
+
+        state, assay_id = self._crate()
+        link_assay_to_key_event(state, assay_id, "mitochondrial dysfunction")
+        second = draft_assay(
+            state, _by_type(state, "Study")[0].entity_id, {"name": "Second complex I assay"}
+        )
+        monkeypatch.setattr(
+            tool_lookups,
+            "lookup_aop",
+            lambda aop_id: {"found": False, "data": {}, "error": "AOP-Wiki unavailable"},
+        )
+        result = link_assay_to_key_event(
+            state,
+            second.entity_id,
+            ["mitochondrial dysfunction", "Degeneration of dopaminergic neurons"],
+        )
+
+        assert result["ok"] is True
+        assert result["key_event_ids"] == [self._MITOCHONDRIAL_DYSFUNCTION]
+        assert result["unlisted_pathways"] == ["https://aopwiki.org/aops/610"]
+
     def test_unmatched_name_writes_nothing_and_returns_candidates(self):
         # Honesty control for the row above: "TPO inhibition" is a real assay
         # name that matches nothing in AOP-610, and the abbreviation gap it stands
