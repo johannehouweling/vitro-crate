@@ -1277,9 +1277,11 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
     (its ``ror`` is back-filled if this call carries one and it was missing).
     Otherwise a new one is minted via the pure :func:`draft_organization` drafter
     (never hand-rolled JSON-LD). D5-safe: a ``ror`` is set ONLY when supplied by
-    the lookup — never fabricated — so the build resolves the Organization's @id to
-    the ROR IRI when known, else a name-derived id. Returns ``None`` on an empty
-    name (a name-less affiliation cannot become an Organization reference).
+    the lookup, or stated by the deposit for that name and confirmed by ROR
+    (:func:`draft_organization`) — never fabricated — so the build resolves the
+    Organization's @id to the ROR IRI when known, else a name-derived id. Returns
+    ``None`` on an empty name (a name-less affiliation cannot become an
+    Organization reference).
     """
     name = (name or "").strip()
     if not name:

@@ -412,7 +412,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_organization",
-        "description": "Create an Organization entity. Look it up first (lookup_ror) to pass a verified ror. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
+        "description": "Create an Organization entity. Without a ror it takes the ROR id the deposit's own record states for exactly this name, once ROR returns that record; otherwise look it up first (lookup_ror) to pass a verified ror. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
         "parameters": {
             "type": "object",
             "properties": {

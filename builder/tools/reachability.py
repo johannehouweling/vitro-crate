@@ -94,10 +94,10 @@ class ToolReachabilityError(RuntimeError):
 PIPELINE_UNREACHED: Mapping[str, str] = {
     # --- should be wired; each names the lane that owns it -------------------
     "lookup_ror": (
-        "No caller. composites._find_or_draft_organization sets `ror` only when "
-        "a caller supplies one, and nothing on the arm does, so default-arm "
-        "Organizations ship with no verified ROR. Needs its own lane: network "
-        "cost plus name ambiguity."
+        "No caller. On the arm an Organization takes a ROR id from the deposit's "
+        "own record, which draft_organization confirms by id, or from an author's "
+        "ORCID record or paper (composites), never from this unchecked search by "
+        "name. Wiring it needs its own lane: network cost plus name ambiguity."
     ),
     "verify_all_identifiers": (
         "No caller. The arm verifies compound identifiers only, and only inside "

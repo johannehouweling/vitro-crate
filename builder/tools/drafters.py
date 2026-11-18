@@ -12,6 +12,7 @@ from typing import Any
 
 from builder.state import CrateState, Entity, EntityProvenance
 from lookups.orcid import lookup_orcid, lookup_orcid_by_name
+from lookups.ror import fetch_ror_by_id
 from profiles.ontology_iris import iri
 
 logger = logging.getLogger(__name__)
@@ -757,8 +758,47 @@ def draft_sample(state: CrateState, hints: dict) -> Entity:
     return entity
 
 
+def _bare_ror(value: Any) -> str:
+    """The id of a ROR id, however it was written (URL or bare)."""
+    return str(value or "").strip().rstrip("/").rsplit("/", 1)[-1].casefold()
+
+
+def _stated_ror(state: CrateState, name: str) -> dict[str, str]:
+    """The ROR id the deposit states for exactly *name*, once ROR returns its record.
+
+    The website and country the record states come with it. A ROR id ROR does not
+    return, a record of another id and an unreachable registry all give nothing:
+    a stated id is not taken unconfirmed, and no id is ever taken for a name alone.
+    """
+    stated = _stated(state.metadata.organizations, "ror", name)
+    if not stated:
+        return {}
+    try:
+        record = fetch_ror_by_id(stated) or {}
+    except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
+        return {}
+    ror = str(record.get("@id") or "")
+    if not ror or _bare_ror(ror) != _bare_ror(stated):
+        return {}
+    facts = ("url", "addressCountry", "countryName")
+    return {"ror": ror, **{key: str(record[key]) for key in facts if record.get(key)}}
+
+
+def _existing_organization(state: CrateState, ror: Any) -> Entity | None:
+    """The Organization already in state under the ROR id *ror*, if any."""
+    wanted = _bare_ror(ror)
+    organizations = state.list_entities("Organization") if wanted else []
+    return next((o for o in organizations if _bare_ror(o.fields.get("ror")) == wanted), None)
+
+
 def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
     """Create an Organization entity.
+
+    Without a ``ror`` in *hints*, the organisation takes the ROR id the deposit
+    states for exactly this name, with the website and country ROR states for it,
+    once ROR returns that record (:func:`_stated_ror`). An Organization the crate
+    already holds under the ROR id is amended instead of drafted again: two
+    entities at one address would leave the crate only one of them.
 
     Args:
         state: The crate state to add the entity to.
@@ -766,18 +806,28 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
         hints: Dictionary of additional field values.
 
     Returns:
-        The newly created Organization Entity.
+        The newly created Organization Entity, or the one amended.
     """
     merged_hints = dict(hints)
     merged_hints["name"] = name
-    entity_id = _make_entity_id("org", name, hints)
-    entity = Entity(
-        entity_id=entity_id,
-        type="Organization",
-        _provenance=EntityProvenance(created_by="llm"),
-    )
-    entity.set_fields_from_dict(merged_hints, source="llm")
-    state.add_entity(entity)
+    stated = {} if merged_hints.get("ror") else _stated_ror(state, name)
+    merged_hints.update(stated)
+    entity = _existing_organization(state, merged_hints.get("ror"))
+    if entity is not None:
+        _fill_empty_fields(entity, merged_hints)
+        logger.info(
+            "Amended existing Organization %s instead of drafting a duplicate", entity.entity_id
+        )
+    else:
+        entity = Entity(
+            entity_id=_make_entity_id("org", name, hints),
+            type="Organization",
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        entity.set_fields_from_dict(merged_hints, source="llm")
+        state.add_entity(entity)
+    if stated:
+        entity.set_field_status("ror", "verified", "lookup")
     return entity
 
 

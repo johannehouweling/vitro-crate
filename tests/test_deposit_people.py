@@ -30,7 +30,7 @@ from builder.engine import AgentEngine, _read_declared_people
 from builder.state import CrateState, Entity
 from builder.tools import drafters
 from builder.tools.builder import assemble_crate
-from builder.tools.drafters import draft_person
+from builder.tools.drafters import draft_organization, draft_person
 from builder.tools.file_readers import extract_deposit_people
 from lookups._http import TransientLookupError
 
@@ -507,7 +507,9 @@ class TestNoTwoPeopleTakeOneOrcid:
         record = {"givenName": "Timo", "familyName": "Hamers", "name": "Timo Hamers"}
         _orcid(monkeypatch, HAMERS_RECORD)
         monkeypatch.setattr(composites, "lookup_doi", lambda doi: {"found": True, "data": article})
-        monkeypatch.setattr(composites, "lookup_orcid", lambda bare: {"found": True, "data": record})
+        monkeypatch.setattr(
+            composites, "lookup_orcid", lambda bare: {"found": True, "data": record}
+        )
         monkeypatch.setattr(composites, "cached_affiliation_from_works", lambda orcid, family: "")
         state = _stating(HAMERS)
         stub = composites._synthesize_citation_author(state, "Timo", "Hamers")
@@ -515,3 +517,224 @@ class TestNoTwoPeopleTakeOneOrcid:
         composites.draft_publication_with_authors(state, "10.1234/example")
         assert state.list_entities("Person") == [stub]
         assert [n["@id"] for n in _typed(_graph(state), "Person")] == [HAMERS_ADDRESS]
+
+
+# What ``fetch_ror_by_id`` returned for the ROR id S-VHPS21 states, asked live.
+VU_RECORD = {
+    "@id": "https://ror.org/008xxew50",
+    "@type": "Organization",
+    "name": "Vrije Universiteit Amsterdam",
+    "url": "https://vu.nl/",
+    "identifier": "https://ror.org/008xxew50",
+    "addressCountry": "NL",
+    "countryName": "The Netherlands",
+}
+
+
+class _Ror:
+    """ROR as the drafter asks it: one record by its id."""
+
+    def __init__(self, records: dict[str, dict[str, str]]) -> None:
+        self.records = records
+        self.asked: list[str] = []
+
+    def record(self, ror_id: str) -> dict[str, str]:
+        self.asked.append(ror_id)
+        return dict(self.records.get(ror_id, {}))
+
+
+def _ror(monkeypatch: pytest.MonkeyPatch, records: dict[str, dict[str, str]]) -> _Ror:
+    ror = _Ror(records)
+    monkeypatch.setattr(drafters, "fetch_ror_by_id", ror.record)
+    return ror
+
+
+def _stating_organisations(*organisations: dict[str, str]) -> CrateState:
+    state = CrateState()
+    state.metadata.organizations = list(organisations)
+    return state
+
+
+def _ids(node: dict[str, Any], key: str) -> list[str]:
+    value = node.get(key) or []
+    return [ref["@id"] for ref in (value if isinstance(value, list) else [value])]
+
+
+class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
+    def test_the_stated_ror_id_is_the_organisation_s_once_ror_returns_its_record(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ror = _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        organisation = draft_organization(_stating_organisations(VU), VU["name"], {})
+        assert organisation.fields["ror"] == VU["ror"]
+        assert organisation.fields["name"] == VU["name"], "it keeps the name it was drafted by"
+        assert organisation.fields["url"] == "https://vu.nl/"
+        assert organisation.fields["addressCountry"] == "NL"
+        status = organisation.get_field_status("ror")
+        assert status is not None and (status.status, status.source) == ("verified", "lookup")
+        assert ror.asked == [VU["ror"]]
+
+    def test_the_crate_names_the_organisation_by_that_ror_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        state = _stating_organisations(VU)
+        draft_organization(state, VU["name"], {})
+        (node,) = _typed(_graph(state), "Organization")
+        assert (node["@id"], node["name"]) == (VU["ror"], VU["name"])
+
+    def test_the_name_is_compared_whatever_its_case_and_spacing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        state = _stating_organisations(VU)
+        organisation = draft_organization(state, "  vu - VRIJE universiteit   amsterdam ", {})
+        assert organisation.fields.get("ror") == VU["ror"]
+
+    def test_no_ror_id_is_taken_from_a_name_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The name ROR registers is not the name the deposit states, and no name is
+        searched for."""
+        ror = _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        state = _stating_organisations(VU)
+        organisation = draft_organization(state, "Vrije Universiteit Amsterdam", {})
+        assert not organisation.fields.get("ror")
+        assert ror.asked == []
+
+    def test_an_id_ror_does_not_return_is_not_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _ror(monkeypatch, {})
+        organisation = draft_organization(_stating_organisations(VU), VU["name"], {})
+        assert not organisation.fields.get("ror")
+        assert not organisation.fields.get("url")
+
+    def test_a_record_of_another_id_is_not_that_record(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {VU["ror"]: {**VU_RECORD, "@id": "https://ror.org/04dkp9463"}})
+        organisation = draft_organization(_stating_organisations(VU), VU["name"], {})
+        assert not organisation.fields.get("ror")
+
+    def test_an_unreachable_ror_confirms_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unreachable(ror_id: str) -> dict[str, str]:
+            raise TransientLookupError("ROR could not be reached")
+
+        monkeypatch.setattr(drafters, "fetch_ror_by_id", unreachable)
+        state = _stating_organisations(VU)
+        draft_organization(state, VU["name"], {})
+        (node,) = _typed(_graph(state), "Organization")
+        assert node["@id"].startswith("#Organization_")
+
+    def test_a_ror_id_handed_in_is_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ror = _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        state = _stating_organisations(VU)
+        organisation = draft_organization(state, VU["name"], {"ror": "https://ror.org/04dkp9463"})
+        assert organisation.fields["ror"] == "https://ror.org/04dkp9463"
+        assert ror.asked == []
+
+    def test_a_name_the_deposit_gives_two_ror_ids_takes_neither(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ror = _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        other = {"name": VU["name"], "ror": "https://ror.org/04dkp9463"}
+        organisation = draft_organization(_stating_organisations(VU, other), VU["name"], {})
+        assert not organisation.fields.get("ror")
+        assert ror.asked == []
+
+    def test_an_organisation_the_crate_holds_under_that_ror_id_is_amended(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two entities at one address would leave the crate only one of them."""
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        state = _stating_organisations(VU)
+        held = draft_organization(state, "Vrije Universiteit Amsterdam", {"ror": VU["ror"]})
+        assert draft_organization(state, VU["name"], {}) is held
+        assert len(state.list_entities("Organization")) == 1
+        assert [n["@id"] for n in _typed(_graph(state), "Organization")] == [VU["ror"]]
+
+    @pytest.mark.parametrize("path", ["drafter", "tool", "composite", "pipeline"])
+    def test_every_path_that_creates_an_organisation_takes_it(
+        self, monkeypatch: pytest.MonkeyPatch, path: str
+    ) -> None:
+        from builder.agents.pipeline import pipeline
+        from builder.tools import composites
+
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        engine = AgentEngine(state=_stating_organisations(VU))
+        engine.initialize()
+        create = {
+            "drafter": lambda: draft_organization(engine.state, VU["name"], {}).entity_id,
+            "tool": lambda: (
+                engine.run_tool("draft_organization", name=VU["name"], hints={}).entity_id
+            ),
+            "composite": lambda: composites._find_or_draft_organization(engine.state, VU["name"]),
+            "pipeline": lambda: pipeline._find_or_draft_organization(engine, VU["name"]),
+        }[path]
+        organisation = engine.state.get_entity(str(create()))
+        assert organisation is not None
+        assert organisation.fields.get("ror") == VU["ror"]
+
+    def test_a_declared_funder_is_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The funder is written as the deposit declares it, even where the deposit gives an
+        organisation of that name a ROR id: the reader drafts nobody."""
+        ror = _ror(monkeypatch, {ERASMUS_MC["ror"]: {"@id": ERASMUS_MC["ror"]}})
+        state = _stating_organisations(ERASMUS_MC)
+        state.metadata.funding = [{"funder": ERASMUS_MC["name"], "identifier": "1"}]
+        (funder,) = _typed(_graph(state), "Organization")
+        assert funder["@id"].startswith("#funder_")
+        assert ror.asked == []
+
+
+class TestTheCrateSaysWhatTheDepositStates:
+    def test_the_pipeline_names_people_and_their_organisations_by_the_stated_ids(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """S-VHPS22 states an ORCID for every author and a ROR id for both organisations.
+        ROR answers as recorded for those two ids; ORCID cannot be asked from here, so its
+        records are stood in for."""
+        import responses
+
+        from builder.agents.pipeline import pipeline
+        from lookups import ror
+        from lookups._http import reset_circuit_breaker, reset_host_throttle
+
+        engine = _initialised(tmp_path)
+        plan = {
+            "people": [
+                {"name": "Nathalie Dierichs", "affiliation_name": RIVM["name"]},
+                {"name": "Robin Peeters", "affiliation_name": ERASMUS_MC["name"]},
+            ]
+        }
+        monkeypatch.setattr(pipeline, "get_provider", lambda: "openai")
+        monkeypatch.setattr(pipeline, "extract_plan", lambda context, **kwargs: plan)
+        records = {
+            "0009-0000-5074-6239": ("Nathalie", "Dierichs"),
+            "0000-0001-7732-9371": ("Robin", "Peeters"),
+        }
+        _orcid(monkeypatch, records)
+        monkeypatch.setattr(drafters, "fetch_ror_by_id", ror.fetch_ror_by_id)
+        ror.fetch_ror_by_id.cache_clear()
+        reset_circuit_breaker()
+        reset_host_throttle()
+        with responses.RequestsMock() as answers:
+            for bare, recorded in (
+                ("01cesdt21", "ror_rivm.json"),
+                ("018906e22", "ror_erasmus_mc.json"),
+            ):
+                body = json.loads((FIXTURES / recorded).read_text(encoding="utf-8"))
+                answers.get(f"https://api.ror.org/organizations/{bare}", json=body)
+            pipeline._scaffold_backbone(engine)
+            pipeline._materialize_plan(engine)
+
+        graph = _graph(engine.state)
+        people = {n["name"]: n for n in _typed(graph, "Person")}
+        organisations = {n["@id"]: n for n in _typed(graph, "Organization")}
+        assert people["Nathalie Dierichs"]["@id"] == "https://orcid.org/0009-0000-5074-6239"
+        assert people["Robin Peeters"]["@id"] == "https://orcid.org/0000-0001-7732-9371"
+        assert _ids(people["Nathalie Dierichs"], "affiliation") == [RIVM["ror"]]
+        assert _ids(people["Robin Peeters"], "affiliation") == [ERASMUS_MC["ror"]]
+        assert organisations[RIVM["ror"]]["name"] == RIVM["name"]
+        assert organisations[RIVM["ror"]]["url"] == "https://www.rivm.nl"
+        assert organisations[ERASMUS_MC["ror"]]["url"] == "https://www.erasmusmc.nl"
+        named = [
+            n["@id"] for n in graph if str(n["@id"]).startswith(("#Person_", "#Organization_"))
+        ]
+        assert named == []
