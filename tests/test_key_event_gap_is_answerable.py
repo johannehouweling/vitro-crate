@@ -329,6 +329,46 @@ class TestAnAnswerStoresTheEventItNames:
         assert pathway_engine.state.list_entities("KeyEvent") == []
         assert "Inhibition, MCT8" in human.notes[0]
 
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "https://www.aopwiki.org/events/2258",
+            "HTTPS://AOPWIKI.ORG/EVENTS/2258",
+            "https://example.org/key-events/2258",
+        ],
+    )
+    def test_any_other_address_is_refused_with_the_options(self, pathway_engine, address):
+        """An address the crate does not hold is matched like any other answer, on
+        whatever host and in whatever spelling, rather than stored as a link to an
+        event the crate does not describe."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        human = _Listening()
+
+        assert _apply_value(pathway_engine, self._gap(), address, human=human) is False
+
+        assay = _assay(pathway_engine)
+        assert "keyEvent" not in assay.fields
+        assert "mentions" not in assay.fields
+        assert "Inhibition, MCT8" in human.notes[0]
+
+    def test_a_term_the_crate_holds_at_an_event_address_still_stands_in(self, pathway_engine):
+        """Unchanged: a term the crate holds is a reference, at whatever address it
+        is keyed, and AOP-Wiki need not list the event for the pathway."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        address = "https://aopwiki.org/events/1002"
+        term = Entity(
+            entity_id=address, type="DefinedTerm", _provenance=EntityProvenance(created_by="llm")
+        )
+        term.set_fields_from_dict({"name": "KE 1002"}, source="llm")
+        pathway_engine.state.add_entity(term)
+
+        assert _apply_value(pathway_engine, self._gap(), address) is True
+
+        assert _assay(pathway_engine).fields["mentions"] == [address]
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+
     def test_a_term_the_crate_holds_still_stands_in(self, pathway_engine):
         """Unchanged: an id pasted for something the crate holds is a reference, not
         an event to look for."""
