@@ -283,6 +283,20 @@ def _is_key_event_gap(gap: Gap) -> bool:
     return "key event" in (gap.message or "").casefold()
 
 
+def _stands_in_for_the_key_event(engine: AgentEngine, value: str) -> bool:
+    """Whether a Key Event answer names something the crate holds in the event's place.
+
+    A term the crate holds stands in for the event, at whatever id it is keyed,
+    and so does a fragment of the crate: either is a reference to keep, not an
+    event to look for (#382). A Key Event the crate holds is not one, because the
+    matcher finds it among its candidates and links it under ``keyEvent``.
+    """
+    if value.startswith("#"):
+        return True
+    held = engine.state.get_entity(value)
+    return held is not None and held.type != "KeyEvent"
+
+
 def _split_key_event_answer(text: str) -> list[str]:
     """One answer naming several Key Events, split into names.
 
@@ -906,14 +920,13 @@ def _apply_value(
 
     # (#382) The Assay's key event needs a reference to a KeyEvent the crate
     # describes, and the crate describes one only once an assay is linked to it.
-    # So prose goes to the matcher, and so does an AOP-Wiki address: the matcher
-    # stores the event it names with the link, and refuses one the lookup does not
-    # list for the crate's pathway (D5). Any other value that ALREADY resolves (an
-    # in-state id the user pasted, such as a term standing in for the event) is a
-    # reference, not prose, so it falls through to the generic reference path below.
-    if _is_key_event_gap(gap) and (
-        not is_resolvable_reference(engine.state, value) or "://aopwiki.org/" in value
-    ):
+    # So the answer goes to the matcher, a name, a number and an address alike, on
+    # whatever host and in whatever spelling: the matcher stores the event it names
+    # with the link, and refuses one the lookup does not list for the crate's
+    # pathway (D5). Only an answer naming something the crate holds in the event's
+    # place, such as a term standing in for it, is a reference rather than an event
+    # to look for, so it falls through to the generic reference path below.
+    if _is_key_event_gap(gap) and not _stands_in_for_the_key_event(engine, value):
         return _apply_key_event_value(engine, gap, value, human=human)
 
     # Assay measurementMethod is a DefinedTerm reference, but the user naturally
