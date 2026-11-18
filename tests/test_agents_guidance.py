@@ -2405,9 +2405,9 @@ class TestKeyEventAnswerIsResolvedNotStored:
     def test_answer_that_is_already_a_reference_still_commits(self):
         """Honesty control: the name matcher is not in the way of an IRI answer.
 
-        A user who pastes the AOP-Wiki IRI has given a resolvable reference, so it
-        takes the generic reference path — sending it to the name matcher would
-        fail to match an IRI against event NAMES and reject a perfect answer.
+        A user who pastes the AOP-Wiki IRI of a Key Event the assay can be linked
+        to has named that event, so the IRI is matched against the events' own
+        addresses — matching it against event NAMES would reject a perfect answer.
         """
         from builder.agents.pipeline.guidance import _apply_value
 
