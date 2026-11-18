@@ -600,6 +600,150 @@ class TestNoTwoPeopleTakeOneOrcid:
         assert [n["@id"] for n in _typed(_graph(state), "Person")] == [HAMERS_ADDRESS]
 
 
+# What the S-VHPS21 record states for Martin Scholze, and the article it states.
+SVHPS21 = FIXTURES / "svhps21_real_input" / "S-VHPS21.json"
+SCHOLZE = {"name": "Martin Scholze", "orcid": "0000-0002-9569-7562"}
+SCHOLZE_RECORD = {SCHOLZE["orcid"]: ("Martin", "Scholze")}
+SCHOLZE_ADDRESS = "https://orcid.org/0000-0002-9569-7562"
+SCHOLZE_AUTHOR = {"givenName": "Martin", "familyName": "Scholze"}
+MCT8_ARTICLE = "10.1016/j.tiv.2023.105770"
+
+
+def _svhps21() -> CrateState:
+    """A session that holds what the S-VHPS21 record states for its people."""
+    declared = extract_deposit_people(SVHPS21.read_text(encoding="utf-8"))
+    assert declared is not None and SCHOLZE in declared[0]
+    return _stating(*declared[0])
+
+
+def _publishing(monkeypatch: pytest.MonkeyPatch, orcid: _Orcid, *authors: dict[str, str]) -> None:
+    """Crossref answers for the article S-VHPS21 states with *authors*, none with an ORCID.
+
+    The author cascade searches ORCID and resolves an iD through names of its own, and
+    those ask *orcid* too, so ``orcid.asked`` holds every question ORCID is asked.
+    """
+    from builder.tools import composites
+
+    article = {
+        "identifier": f"https://doi.org/{MCT8_ARTICLE}",
+        "name": "Screening for endocrine disrupting chemicals inhibiting monocarboxylate 8 "
+        "(MCT8) transporter facilitated thyroid hormone transport using a modified "
+        "nonradioactive assay.",
+        "author": list(authors),
+    }
+
+    def resolve(orcid_id: str) -> dict[str, Any]:
+        record = orcid.record(orcid_id)
+        return {"found": bool(record), "data": record}
+
+    monkeypatch.setattr(composites, "lookup_doi", lambda doi: {"found": True, "data": article})
+    monkeypatch.setattr(composites, "lookup_orcid", resolve)
+    monkeypatch.setattr(composites, "lookup_orcid_by_name", orcid.search)
+    monkeypatch.setattr(composites, "cached_affiliation_from_works", lambda orcid_id, family: "")
+
+
+class TestACitationAuthorTakesTheOrcidTheDepositStates:
+    """Crossref may give an author no ORCID where the deposit's own record states one. The
+    author takes it by ``draft_person``'s rule, for exactly the name the record writes and
+    once the ORCID record confirms it, after the person the crate holds and before the
+    search."""
+
+    def test_martin_scholze_takes_the_orcid_s_vhps21_states(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """He was ``#CitationAuthor_Martin_Scholze`` though the record states his ORCID."""
+        from builder.tools import composites
+
+        orcid = _orcid(monkeypatch, SCHOLZE_RECORD)
+        _publishing(monkeypatch, orcid, SCHOLZE_AUTHOR)
+        state = _svhps21()
+        result = composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        assert result["authors"] == [
+            {
+                "name": "Martin Scholze",
+                "person_id": SCHOLZE_ADDRESS,
+                "orcid": SCHOLZE["orcid"],
+                "resolution": "deposit_orcid",
+            }
+        ]
+        assert orcid.asked == [SCHOLZE["orcid"]], "no name search once the stated one holds"
+        (person,) = state.list_entities("Person")
+        status = person.get_field_status("orcid")
+        assert status is not None and (status.status, status.source) == ("verified", "lookup")
+        assert [n["@id"] for n in _typed(_graph(state), "Person")] == [SCHOLZE_ADDRESS]
+
+    def test_the_name_is_compared_whatever_its_case_and_spacing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from builder.tools import composites
+
+        orcid = _orcid(monkeypatch, SCHOLZE_RECORD)
+        _publishing(monkeypatch, orcid, {"givenName": " martin ", "familyName": "SCHOLZE"})
+        result = composites.draft_publication_with_authors(_svhps21(), MCT8_ARTICLE)
+        assert [a["person_id"] for a in result["authors"]] == [SCHOLZE_ADDRESS]
+
+    @pytest.mark.parametrize("answer", ["another family name", "no record", "unreachable"])
+    def test_an_unconfirmed_stated_orcid_leaves_the_search_and_the_placeholder(
+        self, monkeypatch: pytest.MonkeyPatch, answer: str
+    ) -> None:
+        """A stated ORCID that ORCID does not confirm is not used: the author is searched for
+        by name as before, and is the ``#CitationAuthor_`` placeholder when nobody is found."""
+        from builder.tools import composites
+
+        records = {SCHOLZE["orcid"]: ("Timo", "Hamers")} if answer == "another family name" else {}
+        orcid = _orcid(monkeypatch, records)
+        _publishing(monkeypatch, orcid, SCHOLZE_AUTHOR)
+        if answer == "unreachable":
+
+            def unreachable(orcid_id: str) -> dict[str, str]:
+                orcid.asked.append(orcid_id)
+                raise TransientLookupError("ORCID could not be reached")
+
+            monkeypatch.setattr(drafters, "lookup_orcid", unreachable)
+        state = _svhps21()
+        result = composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        (author,) = result["authors"]
+        assert (author["person_id"], author["orcid"], author["resolution"]) == (
+            "#CitationAuthor_Martin_Scholze",
+            None,
+            "synthesized",
+        )
+        assert orcid.asked == [SCHOLZE["orcid"], "search Martin Scholze"]
+
+    @pytest.mark.parametrize(("given", "family"), [("M.", "Scholze"), ("Martina", "Scholze")])
+    def test_an_author_of_another_name_takes_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, given: str, family: str
+    ) -> None:
+        """The record states the ORCID for the name it writes, and an initial or another given
+        name is another name: ORCID is not asked for the stated ORCID."""
+        from builder.tools import composites
+
+        orcid = _orcid(monkeypatch, SCHOLZE_RECORD)
+        _publishing(monkeypatch, orcid, {"givenName": given, "familyName": family})
+        result = composites.draft_publication_with_authors(_svhps21(), MCT8_ARTICLE)
+        (author,) = result["authors"]
+        assert (author["orcid"], author["resolution"]) == (None, "synthesized")
+        assert orcid.asked == [f"search {given} {family}"]
+
+    def test_a_person_the_crate_holds_at_that_orcid_is_the_author(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Whoever holds the ORCID is the author, as for an ORCID Crossref gives: two people at
+        one address would leave the crate only one of them."""
+        from builder.tools import composites
+
+        orcid = _orcid(monkeypatch, SCHOLZE_RECORD)
+        _publishing(monkeypatch, orcid, SCHOLZE_AUTHOR)
+        state = _svhps21()
+        held = draft_person(state, "M. Scholze", {"orcid": SCHOLZE["orcid"]})
+        result = composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        assert [a["person_id"] for a in result["authors"]] == [held.entity_id]
+        assert state.list_entities("Person") == [held]
+        status = held.get_field_status("orcid")
+        assert status is not None and (status.status, status.source) == ("verified", "lookup")
+        assert [n["@id"] for n in _typed(_graph(state), "Person")] == [SCHOLZE_ADDRESS]
+
+
 # What ``fetch_ror_by_id`` returned for the ROR id S-VHPS21 states, asked live.
 VU_RECORD = {
     "@id": "https://ror.org/008xxew50",

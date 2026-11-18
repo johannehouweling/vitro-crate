@@ -1186,12 +1186,16 @@ via a verify-first cascade (stop at first success): **(a)** the Crossref ORCID o
 the author; **(b)** an in-crate `Person` with a *verified* ORCID matching the
 author's family name + given/initial (affiliation-preferred) — this resolves the
 gold case where citation `Fabian Wagenaars` reuses root `F.M.A. Wagenaars`'s ORCID
-`0000-0003-4766-7358`; **(c)** a public ORCID search
+`0000-0003-4766-7358`; **(c)** the ORCID the deposit's own record states for a
+person of exactly the author's name, by the name rule and the confirmation
+`draft_person` applies (case and spacing aside; the ORCID record resolves and
+states the same family name), the author then attached as for (a), and failing
+it a public ORCID search
 (`lookups.orcid.lookup_orcid_by_name`, the `/v3.0/expanded-search` endpoint via the
 shared rate-limited HTTP layer; a search that cannot be reached is no answer, so
 the author falls through to (d)); **(d)** fallback to a synthesized
 `#CitationAuthor_<Given>_<Family>` Person (the legacy behavior). **Confidence rule
-for (c):** auto-accept **only** a *single* candidate that is a STRONG match (family
+for the search in (c):** auto-accept **only** a *single* candidate that is a STRONG match (family
 + full — not initial-only — given name) and that passes name verification;
 *anything else* — multiple candidates, a weak / initial-only match, or a sole
 strong match that fails verification — **escalates to HITL** (`present` the ranked
