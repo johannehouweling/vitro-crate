@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 
 from builder.engine import AgentEngine, _read_declared_people
-from builder.state import CrateState
+from builder.state import CrateState, Entity
 from builder.tools import drafters
 from builder.tools.builder import assemble_crate
 from builder.tools.drafters import draft_person
@@ -469,3 +469,23 @@ class TestADraftedPersonTakesTheOrcidTheDepositStates:
         result = composites.draft_publication_with_authors(state, "10.1234/example")
         assert [a["person_id"] for a in result["authors"]] == [HAMERS_ADDRESS]
         assert [p.entity_id for p in state.list_entities("Person")] == [HAMERS_ADDRESS]
+
+
+class TestNoTwoPeopleTakeOneOrcid:
+    """Two entities at one address would leave the crate only one of them."""
+
+    def test_the_person_who_holds_the_orcid_is_amended_before_a_namesake(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        namesake = Entity(entity_id="person_timo_hamers", type="Person")
+        namesake.fields["name"] = "Timo Hamers"
+        holder = Entity(entity_id=HAMERS_ADDRESS, type="Person")
+        holder.fields.update({"name": "T. Hamers", "orcid": HAMERS["orcid"]})
+        state.add_entity(namesake)
+        state.add_entity(holder)
+        assert draft_person(state, "Timo Hamers", {}) is holder
+        assert not namesake.fields.get("orcid")
+        ids = sorted(n["@id"] for n in _typed(_graph(state), "Person"))
+        assert ids == ["#Person_person_timo_hamers", HAMERS_ADDRESS]

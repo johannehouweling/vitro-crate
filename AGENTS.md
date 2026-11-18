@@ -2364,7 +2364,8 @@ e-mail address, a role and a country. The reader drafts nobody and asks no regis
 source of an identifier for an entity someone drafts. `draft_person` tries the ORCID stated for a
 person of exactly its name, case and spacing aside, before the name search, and uses it only once
 the ORCID record resolves and states the same family name. A name the record gives two ORCIDs is
-given neither.
+given neither. A person the crate already holds under that ORCID is amended before any namesake
+is, so no two people take one address.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 
