@@ -546,6 +546,19 @@ class TestNoTwoPeopleTakeOneOrcid:
         ids = sorted(n["@id"] for n in _typed(_graph(state), "Person"))
         assert ids == ["https://orcid.org/0000-0001-0000-0002", HAMERS_ADDRESS]
 
+    @pytest.mark.parametrize("hinted", ["0000-0001-0000-0003", "not known"])
+    def test_an_orcid_no_registry_confirmed_does_not_part_namesakes(
+        self, monkeypatch: pytest.MonkeyPatch, hinted: str
+    ) -> None:
+        """A person drafted again with an ORCID handed in, or a value that is no ORCID, is
+        still the namesake the crate holds: kept apart, the two would share one local id."""
+        _orcid(monkeypatch, {})
+        state = CrateState()
+        held = draft_person(state, "Timo Hamers", {"orcid": "0000-0001-0000-0002"})
+        assert draft_person(state, "Timo Hamers", {"orcid": hinted}) is held
+        assert held.fields["orcid"] == "0000-0001-0000-0002"
+        assert state.list_entities("Person") == [held]
+
     def test_only_the_orcid_the_record_confirms_is_marked_verified(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
