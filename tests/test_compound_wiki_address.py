@@ -499,3 +499,15 @@ class TestAReferenceHeldAsAnAddressFollowsTheChemical:
         )
         assert _study_chemicals(graph) == ["#MolecularEntity_" + WIKI + "Q2026"]
         assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]
+
+    def test_the_local_id_of_a_chemical_given_an_address_as_its_id_reaches_it(self):
+        """A finding names the chemical by that local id, and a reference may hold it.
+
+        Being an address, it is stored as it stands rather than as the id in the
+        state.
+        """
+        typed = _ent(WIKI + "Q2026", "MolecularEntity", name="Test item A")
+        local = "#MolecularEntity_" + WIKI + "Q2026"
+        graph = _graph(_with_a_study(typed, study=[local], exposure=[local]))
+        assert _study_chemicals(graph) == [local]
+        assert _reagents(graph, "#LabProcess_p_exp") == [local]
