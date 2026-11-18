@@ -564,6 +564,14 @@ class TestTheFindingsNameTheToolThatAnswersThem:
         assert "`link_assay_to_key_event`" in fix
         assert "`mentions`" not in fix
 
+    def test_the_assay_hint_asks_a_person_for_the_event(self):
+        # Guidance shows this hint to a person as the question's suggestion. A
+        # person can name the event the assay measures, and cannot call a tool.
+        fix = self._fix_for("Assay SHOULD reference the Key Event")
+
+        assert fix.startswith("Name the key event ")
+        assert "Call " not in fix
+
     @staticmethod
     def _crate_and_finding(finding: str) -> tuple[CrateState, dict]:
         from builder.tools.composites import scaffold_isa_backbone

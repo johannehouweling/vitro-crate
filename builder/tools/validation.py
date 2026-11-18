@@ -452,6 +452,8 @@ def _local_name(iri: str | None) -> str:
 # on `schema:mentions`, and a value typed into that property is a link with no
 # entity behind it: the pathway and the key event are looked up and stored by
 # the tool, which sets the link itself. Each tool takes the id the finding gives.
+# The key event's hint starts with what to state, because guidance shows it to a
+# person, who can name the event the assay measures but cannot call a tool.
 _TOOL_FIXES: tuple[tuple[str, str], ...] = (
     (
         "reference its Adverse Outcome Pathway",
@@ -460,8 +462,8 @@ _TOOL_FIXES: tuple[tuple[str, str], ...] = (
     ),
     (
         "reference the Key Event",
-        "Call `link_assay_to_key_event` for `{entity}` with the name of the key event it "
-        "measures; it matches the event on AOP-Wiki and links the assay to it.",
+        "Name the key event `{entity}` measures: `link_assay_to_key_event` matches the "
+        "name against the events AOP-Wiki lists for the pathway and links the assay to it.",
     ),
 )
 
