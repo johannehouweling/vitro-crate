@@ -48,7 +48,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_study",
-        "description": "Create a Study entity linked to an investigation. Example: draft_study(investigation_id='inv_hepatotoxicity_screen', hints={'name': 'Silychristin exposure', 'aop': 'Aop:144'}).",
+        "description": "Create a Study entity linked to an investigation. Example: draft_study(investigation_id='inv_hepatotoxicity_screen', hints={'name': 'Silychristin exposure'}).",
         "parameters": {
             "type": "object",
             "properties": {
