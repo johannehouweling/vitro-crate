@@ -448,9 +448,31 @@ def _local_name(iri: str | None) -> str:
     return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
 
 
+# The two findings a tool answers, matched on the words of their own shapes
+# (profiles/shapes/tox/6_study_aop.ttl, 7_assay_key_event.ttl). Both are reported
+# on `schema:mentions`, and a value typed into that property is a link with no
+# entity behind it: the pathway and the key event are looked up and stored by
+# the tool, which sets the link itself.
+_TOOL_FIXES: tuple[tuple[str, str], ...] = (
+    (
+        "reference its Adverse Outcome Pathway",
+        "Call `materialize_aop_subgraph` with the AOP-Wiki id of the pathway `{entity}` "
+        "addresses; it looks the pathway up and links the study to it.",
+    ),
+    (
+        "reference the Key Event",
+        "Call `link_assay_to_key_event` for `{entity}` with the name of the key event it "
+        "measures; it matches the event on AOP-Wiki and links the assay to it.",
+    ),
+)
+
+
 def _synthesize_fix(issue: RoutableIssue) -> str:
     """Build a short, actionable fix hint for a routable issue."""
     entity = issue.entity_id or "the affected entity"
+    for words, fix in _TOOL_FIXES:
+        if words in issue.message:
+            return fix.format(entity=entity)
     prop = _local_name(answering_field(issue.message, issue.property))
     if prop in _FIX_TEMPLATES:
         return _FIX_TEMPLATES[prop].format(entity=entity)
