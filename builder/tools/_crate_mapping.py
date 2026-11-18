@@ -3687,11 +3687,11 @@ def _add_processes(
             # `co_culture` keeps them together — N lines in one draft is the
             # ambiguity being removed, not evidence of a mixture.
             nodes = []
-            # One part claims the drafter's output Sample: the one growing the line
-            # that Sample derives from, so the step and the lineage name the same
-            # line, or the first where it derives from none of them. The rest
-            # synthesize their own, so nothing drafted is discarded and nothing is
-            # claimed twice.
+            # One part claims the drafter's first output Sample: the one growing the
+            # line that Sample derives from, so the step and the lineage name the
+            # same line, or the first where it derives from none of them. The rest
+            # synthesize their own, so it is claimed once; a further output the
+            # drafter names is claimed by no part.
             drafted = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
             lineage = _child_ids(drafted[0], "derivesFrom") if drafted else []
             claim = next((i for i, node in enumerate(lines) if node.id in lineage), 0)
@@ -3890,10 +3890,9 @@ def _build_process(
         The line(s) this TestSystemPreparation grows, overriding what the draft names. A
         culture of several lines is built once per line, each call receiving one.
     ``keep_drafted_result``
-        Whether the drafter's output Sample is this node's cultured sample. One
-        part of a split claims it, the part growing the line it derives from or
-        else the first; the rest synthesize their own, so no drafted entity is
-        discarded and none is claimed twice.
+        Whether the drafter's first output Sample is this node's cultured sample.
+        One part of a split claims it, the part growing the line it derives from
+        or else the first; the rest synthesize their own, so it is claimed once.
     ``cultures``
         The TestSystemPreparations of an Exposure's assay. Where the draft names no Sample
         but their material, the Exposure consumes where they ended.
