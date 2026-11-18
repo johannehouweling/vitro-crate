@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import _RESERVED_INTERNAL_KEYS, CrateState, Entity, EntityProvenance
 from lookups.orcid import lookup_orcid, lookup_orcid_by_name
 from lookups.ror import fetch_ror_by_id
 from profiles.ontology_iris import iri
@@ -238,10 +238,10 @@ def _fill_empty_fields(entity: Entity, hints: dict) -> None:
 
     An amend must not overwrite verified data with a later guess: an ORCID-backed
     record beats a hand-typed one, and ``"Dierichs (dataset contact)"`` must not
-    replace ``"Dierichs"``.
+    replace ``"Dierichs"``. The reserved handles are dropped, as a draft drops them.
     """
     for key, value in hints.items():
-        if value in (None, "", [], {}):
+        if value in (None, "", [], {}) or key in _RESERVED_INTERNAL_KEYS:
             continue
         current = entity.fields.get(key)
         if current in (None, "", [], {}):
