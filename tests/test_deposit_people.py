@@ -497,6 +497,35 @@ class TestNoTwoPeopleTakeOneOrcid:
         ids = sorted(n["@id"] for n in _typed(_graph(state), "Person"))
         assert ids == ["#Person_person_timo_hamers", HAMERS_ADDRESS]
 
+    def test_a_namesake_who_holds_another_orcid_is_another_person(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two people can share a name, and their ORCIDs tell them apart: the person drafted
+        takes the ORCID the deposit states, and the namesake keeps theirs unconfirmed."""
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        namesake = draft_person(state, "Timo Hamers", {"orcid": "0000-0001-0000-0002"})
+        person = draft_person(state, "Timo Hamers", {})
+        assert person is not namesake
+        assert person.entity_id == HAMERS_ADDRESS
+        assert namesake.fields["orcid"] == "0000-0001-0000-0002"
+        status = namesake.get_field_status("orcid")
+        assert status is not None and (status.status, status.source) == ("filled", "llm")
+        ids = sorted(n["@id"] for n in _typed(_graph(state), "Person"))
+        assert ids == ["https://orcid.org/0000-0001-0000-0002", HAMERS_ADDRESS]
+
+    def test_only_the_orcid_the_record_confirms_is_marked_verified(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A person drafted with a value that is no ORCID keeps it as it was given, and the
+        confirmation of the ORCID the deposit states does not pass for a confirmation of it."""
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = _stating(HAMERS)
+        held = draft_person(state, "Timo Hamers", {"orcid": "not known"})
+        draft_person(state, "Timo Hamers", {})
+        status = held.get_field_status("orcid")
+        assert status is not None and (status.status, status.source) == ("filled", "llm")
+
     def test_an_author_whose_orcid_a_person_already_holds_is_that_person(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
