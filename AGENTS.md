@@ -1051,9 +1051,9 @@ field, it falls back to name-keyed reuse so re-running the same name still reuse
 the entity rather than duplicating it.
 Two chemicals that still mint one `@id` at build time, as two names do when the
 Compound Wiki holds them as one item, are written as one node
-(`_crate_mapping._add_leaves`): the first in state gives it its name and
-identifiers, the name of each later one becomes an `alternateName`, and a
-reference to either reaches it.
+(`_crate_mapping._add_leaves`): the first in state describes it, with its name and
+identifiers; of each later one only the name is written, as an `alternateName`;
+and a reference to either reaches it.
 
 `resolve_cell_line` (Issue #372) is the cell-line counterpart of
 `resolve_compound`, and the deterministic arm's **only** name→Cellosaurus path.

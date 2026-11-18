@@ -321,6 +321,21 @@ class TestTwoChemicalsOnOneItemAreOneEntity:
         (node,) = _chemicals(graph)
         assert node["alternateName"] == ["Coffein"]
 
+    def test_the_fields_kept_for_the_other_are_not_written(self):
+        """A supplier, a lot number or a purity describes the other chemical's sample."""
+        first, other = self._pair()
+        first.fields.update(supplier="Sigma-Aldrich", lot_number="A1")
+        other.fields.update(supplier="Merck", lot_number="M7", purity="99%")
+        graph = _graph(_state(first, other))
+        (node,) = _chemicals(graph)
+        kept = [_by_id(graph, ref) for ref in _ids(node.get("additionalProperty"))]
+        assert [(pv["name"], pv["value"]) for pv in kept if pv is not None] == [
+            ("supplier", "Sigma-Aldrich"),
+            ("lot number", "A1"),
+        ]
+        values = {n.get("value") for n in graph if n.get("@type") == "PropertyValue"}
+        assert not values & {"Merck", "M7", "99%"}
+
     def test_the_alternate_names_of_the_first_are_kept(self):
         first, other = self._pair()
         first.fields["alternateName"] = ["1,3,7-Trimethylxanthine"]
