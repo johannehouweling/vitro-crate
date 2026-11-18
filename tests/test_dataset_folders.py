@@ -197,6 +197,45 @@ class TestTheAcceptedLabellingIsReadFirst:
             _key(second): "s/a2",
         }
 
+    def test_two_assays_holding_files_of_one_assay_folder_take_none(self) -> None:
+        """The labelling says which folders are assays'. A folder that holds files of
+        two Assays is still neither one's alone."""
+        state = deposit_state("a1/x.csv", "a1/y.csv", "a2/z.csv")
+        _study, (first, second) = backbone(state, "First", "Second")
+        _place_files(state, first, "a1/x.csv")
+        _place_files(state, second, "a1/y.csv", "a2/z.csv")
+        state.deposit_structure = structure(".", "a1", "a2")
+
+        assert _folders(state) == {}
+
+    def test_a_folder_does_not_pass_from_one_assay_to_another(self) -> None:
+        """An id a finding gave for one Assay must not come to name another one as
+        files are attached."""
+        state = deposit_state("x/1.csv", "x/2.csv", "y/5.csv")
+        _study, (first, second) = backbone(state, "First", "Second")
+        state.deposit_structure = structure(".", "x", "y")
+        _place_files(state, first, "x/1.csv")
+        assert _folders(state) == {_key(first): "x"}
+
+        _place_files(state, second, "x/2.csv")
+        assert _folders(state) == {}
+
+        _place_files(state, first, "y/5.csv")
+        assert _folders(state) == {}, "x still holds a file of each"
+
+    def test_a_study_folder_that_holds_a_file_of_another_study_is_taken_by_none(self) -> None:
+        state = deposit_state("s/README.txt", "s/a1/x.csv", "s/stray.csv")
+        study, (own,) = backbone(state, "Own")
+        investigation = state.list_entities("Investigation")[0]
+        other = draft_study(state, investigation.entity_id, {"name": "Other"})
+        foreign = draft_assay(state, other.entity_id, {"name": "Foreign"})
+        _place_files(state, study, "s/README.txt")
+        place(state, own, "s/a1")
+        _place_files(state, foreign, "s/stray.csv")
+        state.deposit_structure = structure("s", "s/a1")
+
+        assert _folders(state) == {_key(own): "s/a1"}
+
     def test_a_labelling_that_was_not_accepted_is_no_evidence(self) -> None:
         """The fallback names the root for everything. It is what a build keeps
         when it could not read the deposit, so the files decide."""

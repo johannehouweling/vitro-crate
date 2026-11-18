@@ -1126,8 +1126,10 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
     entity left out has no folder and keeps its local id.
 
     A folder counts only if the scan saw a file in it. It is never the deposit
-    root, which is the Investigation, and never one that another Study or Assay
-    takes or that is nested with another's. The evidence, in this order:
+    root, which is the Investigation, never one that another Study or Assay takes
+    or that is nested with another's, and never one that holds a file placed on
+    another Assay, or for a Study on an entity not its own. The evidence, in this
+    order:
 
     * The labelling the checks accepted (``deposit_structure`` from the model),
       when it is relative to the crate root. An Assay takes the one assay folder
@@ -1135,10 +1137,9 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
       the only one, if the labelling and the state each have one assay. A Study
       takes its study folder the same way.
     * Without such a labelling, the deepest folder common to the deposited files
-      placed on the entity, when no file of another Assay lies at or below it. An
-      Assay that holds every deposited file, as the pipeline places them, takes
-      none this way: the folder that holds them all is the deposit's or its
-      study's, not one assay's.
+      placed on the entity. An Assay that holds every deposited file, as the
+      pipeline places them, takes none this way: the folder that holds them all is
+      the deposit's or its study's, not one assay's.
 
     Placed means what ``attach_files`` writes, the entity's ``hasPart``. A file
     the build adds itself, such as a step's result, a protocol it places or the
@@ -1196,7 +1197,7 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
         others = [other for other in placed if other[0] == "Assay" and other != key]
         if folder is None or any(nested(folder, proposed[o]) for o in others if o in proposed):
             continue
-        if labelled is None and holds_files_of(folder, others):
+        if holds_files_of(folder, others):
             continue
         folders[key] = folder
     assay_folders = dict(folders)
@@ -1212,7 +1213,7 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
         if any(_contains(folder, at) != (other in own) for other, at in assay_folders.items()):
             continue  # an Assay of its own lies outside it, or another's inside
         strangers = [other for other in placed if other != key and other not in own]
-        if labelled is None and holds_files_of(folder, strangers):
+        if holds_files_of(folder, strangers):
             continue
         folders[key] = folder
     return folders
