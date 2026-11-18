@@ -220,7 +220,7 @@ class LabProtocol(AutoAddContextEntity):
     Required
     ^^^^^^^^
     - ``@id``: Text | URL
-      ``<process @id>_protocol``: one record per step.
+      ``<process @id>_protocol``: one record per step that executes no document.
     - ``@type``: Text
       MUST be ``https://bioschemas.org/LabProtocol``.
 

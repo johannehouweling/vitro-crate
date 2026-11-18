@@ -474,7 +474,7 @@ record that refers to its documents through `isBasedOn`.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|A document's path in the crate. One record per step, e.g. the process `@id` followed by `_protocol`.|
+|@id|MUST|Text or URL|A document's path in the crate. One record per step that executes no document, e.g. the process `@id` followed by `_protocol`.|
 |@type|MUST|[bioschemas.org/LabProtocol](https://bioschemas.org/LabProtocol)|—|
 |intendedUse|SHOULD|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The protocol type of the steps that execute it, from the table below, written as `{"@id": …}` and described once in the graph.|
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
