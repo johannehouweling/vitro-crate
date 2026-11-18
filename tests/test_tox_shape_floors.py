@@ -383,7 +383,7 @@ class TestInputRequiredTypesIsJustifiedByTheBuildNotTheShapes:
     back on the false premise.
     """
 
-    # Each step's shapes select it by its protocol record's intendedUse term.
+    # Each step's shapes select it by the intendedUse term of the protocol it executes.
     _SHAPES_DECLARING_REQUIRED_OBJECT = {
         "TestSystemPreparation": (
             "2_lab_process_test_system_preparation.ttl",
