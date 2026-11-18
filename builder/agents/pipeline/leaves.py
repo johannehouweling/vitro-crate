@@ -744,7 +744,7 @@ _PHRASE_SYSTEM_PROMPT = (
     "value to fill the blank — never make up a concrete cell-line / compound name "
     "or a code the data does not provide. D5: never fabricate a specific name, "
     "identifier, or value the data does not provide. When the context lists "
-    "'Options in this crate', those are the ONLY acceptable answers: name them in "
+    "'Options to choose from', those are the ONLY acceptable answers: name them in "
     "the question so the reader can choose one, and never choose for them — which "
     "AOP Key Event an assay measures is the scientist's judgement, not yours. "
     "When the context says the answer options are shown below the question, ask "
@@ -907,7 +907,7 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
     if suggestion:
         parts.append(f"Hint: {suggestion}")
     # The answers the crate can actually accept. For a gap whose value must
-    # resolve to an entity already in the crate — which AOP Key Event an assay
+    # name one of a few known entities — which Key Event of its pathway an assay
     # measures — a free-text question is unanswerable from memory and whatever
     # is typed gets refused. Listing the options makes it answerable by reading,
     # and the leaf is told to OFFER them, never to choose.
@@ -917,7 +917,7 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
         if shown:
             more = len(candidates) - len(shown)
             listing = "; ".join(shown) + (f"; …and {more} more" if more > 0 else "")
-            parts.append(f"Options in this crate (offer these, do not pick one): {listing}")
+            parts.append(f"Options to choose from (offer these, do not pick one): {listing}")
     if gap_context.get("choices_shown"):
         parts.append("The answer options are shown below the question.")
     return "\n".join(parts)
