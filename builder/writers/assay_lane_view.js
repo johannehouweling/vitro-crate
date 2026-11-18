@@ -148,13 +148,13 @@
     return { rank: rank, stepType: stepType };
   }
 
-  /* The band, and what each member hangs from — unchanged in meaning from
-   * `assay_lane_layout.js`: a protocol hangs from every step that executes it, a
-   * compound from the protocol that lists it as a reagent, and `reagent` is
+  /* The band, and what each member hangs from. A protocol hangs from every step
+   * that executes it, where `assay_lane_layout.js` hung it from the lowest-id step
+   * only: a document two steps execute is one protocol with two steps. As there, a
+   * compound hangs from the protocol that lists it as a reagent, and `reagent` is
    * drawn reversed so the arrow points at the work that consumes the material
-   * (#650). A document two steps execute is one protocol with two steps. Steps
-   * are kept in id order and ties break by id, so two builds of one deposit draw
-   * alike. */
+   * (#650). Steps are kept in id order and ties break by id, so two builds of one
+   * deposit draw alike. */
   function bandOf(visible, edges, rank) {
     var protocols = new Map();
     edges.forEach(function (e) {
