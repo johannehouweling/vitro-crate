@@ -305,11 +305,11 @@ class TestResolveCompoundWikiId:
 
 
 class TestOnlyTheWikiGivesACompoundWikiId:
-    """The Compound Wiki id resolve_compound writes is the wiki's own answer (D5).
+    """Only the Compound Wiki id the wiki gives is recorded as looked up (D5).
 
-    One the caller hands in is dropped, so it can never be recorded as looked up.
-    One typed onto the entity beforehand stays what it was: an identifier value
-    that no lookup wrote, and the wiki is not asked over it.
+    One the caller hands in is written as theirs, an identifier value that no
+    lookup wrote, and the wiki is not asked over it, as before. One typed onto the
+    entity beforehand stays what it was in the same way.
     """
 
     @staticmethod
@@ -325,38 +325,47 @@ class TestOnlyTheWikiGivesACompoundWikiId:
         resolve_compound(state, name="Silychristin A")
         assert self._wiki_id(state) == ("Q1881", "lookup")
 
-    def test_an_id_the_caller_hands_in_is_dropped(self, offline_lookup):
+    def test_an_id_the_caller_hands_in_is_written_as_theirs(self, offline_lookup):
         state = CrateState()
         result = resolve_compound(
             state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"}
         )
-        assert self._wiki_id(state) == (None, None)
-        assert "compoundwiki_id" not in result["identifiers"]
+        assert self._wiki_id(state) == ("Q2026", "llm")
+        assert result["identifiers"]["compoundwiki_id"] == "Q2026"
 
-    def test_the_wiki_is_asked_whatever_the_caller_hands_in(self, offline_lookup, monkeypatch):
+    def test_the_wiki_is_not_asked_over_an_id_the_caller_hands_in(
+        self, offline_lookup, monkeypatch
+    ):
         seen: list[str] = []
         monkeypatch.setattr(
             composites, "compound_wiki_id", lambda key: seen.append(key) or "Q1881"
         )
         state = CrateState()
         resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
-        assert seen == ["ABCDEFGHIJKLMN-UHFFFAOYSA-N"]
-        assert self._wiki_id(state) == ("Q1881", "lookup")
+        assert seen == []
+        assert self._wiki_id(state) == ("Q2026", "llm")
 
     def test_resolving_again_does_not_record_a_handed_in_id_as_looked_up(self, offline_lookup):
-        """A resolve that reuses the entity records what it writes as looked up."""
+        """A resolve that reuses the entity records only what the lookup gave as looked up."""
         state = CrateState()
         resolve_compound(state, name="Silychristin A")
         resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
-        assert self._wiki_id(state) == (None, None)
+        assert self._wiki_id(state) == ("Q2026", "llm")
 
-    def test_an_id_handed_in_for_a_chemical_drafted_before_is_dropped_too(self, offline_lookup):
+    def test_a_second_name_does_not_record_a_handed_in_id_as_looked_up(self, offline_lookup):
+        """The second name reuses the entity of the first by the identity the lookup gave."""
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin", hints={"compoundwiki_id": "Q2026"})
+        assert self._wiki_id(state) == ("Q2026", "llm")
+
+    def test_an_id_handed_in_for_a_chemical_drafted_before_is_theirs_too(self, offline_lookup):
         from builder.tools.drafters import draft_molecular_entity
 
         state = CrateState()
         draft_molecular_entity(state, "Silychristin A", {})
         resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
-        assert self._wiki_id(state) == (None, None)
+        assert self._wiki_id(state) == ("Q2026", "llm")
 
     def test_an_id_typed_onto_the_entity_stays_what_it_was(self, offline_lookup, monkeypatch):
         from builder.tools.drafters import draft_molecular_entity
@@ -447,6 +456,16 @@ class TestAResolvedChemicalIsIdentifiedByItsWikiItem:
         assert self._address(state) == self.PUBCHEM
 
     def test_an_id_the_caller_hands_in_is_not_the_address(self, offline_lookup):
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_id_the_caller_hands_in_over_the_wikis_is_not_the_address(
+        self, offline_lookup, monkeypatch
+    ):
+        """The caller's id is written over the wiki's, as before, and it is still theirs."""
+        monkeypatch.setattr(composites, "compound_wiki_id", lambda key: "Q1881")
         state = CrateState()
         resolve_compound(state, name="Silychristin A")
         resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
