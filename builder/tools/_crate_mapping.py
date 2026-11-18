@@ -3385,6 +3385,32 @@ def _prepared_samples(cultures: list[Any]) -> list[Any]:
     ]
 
 
+def _drafted_exposed_samples(cells: list[Any], drafted: list[Any], named: list[Any]) -> list[Any]:
+    """The drafted exposed Sample of each consumed Sample in *cells*, else ``None``.
+
+    A drafted exposed Sample is the exposed sample of the consumed Sample it
+    derives from. One deriving from none of them goes to what the step's draft
+    *named* as consumed, then to the rest in order. Where it stands in the draft
+    says nothing: a split culture's drafted Sample is held by the part growing its
+    line (#678), which need not be the first, so pairing by position put the
+    drafter's exposed cells on another line's culture.
+    """
+    mine: list[Any] = [None] * len(cells)
+    loose: list[Any] = []
+    for sample in drafted:
+        lineage = _child_ids(sample, "derivesFrom")
+        at = next((i for i, c in enumerate(cells) if mine[i] is None and c.id in lineage), None)
+        if at is None:
+            loose.append(sample)
+        else:
+            mine[at] = sample
+    stated = {n.id for n in named}
+    for at in sorted(range(len(cells)), key=lambda i: cells[i].id not in stated):
+        if mine[at] is None and loose:
+            mine[at] = loose.pop(0)
+    return mine
+
+
 def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
     """Make each step consume what the step before it produced (#650).
 
@@ -3661,6 +3687,14 @@ def _add_processes(
             # `co_culture` keeps them together — N lines in one draft is the
             # ambiguity being removed, not evidence of a mixture.
             nodes = []
+            # One part claims the drafter's first output Sample: the one growing the
+            # line that Sample derives from, so the step and the lineage name the
+            # same line, or the first where it derives from none of them. The rest
+            # synthesize their own, so it is claimed once; a further output the
+            # drafter names is claimed by no part.
+            drafted = _resolve_many(idx, f.get("result")) or _resolve_many(idx, f.get("output"))
+            lineage = _child_ids(drafted[0], "derivesFrom") if drafted else []
+            claim = next((i for i, node in enumerate(lines) if node.id in lineage), 0)
             for index, line in enumerate(lines):
                 label = _node_label(line) or f"line {index + 1}"
                 sub_pid = f"{pid}_{_slug(label)}"
@@ -3681,10 +3715,7 @@ def _add_processes(
                         reserved=reserved,
                         stated=stated,
                         cell_lines=[line],
-                        # Only the first part may claim the drafter's output
-                        # Sample; the rest synthesize their own, so nothing
-                        # drafted is discarded and nothing is claimed twice.
-                        keep_drafted_result=(index == 0),
+                        keep_drafted_result=(index == claim),
                     )
                 )
         else:
@@ -3859,9 +3890,9 @@ def _build_process(
         The line(s) this TestSystemPreparation grows, overriding what the draft names. A
         culture of several lines is built once per line, each call receiving one.
     ``keep_drafted_result``
-        Whether the drafter's output Sample is this node's cultured sample. Only
-        the first of a split may claim it; the rest synthesize their own, so no
-        drafted entity is discarded and none is claimed twice.
+        Whether the drafter's first output Sample is this node's cultured sample.
+        One part of a split claims it, the part growing the line it derives from
+        or else the first; the rest synthesize their own, so it is claimed once.
     ``cultures``
         The TestSystemPreparations of an Exposure's assay. Where the draft names no Sample
         but their material, the Exposure consumes where they ended.
@@ -3993,26 +4024,26 @@ def _build_process(
         # two lines go in and one material come out.
         drafted = [r for r in result if _is_sample_node(r)]
         rest = [r for r in result if not _is_sample_node(r)]
+        mine = _drafted_exposed_samples(cells, drafted, named)
         exposed_samples: list[Any] = []
-        for index, cell in enumerate(cells or [None]):
-            if index < len(drafted):
+        for index, cell in enumerate(cells):
+            if (sample := mine[index]) is not None:
                 # A drafter-supplied Sample is the exposed sample and is kept;
                 # its lineage is filled only where it arrived empty.
-                sample = drafted[index]
-                if cell is not None and not _child_ids(sample, "derivesFrom"):
+                if not _child_ids(sample, "derivesFrom"):
                     _append_unique(sample, "derivesFrom", cell)
                 exposed_samples.append(sample)
                 continue
             label = (
                 f"Exposed ({name})"
-                if len(cells or [None]) == 1
+                if len(cells) == 1
                 else f"Exposed ({_cultured_line_label(crate, cell)})"
             )
             sid = pid + "_exposed" if index == 0 else f"{pid}_exposed_{index}"
             exposed_samples.append(
                 _synth_sample(crate, sid, label, cell, sample_type=_cell_culture_term(crate))
             )
-        out = rest + exposed_samples + drafted[len(exposed_samples) :]
+        out = rest + exposed_samples + [s for s in drafted if all(s is not m for m in mine)]
         # The table is the registry of the exposed units, so it is about them, and
         # it is its assay's data (#532: nested there, and kept in the root's hasPart).
         for sample in filter(_is_sample_node, out):
