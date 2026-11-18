@@ -38,8 +38,8 @@ express them.
 Chemical entities are represented as [MolecularEntity](https://bioschemas.org/MolecularEntity) instances,
 biological materials as [BioSample](https://bioschemas.org/BioSample) entities, a Bioschemas subtype of
 [Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample), classified by `sampleType`, and experimental steps as
-[LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) entities classified by the `intendedUse` of the protocol record they execute:
-`TestSystemPreparation`, `Exposure`, `EndpointReadout` or `DataAnalysis`. A step whose protocol record declares
+[LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) entities classified by the `intendedUse` of the protocol they execute:
+`TestSystemPreparation`, `Exposure`, `EndpointReadout` or `DataAnalysis`. A step whose protocol declares
 none of these four terms is validated against the base and ISA layers only; a term outside this set is reported
 as a warning.
 
@@ -51,7 +51,7 @@ endpoint readouts, and analysis and statistics with the four step types.
 Requirement levels follow [RFC 2119](https://tools.ietf.org/html/rfc2119).
 
 ![The ISA-Tox model of an in vitro NAM study: source cells are prepared into a test system, exposed, read out and
-analysed, each step following a protocol record and producing the next material or
+analysed, each step following a protocol and producing the next material or
 file.](figures/isa-tox-model.svg)
 
 ## Conformance
@@ -338,11 +338,11 @@ MUST declare the test system as `schema:object` and the exposed material as `sch
 ### LabProcess - Test System Preparation
 
 A [LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) that prepares the biological model from its source cells, including its
-maintenance in culture, typed by the `intendedUse` of its protocol record, one of the preparation types
+maintenance in culture, typed by the `intendedUse` of the protocol it executes, one of the preparation types
 below. A test system may be prepared in several steps. A stably modified line constitutes the source material
 itself and is not represented as a preparation step.
 
-A step is recognised as a test system preparation when the `intendedUse` of its protocol record is one of these
+A step is recognised as a test system preparation when the `intendedUse` of the protocol it executes is one of these
 terms, reused from EFO, OBI and GO:
 
 | Preparation type | Term |
@@ -359,7 +359,7 @@ terms, reused from EFO, OBI and GO:
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The input source sample(s): a cell line or primary cells. At least one.|
 |result|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The output (cultured) sample(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Process parameter(s); see expected values below. At least one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared.|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol: the documents deposited for it, or else its protocol record.|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following are recommended
@@ -372,8 +372,8 @@ for this step:
 ### LabProcess - Exposure
 
 A [LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) that exposes the test system to one or more chemicals, typed by the
-`intendedUse` of its protocol record, treatment protocol (EFO:0003969). It declares the cultured
-[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) as `object`, executes a protocol record naming the compounds applied, and declares the
+`intendedUse` of the protocol it executes, treatment protocol (EFO:0003969). It declares the cultured
+[Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) as `object`, executes a protocol naming the compounds applied, and declares the
 exposed [Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)(s) as `result`.
 
 The experimental design is recorded in a condition table (CSVW): a data file `about` those exposed Samples, with
@@ -387,7 +387,7 @@ one row per well giving cell line, compound, concentration and exposure duration
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|The input cell sample(s) being exposed. At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Exposure parameter(s); see expected values below. At least one.|
 |result|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|The exposed sample(s) the step produces. At least one. The condition table is **not** a result: it is a `File` + `csvw:Table` `about` the exposed Samples, and each exposure SHOULD have one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared, whose `reagent`s MUST include at least one test or control compound (a MolecularEntity).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol: the documents deposited for it, or else its protocol record. Its `reagent`s MUST include at least one test or control compound (a MolecularEntity).|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following are recommended
@@ -401,8 +401,8 @@ for this step:
 
 ### LabProcess - Endpoint Readout
 
-A [LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) that measures the assay endpoint, typed by the `intendedUse` of its protocol
-record, assay protocol (BAO:0000523).
+A [LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) that measures the assay endpoint, typed by the `intendedUse` of the protocol
+it executes, assay protocol (BAO:0000523).
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
@@ -412,7 +412,7 @@ record, assay protocol (BAO:0000523).
 |object|MUST|[bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample) or [File](https://schema.org/MediaObject)|What the step measured: the exposed Sample(s) (the cultured Sample in an assay with no exposure), or the File(s) a re-analysis measures. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The output data file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Measurement parameter(s); see expected values below. At least one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared.|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol: the documents deposited for it, or else its protocol record.|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following are recommended
@@ -428,7 +428,7 @@ for this step:
 |Assay Kit|MAY|`http://www.bioassayontology.org/bao#BAO_0000248`|
 |Substrate|MAY|`http://www.bioassayontology.org/bao#BAO_0003063`|
 
-A substrate that is a chemical is also a `reagent` of the step's [protocol record](#labprotocol---protocol-record):
+A substrate that is a chemical is also a `reagent` of the [protocol](#labprotocol---protocol-record) the step executes:
 a MolecularEntity that carries its identifiers, while the `Substrate` parameter keeps its name as stated.
 
 > **Note:** `propertyID` IRIs are given in each ontology's native canonical form (OBO Foundry PURLs, EFO under
@@ -437,7 +437,7 @@ a MolecularEntity that carries its identifiers, while the `Substrate` parameter 
 ### LabProcess - Data Analysis
 
 A [LabProcess](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprocess) that derives the reported results from the raw measurements, typed by the
-`intendedUse` of its protocol record, data transformation (OBI:0200000). It consumes the raw-data File(s)
+`intendedUse` of the protocol it executes, data transformation (OBI:0200000). It consumes the raw-data File(s)
 produced by the [Endpoint Readout](#labprocess---endpoint-readout) and declares the processed-data File(s) as its
 result.
 
@@ -449,7 +449,7 @@ result.
 |object|MUST|[File](https://schema.org/MediaObject) or [bioschemas.org/Sample](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#sample)|The raw-data input(s) being analysed. At least one.|
 |result|MUST|[File](https://schema.org/MediaObject)|The processed-data output file(s). At least one.|
 |parameterValue|MUST|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Parameter](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter))|Analysis parameter(s); see expected values below. At least one.|
-|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol record; exactly one SHOULD be declared, and it SHOULD be `isBasedOn` the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`).|
+|executesLabProtocol|MUST|[bioschemas.org/LabProtocol](#labprotocol---protocol-record)|The step's protocol: the documents deposited for it, or else its protocol record. It SHOULD be the deposited analysis script (a File co-typed `SoftwareSourceCode` and `LabProtocol`), or a protocol record `isBasedOn` it.|
 
 **Expected `parameterValue` items:** Each is a Parameter [PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---parameter)
 (`additionalType` `"ParameterValue"`). At least one `parameterValue` is required. The following, drawn from
@@ -465,21 +465,23 @@ OECD Harmonised Template 201's *Data & Analysis* module, are recommended for thi
 ### LabProtocol - Protocol record
 
 Based on the Bioschemas [LabProtocol](https://bioschemas.org/LabProtocol) type
-([ISA LabProtocol](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprotocol)). Each LabProcess executes exactly one protocol record. The record is present
-whether or not a document was deposited, since its `intendedUse` determines the type of the step. A deposited
-standard operating procedure is a `File` additionally typed `LabProtocol`, referenced by the record through
-`isBasedOn`; one document may therefore serve several steps.
+([ISA LabProtocol](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#labprotocol)). A LabProcess executes the documents deposited for it, or else
+a protocol record; the `intendedUse` of what it executes determines the type of the step. A deposited standard
+operating procedure is a `File` additionally typed `LabProtocol`, identified by its path in the crate. It carries
+the `intendedUse` and the `reagent`s of the steps that execute it, so several steps share it only where these
+agree. A step with no document, or one that differs from another step on its document, executes a protocol
+record that refers to its documents through `isBasedOn`.
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|One record per step, e.g. the process `@id` followed by `_protocol`.|
+|@id|MUST|Text or URL|A document's path in the crate. One record per step, e.g. the process `@id` followed by `_protocol`.|
 |@type|MUST|[bioschemas.org/LabProtocol](https://bioschemas.org/LabProtocol)|—|
-|intendedUse|SHOULD|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The protocol type of its step, from the table below, written as `{"@id": …}` and described once in the graph.|
+|intendedUse|SHOULD|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|The protocol type of the steps that execute it, from the table below, written as `{"@id": …}` and described once in the graph.|
 |name|SHOULD|Text|The name of the protocol, e.g. "Exposure protocol".|
-|description|SHOULD|Text|What the lab stated about the procedure; a builder writes none of its own.|
+|description|SHOULD|Text|What the lab stated about the procedure. A document keeps the description it already has; a record carries none but the lab's, since a builder writes none of its own.|
 |url|MAY|URL|Where the lab published the procedure, when it stated one.|
-|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---test-and-control-chemicals)|The compounds the protocol applied. On the Exposure's record this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
-|isBasedOn|MAY|[File](https://schema.org/MediaObject)|The deposited documents the step follows.|
+|reagent|MAY|[bioschemas.org/MolecularEntity](#molecularentity---test-and-control-chemicals)|The compounds the protocol applied. On what the Exposure executes this is a MUST: the test and control compounds, at least one, checked on the Exposure step.|
+|isBasedOn|MAY|[File](https://schema.org/MediaObject)|On a record, the deposited documents the step follows.|
 
 | Step | intendedUse |
 |------|-------------|

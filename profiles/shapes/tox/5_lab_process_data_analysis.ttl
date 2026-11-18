@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # LabProcess - Data Analysis: derives the reported results from the raw measurements.
-# A LabProcess whose protocol record's intendedUse is OBI:0200000 data transformation;
+# A LabProcess whose executed protocol's intendedUse is OBI:0200000 data transformation;
 # the additionalType label "DataAnalysis" is read as an alias.
 
 @prefix bioschemas: <https://bioschemas.org/> .
@@ -59,13 +59,14 @@ tox:DataAnalysisRequirements a sh:NodeShape ;
         sh:severity sh:Violation ;
     ] .
 
-# The analysis SHOULD follow a deposited script: its protocol record is based on the
-# script, because the script is the procedure the step follows. A warning rather
-# than a violation: an analysis done by hand in a spreadsheet deposits no
-# re-runnable step, which is an action point rather than non-conformance.
+# The analysis SHOULD follow a deposited script: it executes the script, or a
+# protocol record based on the script, because the script is the procedure the step
+# follows. A warning rather than a violation: an analysis done by hand in a
+# spreadsheet deposits no re-runnable step, which is an action point rather than
+# non-conformance.
 tox:DataAnalysisShouldFollowAnalysisScript a sh:NodeShape ;
     sh:name "A data analysis SHOULD follow a deposited script" ;
-    sh:description "A data analysis SHOULD execute a protocol record based on the analysis script it ran." ;
+    sh:description "A data analysis SHOULD execute the analysis script it ran, or a protocol record based on it." ;
     sh:target [
         a sh:SPARQLTarget ;
         sh:select """
@@ -82,13 +83,18 @@ tox:DataAnalysisShouldFollowAnalysisScript a sh:NodeShape ;
         a sh:PropertyShape ;
         sh:path bioschemas-prop:executesLabProtocol ;
         sh:qualifiedValueShape [
-            sh:property [
-                sh:path schema:isBasedOn ;
-                sh:qualifiedValueShape [ sh:class schema:SoftwareSourceCode ] ;
-                sh:qualifiedMinCount 1 ;
-            ] ;
+            sh:or (
+                [ sh:class schema:SoftwareSourceCode ]
+                [
+                    sh:property [
+                        sh:path schema:isBasedOn ;
+                        sh:qualifiedValueShape [ sh:class schema:SoftwareSourceCode ] ;
+                        sh:qualifiedMinCount 1 ;
+                    ] ;
+                ]
+            ) ;
         ] ;
         sh:qualifiedMinCount 1 ;
-        sh:message "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) based on a deposited analysis script (schema:SoftwareSourceCode)" ;
+        sh:message "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) that is, or is based on, a deposited analysis script (schema:SoftwareSourceCode)" ;
         sh:severity sh:Warning ;
     ] .

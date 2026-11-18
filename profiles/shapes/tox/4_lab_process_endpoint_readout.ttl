@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # LabProcess - Endpoint Readout: measures the assay endpoint.
-# A LabProcess whose protocol record's intendedUse is BAO:0000523 assay protocol;
+# A LabProcess whose executed protocol's intendedUse is BAO:0000523 assay protocol;
 # the additionalType label "EndpointReadout" is read as an alias. It measures the
 # exposed test system, or a deposited File in a re-analysis, and produces the raw
 # measurement File(s).
