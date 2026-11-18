@@ -133,9 +133,10 @@ def _existing_person(
     """The Person already in state that *name*/ORCID refers to, if any.
 
     ORCID decides when present — it is the identifier, and two people can share a
-    name. Otherwise an exact match on the normalised name, which is deliberately
-    strict: merging two different people would be worse than the duplicate this
-    prevents, so nothing fuzzy happens here.
+    name, so a namesake who holds another ORCID is another person. Otherwise an
+    exact match on the normalised name, which is deliberately strict: merging two
+    different people would be worse than the duplicate this prevents, so nothing
+    fuzzy happens here.
     """
     wanted_orcid = _bare_orcid(orcid_id or hints.get("orcid"))
     wanted_name = _person_key(name)
@@ -147,7 +148,9 @@ def _existing_person(
         if held and held == wanted_orcid:
             return person
     for person in people if wanted_name else []:
-        if _person_key(person.fields.get("name")) == wanted_name:
+        if _person_key(person.fields.get("name")) == wanted_name and (
+            not wanted_orcid or _real_orcid(person) in ("", wanted_orcid)
+        ):
             return person
     return None
 
@@ -650,7 +653,7 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     existing = _existing_person(state, name, orcid_id, merged_hints)
     if existing is not None:
         _fill_empty_fields(existing, merged_hints)
-        if orcid_id:
+        if orcid_id and _bare_orcid(existing.fields.get("orcid")) == _bare_orcid(orcid_id):
             existing.set_field_status("orcid", "verified", "lookup")
         logger.info(
             "Amended existing Person %s instead of drafting a duplicate", existing.entity_id
