@@ -1298,14 +1298,17 @@ def entity_for_crate_id(state: CrateState, crate_id: str, *, files: bool = True)
     which is the id ro-crate-py gives it, and that of any other the one
     :func:`_mint_id` gives it. A Study or an Assay is therefore found by the
     folder it is identified by (:func:`dataset_folders`, asked only for an id that
-    ends in ``/``) and by the local id it had before it took one. *files* False
-    leaves Files out, for a caller that reports a finding on a file rather than
-    acting on it.
+    ends in ``/``) and by the local id it had before it took one. A metadata-only
+    crate describes a file or a folder it leaves out at ``#`` and the id it has
+    with its payload (``builder._leave_files_out``), and that id finds it too
+    when no node has it as its own. *files* False leaves Files out, for a caller
+    that reports a finding on a file rather than acting on it.
     """
     candidate = str(crate_id or "").removeprefix("./")
     if candidate in ("", "."):
         return None
     folders = dataset_folders(state) if candidate.endswith("/") and "://" not in candidate else None
+    left_out: Entity | None = None
     for entity in state.list_entities():
         if entity.type == "File" and not files:
             continue
@@ -1316,7 +1319,10 @@ def entity_for_crate_id(state: CrateState, crate_id: str, *, files: bool = True)
         )
         if candidate in (node_id, "#" + _slug(entity.type) + "_" + entity.entity_id):
             return entity
-    return None
+        relative = not node_id.startswith("#") and "://" not in node_id
+        if left_out is None and relative and candidate == "#" + node_id:
+            left_out = entity
+    return left_out
 
 
 def _contain_dest(raw: str, fallback: str) -> str:

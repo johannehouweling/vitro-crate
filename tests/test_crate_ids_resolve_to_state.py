@@ -299,6 +299,77 @@ class TestAReferenceWrittenAsACrateId:
         assert readout.fields["result"] == [_file_at(state, "assay 01/plate 1.csv").entity_id]
 
 
+class TestTheIdsOfACrateWithoutItsFiles:
+    """A metadata-only crate leaves the files and the folders out and describes
+    each at ``#`` and the id it has in the crate with its files, and the report of
+    such a crate names an entity by that id."""
+
+    def test_a_folder_left_out_is_its_assay(self) -> None:
+        state, with_folder, _without = _deposit()
+
+        assert _for_crate_id(state, "./#" + ASSAY_ID) is with_folder
+        assert _resolve_state_entity(state, "./#" + ASSAY_ID) is with_folder
+        assert resolve_entity_id(state, "#" + ASSAY_ID) == with_folder.entity_id
+
+    def test_a_file_left_out_is_its_file(self) -> None:
+        state, _with_folder, _without = _deposit()
+        plate = _file_at(state, "assay 01/plate 1.csv")
+
+        assert _for_crate_id(state, "./#" + PLATE_ID) is plate
+        assert _for_crate_id(state, "./#" + PLATE_ID, files=False) is None
+        assert resolve_entity_id(state, "./#" + PLATE_ID) == plate.entity_id
+
+    def test_the_tools_take_them(self) -> None:
+        state, with_folder, _without = _deposit()
+        plate = _file_at(state, "assay 01/plate 1.csv")
+
+        attached = attach_files(state, to="#" + ASSAY_ID, name_contains="assay 01/raw/")
+        assert attached["to"] == with_folder.entity_id
+
+        readout = draft_process(
+            state, with_folder.entity_id, "EndpointReadout", {"name": "Readout"}
+        )
+        link(state, "./#LabProcess_proc_readout", "result", "./#" + PLATE_ID)
+        assert readout.fields["result"] == plate.entity_id
+
+    def test_an_answer_about_the_assay_is_given_to_the_assay(self) -> None:
+        from builder.agents.pipeline import guidance
+
+        state, with_folder, _without = _deposit()
+        gap = Gap(
+            tier="SHOULD",
+            source="shacl",
+            entity_id="./#" + ASSAY_ID,
+            entity_type="Assay",
+            property="http://schema.org/creator",
+            message="Assay entity SHOULD have a creator",
+            suggestion=None,
+            fix_hint="ask-user",
+            auto_fixable=False,
+        )
+
+        assert guidance._resolve_entity_id(AgentEngine(state=state), gap) == with_folder.entity_id
+
+    def test_a_finding_on_one_is_the_agents_to_fix(self) -> None:
+        from builder.agents.react.agent_loop import _issue_targets_own_entity
+
+        state, _with_folder, _without = _deposit()
+
+        for crate_id in ("./#" + ASSAY_ID, "./#" + PLATE_ID):
+            line = f"[base] {crate_id}: Data Entities SHOULD have a `description` property"
+            assert _issue_targets_own_entity(state, line) is True, crate_id
+
+    def test_an_id_that_a_node_has_comes_first(self) -> None:
+        """A file named like the local id of an Assay is left out at that id with an
+        underscore more, so the local id still names the Assay."""
+        state, _with_folder, without = _deposit()
+        state.scanned_files.extend(deposit_state("Assay_assay_viability").scanned_files)
+        named_alike = find_or_create_file(state, state.scanned_files[-1])
+
+        assert _for_crate_id(state, "#Assay_assay_viability") is without
+        assert _for_crate_id(state, "Assay_assay_viability") is named_alike
+
+
 class TestWhoseFindingItIs:
     def _owns(self, state: CrateState, entity_id: str) -> bool:
         from builder.agents.react.agent_loop import _issue_targets_own_entity
