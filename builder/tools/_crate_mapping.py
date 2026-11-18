@@ -2578,9 +2578,12 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
     isa_skip = (*_AGENT_REFERENCE_FIELDS, *_identifier_terms())
     # A Study or an Assay with a folder of its own is that folder (#852): a
     # directory Dataset, which ro-crate-py walks, whose identifier is the folder's
-    # path unless another level already states that one.
+    # path unless another level already states that one. One without a folder
+    # keeps the hierarchical descriptor, an Assay's nested under its Study's
+    # descriptor whether or not that Study has a folder.
     folders = dataset_folders(state)
     stated = {root_ident}
+    descriptors: dict[str, str] = {}
 
     for st in state.list_entities("Study"):
         folder = folders.get(("Study", st.entity_id))
@@ -2589,15 +2592,15 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             "additionalType": "Study",
             **_scalar_props(st, skip=isa_skip),
         }
-        props["identifier"] = (
-            folder if folder and folder not in stated else _isa_identifier(st, root_ident, "study")
-        )
+        descriptor = _isa_identifier(st, root_ident, "study")
+        props["identifier"] = folder if folder and folder not in stated else descriptor
         stated.add(props["identifier"])
         node = crate.add(
             Dataset(crate, dest_path=folder, properties=props)
             if folder
             else DataEntity(crate, _mint_id(st), properties=props)
         )
+        descriptors[node.id] = descriptor
         _idx_add(idx, st, node)
         _append_unique(root, "hasPart", node)  # Study MUST be hasPart of the root
         _attach_explicit_parts(node, st, idx, root)
@@ -2610,10 +2613,9 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             **_scalar_props(asy, skip=isa_skip),
         }
         parent = _resolve_one(idx, asy.fields.get("study_id")) or root
+        above = descriptors.get(parent.id) or parent.get("identifier") or root_ident
         props["identifier"] = (
-            folder
-            if folder and folder not in stated
-            else _isa_identifier(asy, parent.get("identifier") or root_ident, "assay")
+            folder if folder and folder not in stated else _isa_identifier(asy, above, "assay")
         )
         stated.add(props["identifier"])
         node = crate.add(
