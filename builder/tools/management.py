@@ -261,12 +261,14 @@ def resolve_entity_id(state: CrateState, raw: str) -> str:
     failed this way, and the model had no way to tell a bad id from a bad name.
 
     Resolution is exact at every step, never fuzzy: the state id itself, then the
-    id with the crate's ``./`` prefix and ``#`` removed, then the id the crate
-    gives an entity, with or without its ``#``
+    id with the crate's ``./`` prefix and ``#`` removed, then the id a crate gives
+    an entity, with or without its ``#`` and with or without the crate's files
     (:func:`~builder.tools._crate_mapping.entity_for_crate_id`, where a File is
-    its percent-encoded path), then a File's destination path as written. An id
-    that matches nothing is returned unchanged so the caller still raises its own
-    clear error.
+    its percent-encoded path and a Study or an Assay with a folder that folder,
+    encoded and ending in ``/``), then a File's destination path as written. A
+    Study or an Assay is named by that id, not by the folder path it states as
+    its identifier. An id that matches nothing is returned unchanged so the
+    caller still raises its own clear error.
     """
     if not isinstance(raw, str) or not raw.strip():
         return raw
