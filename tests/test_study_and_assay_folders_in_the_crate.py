@@ -125,7 +125,6 @@ class TestWhereAnAssayIsListed:
         without = {"#Assay_assay_second", "#Assay_assay_third"}
         assert without <= set(ids(graph["study_01/"]["hasPart"]))
         assert not without & set(ids(graph["./"]["hasPart"]))
-        assert graph["#Assay_assay_third"]["identifier"] == "study_01/assay-assay_third"
 
     def test_a_file_stays_listed_by_the_root(self) -> None:
         _state, graph = _two_assay_folders()
@@ -152,6 +151,16 @@ class TestAnEntityWithoutAFolderIsAsBefore:
 
         assert graph["#Study_study_study"]["additionalType"] == "Study"
         assert graph["#Study_study_study"]["identifier"] == "S-TEST1/study-study_study"
+
+    def test_an_assay_without_a_folder_keeps_its_identifier_under_a_study_with_one(self) -> None:
+        """It nests under the study's descriptor, as before. Nested under the
+        study's folder it would read as a folder of the deposit that is not there."""
+        _state, graph = _study_folder_with_two_assays()
+
+        assert graph["study_01/"]["identifier"] == "study_01"
+        assert graph["#Assay_assay_third"]["identifier"] == (
+            "S-TEST1/study-study_study/assay-assay_third"
+        )
 
 
 class TestIdentifiersStayDistinct:
