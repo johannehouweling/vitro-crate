@@ -850,6 +850,59 @@ class TestLinkAssayToAKeyEventOfThePathway:
         offered = link_assay_to_key_event(state, assay_id, "TPO inhibition")["candidates"]
         assert len({c["@id"] for c in offered}) == len(offered) == 5
 
+    def test_a_term_at_the_pathways_address_is_the_pathway_to_match_against(self):
+        # A term drafted at the pathway's AOP-Wiki address before the pathway
+        # composite ran keeps that address, and the composite reuses it rather than
+        # store a second entity there. AOP-Wiki still lists the pathway's events at
+        # that address, so the assay can be linked to one of them.
+        from builder.tools.composites import link_assay_to_key_event, scaffold_isa_backbone
+        from builder.tools.drafters import draft_defined_term
+
+        state = CrateState()
+        state.metadata.title = "AOP link"
+        scaffold = scaffold_isa_backbone(
+            state,
+            investigation={"name": "I"},
+            study={"name": "S"},
+            assay={"name": "Complex I activity assay"},
+        )
+        draft_defined_term(state, "AOP 610", {"url": "https://aopwiki.org/aops/610"})
+        resolve_aop(state, "610", study_id=scaffold["study_id"])
+        assert _by_type(state, "AdverseOutcomePathway") == []
+
+        result = link_assay_to_key_event(state, scaffold["assay_id"], "mitochondrial dysfunction")
+
+        assert result["ok"] is True
+        assert result["key_event_ids"] == [self._MITOCHONDRIAL_DYSFUNCTION]
+
+    def test_a_term_at_the_pathways_address_is_named_when_aop_wiki_gives_nothing(self, monkeypatch):
+        # The pathway is in the crate, held by the term; running the pathway
+        # composite again would change nothing, so the answer does not ask for it.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event, scaffold_isa_backbone
+        from builder.tools.drafters import draft_defined_term
+
+        state = CrateState()
+        state.metadata.title = "AOP link"
+        scaffold = scaffold_isa_backbone(
+            state,
+            investigation={"name": "I"},
+            study={"name": "S"},
+            assay={"name": "Complex I activity assay"},
+        )
+        draft_defined_term(state, "AOP 610", {"url": "https://aopwiki.org/aops/610"})
+        monkeypatch.setattr(
+            tool_lookups,
+            "lookup_aop",
+            lambda aop_id: {"found": False, "data": {}, "error": "AOP-Wiki unavailable"},
+        )
+
+        result = link_assay_to_key_event(state, scaffold["assay_id"], "mitochondrial dysfunction")
+
+        assert result["ok"] is False
+        assert result["unlisted_pathways"] == ["https://aopwiki.org/aops/610"]
+        assert "resolve_aop" not in result["error"]
+
     def test_a_pathway_whose_events_aop_wiki_does_not_give_says_so(self, monkeypatch):
         # The pathway is in the crate, and AOP-Wiki cannot be asked for its events
         # when the Assay is to be linked. That is not "no match", and running the

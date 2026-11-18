@@ -848,6 +848,10 @@ def _event_tokens(text: str) -> frozenset[str]:
     return frozenset(cleaned.split())
 
 
+# An AOP-Wiki pathway address, and the number AOP-Wiki gives the pathway.
+_PATHWAY_ADDRESS = re.compile(r"https://aopwiki\.org/aops/(\d+)")
+
+
 def key_event_candidates(state: CrateState) -> tuple[list[dict[str, Any]], list[str]]:
     """The Key Events an Assay of this crate can be linked to, as AOP-Wiki nodes.
 
@@ -855,9 +859,11 @@ def key_event_candidates(state: CrateState) -> tuple[list[dict[str, Any]], list[
     order, followed by the Key Events the crate already holds: an event another
     Assay measures, or the events of a session saved with a whole pathway, which
     stay available when AOP-Wiki cannot be asked. One entry per AOP-Wiki IRI, so
-    an event two pathways share is listed once. The lookup is asked by the
-    ``identifier`` it gave the pathway; nothing is stored and the lookup's cached
-    answer is handed on unchanged.
+    an event two pathways share is listed once. A pathway is any entity the crate
+    holds at an AOP-Wiki pathway address: the one :func:`resolve_aop` stores, or a
+    term drafted there first, which :func:`resolve_aop` then reuses. The lookup
+    is asked by the number in that address; nothing is stored and the lookup's
+    cached answer is handed on unchanged.
 
     Returned beside the candidates are the addresses of the pathways AOP-Wiki
     gave no key events for. Their events are then missing from the candidates,
@@ -867,11 +873,11 @@ def key_event_candidates(state: CrateState) -> tuple[list[dict[str, Any]], list[
 
     candidates: dict[str, dict[str, Any]] = {}
     unlisted: list[str] = []
-    for pathway in state.list_entities("AdverseOutcomePathway"):
-        identifier = pathway.fields.get("identifier")
-        if not identifier:
+    for pathway in state.list_entities():
+        address = _PATHWAY_ADDRESS.fullmatch(pathway.entity_id)
+        if address is None:
             continue
-        result = lookup_aop(str(identifier))
+        result = lookup_aop(address.group(1))
         events = result["data"].get("events", []) if result.get("found") else []
         if not events:
             unlisted.append(pathway.entity_id)

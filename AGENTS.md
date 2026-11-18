@@ -1011,7 +1011,8 @@ measures, and nothing else of a pathway**: its other key events, its
 `upstream_event`, …) stay on AOP-Wiki, at the entity's address, and the Study and
 the Assay carry the only connection between the two. `link_assay_to_key_event`
 stores the measured event: it matches what the deposit states against the events
-`lookup_aop` lists for the pathway(s) in state, and against the KeyEvents already
+`lookup_aop` lists for the pathway(s) in state (any entity at a pathway's AOP-Wiki
+address, a term drafted there included), and against the KeyEvents already
 there, and stores the one it matches as an `aopo:KeyEvent` (MIE/KE/AO all share
 `@type KeyEvent`, discriminated only by the `eventType` string). Since the match
 asks AOP-Wiki when the question is put, `lookup_aop` keeps no transient failure in
