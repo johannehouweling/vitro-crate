@@ -400,7 +400,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_person",
-        "description": "Create a Person entity. Pass an orcid only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
+        "description": "Create a Person entity. Without an orcid it takes the one the deposit's own record states for exactly this name, once ORCID confirms it. Pass an orcid only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
         "parameters": {
             "type": "object",
             "properties": {

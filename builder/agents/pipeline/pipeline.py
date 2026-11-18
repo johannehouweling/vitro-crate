@@ -1985,7 +1985,7 @@ def _materialize_plan(
     * each ``people[]`` → ``draft_person`` with the name plus a deterministic
       ``givenName`` / ``familyName`` split of that name (ISA REQUIRES a non-empty
       given name; splitting a name is descriptive parsing, not identifier
-      fabrication, so it is D5-safe). ORCID stays empty for a later lookup.
+      fabrication, so it is D5-safe). An ORCID comes from ``draft_person``, never the plan.
     * each ``publications[]`` → :func:`resolve_publication` /
       :func:`draft_publication_with_authors` (#219/#224/#245). A plan carries a
       title ONLY (D5 — no DOI), but when the source was a PDF that "title" is
@@ -2427,7 +2427,7 @@ def _materialize_plan(
             continue
         given, family = _split_person_name(name)
         # ISA REQUIRES a non-empty given name; the split is descriptive parsing of
-        # the plan's name, not identifier fabrication (D5-safe). ORCID stays empty.
+        # the plan's name, not identifier fabrication (D5-safe). The plan gives no ORCID.
         person_hints = {"givenName": given}
         if family:
             person_hints["familyName"] = family
