@@ -753,6 +753,71 @@ class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
         assert ror.asked == []
 
 
+class TestNoTwoOrganisationsTakeOneRorId:
+    """Two entities at one address would leave the crate only one of them."""
+
+    def test_a_namesake_is_not_given_the_ror_id_an_organisation_holds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An author's ORCID record may name the organisation the deposit states in ROR's
+        words: the Organization that holds the ROR id is the one meant, and its namesake
+        takes no ROR id."""
+        from builder.tools import composites
+
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        monkeypatch.setattr(composites, "fetch_ror_by_id", lambda ror_id: dict(VU_RECORD))
+        state = _stating_organisations(VU)
+        holder = draft_organization(state, VU["name"], {})
+        namesake = draft_organization(state, VU_RECORD["name"], {})
+        found = composites._find_or_draft_organization(state, VU_RECORD["name"], VU["ror"])
+        assert found == holder.entity_id
+        assert not namesake.fields.get("ror")
+        nodes = _typed(_graph(state), "Organization")
+        assert sorted(n["name"] for n in nodes) == sorted([VU["name"], VU_RECORD["name"]])
+        assert [n["name"] for n in nodes if n["@id"] == VU["ror"]] == [VU["name"]]
+
+    def test_an_author_whose_record_gives_the_ror_id_is_affiliated_to_its_holder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two co-authors' ORCID records name one institution in ROR's words, the first without
+        its ROR id and the second with it. The second is affiliated to the Organization the
+        deposit gave that id, and neither Organization is lost from the crate."""
+        from builder.tools import composites
+
+        article = {
+            "identifier": "https://doi.org/10.1234/example",
+            "name": "An uptake study",
+            "author": [
+                {"givenName": "Ann", "familyName": "One", "identifier": "0000-0001-0000-0001"},
+                {"givenName": "Bob", "familyName": "Two", "identifier": "0000-0001-0000-0002"},
+            ],
+        }
+        records = {
+            "0000-0001-0000-0001": {"givenName": "Ann", "familyName": "One", "affiliation_ror": ""},
+            "0000-0001-0000-0002": {"givenName": "Bob", "familyName": "Two"},
+        }
+        records["0000-0001-0000-0002"]["affiliation_ror"] = VU["ror"]
+        for record in records.values():
+            record["affiliation_name"] = VU_RECORD["name"]
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        monkeypatch.setattr(composites, "fetch_ror_by_id", lambda ror_id: dict(VU_RECORD))
+        monkeypatch.setattr(composites, "lookup_doi", lambda doi: {"found": True, "data": article})
+        monkeypatch.setattr(
+            composites, "lookup_orcid", lambda bare: {"found": True, "data": records[bare]}
+        )
+        monkeypatch.setattr(composites, "cached_affiliation_from_works", lambda orcid, family: "")
+        state = _stating_organisations(VU)
+        holder = draft_organization(state, VU["name"], {})
+        composites.draft_publication_with_authors(state, "10.1234/example")
+        people = {p.fields["familyName"]: p for p in state.list_entities("Person")}
+        assert people["Two"].fields["affiliation"] == {"@id": holder.entity_id}
+        assert people["One"].fields["affiliation"] != {"@id": holder.entity_id}
+        held = [o for o in state.list_entities("Organization") if o.fields.get("ror")]
+        assert held == [holder]
+        nodes = _typed(_graph(state), "Organization")
+        assert sorted(n["name"] for n in nodes) == sorted([VU["name"], VU_RECORD["name"]])
+
+
 class TestTheCrateSaysWhatTheDepositStates:
     def test_the_pipeline_names_people_and_their_organisations_by_the_stated_ids(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

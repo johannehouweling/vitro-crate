@@ -2330,8 +2330,10 @@ already holds under that ORCID is amended before any namesake is, so no two peop
 and a namesake who holds another ORCID is another person. `draft_organization` takes the ROR id
 stated for an organisation of exactly its name once `fetch_ror_by_id` returns that record, with the
 website and country the record states, and an Organization the crate already holds under that ROR id
-is amended instead; a name the record gives two ROR ids is given neither. No ROR id is taken for a
-name alone, and a declared funder is still written as it is declared.
+is amended instead; a name the record gives two ROR ids is given neither. An author whose ORCID
+record gives that ROR id is affiliated to the Organization that holds it, whatever name the record
+uses for it. No ROR id is taken for a name alone, and a declared funder is still written as it is
+declared.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 

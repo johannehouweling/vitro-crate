@@ -43,6 +43,7 @@ from builder.tools.document_discovery import (
 from builder.tools.drafters import (
     _ORCID_RE,
     VALID_PROCESS_TYPES,
+    _existing_organization,
     _existing_person,
     _make_entity_id,
     draft_assay,
@@ -1274,7 +1275,9 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
 
     De-dup by name: an existing in-state Organization with the same (stripped)
     ``name`` is reused so two authors sharing an affiliation yield ONE Organization
-    (its ``ror`` is back-filled if this call carries one and it was missing).
+    (its ``ror`` is back-filled if this call carries one and it was missing), unless
+    another Organization already holds that ``ror``: that one is meant, whatever its
+    name, since two entities at one address would leave the crate only one of them.
     Otherwise a new one is minted via the pure :func:`draft_organization` drafter
     (never hand-rolled JSON-LD). D5-safe: a ``ror`` is set ONLY when supplied by
     the lookup, or stated by the deposit for that name and confirmed by ROR
@@ -1287,8 +1290,9 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
     if not name:
         return None
     ror_value = (ror or "").strip()
+    holder = _existing_organization(state, ror_value)
     for org in state.list_entities("Organization"):
-        if str(org.fields.get("name") or "").strip() == name:
+        if str(org.fields.get("name") or "").strip() == name and holder in (None, org):
             patch: dict[str, Any] = {}
             if ror_value and not org.fields.get("ror"):
                 patch["ror"] = ror_value
