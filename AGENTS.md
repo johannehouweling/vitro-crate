@@ -2371,8 +2371,8 @@ given neither. A person the crate already holds under that ORCID is amended befo
 is, so no two people take one address. `draft_organization` takes the ROR id stated for an
 organisation of exactly its name once `fetch_ror_by_id` returns that record, with the website and
 country the record states, and an Organization the crate already holds under that ROR id is
-amended instead. No ROR id is taken for a name alone, and a declared funder is still written as it
-is declared.
+amended instead; a name the record gives two ROR ids is given neither. No ROR id is taken for a
+name alone, and a declared funder is still written as it is declared.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 
