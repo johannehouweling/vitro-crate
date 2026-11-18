@@ -833,6 +833,28 @@ class TestNoTwoOrganisationsTakeOneRorId:
         assert sorted(n["name"] for n in nodes) == sorted([VU["name"], VU_RECORD["name"]])
 
 
+class TestAnAmendWritesWhatADraftWrites:
+    def test_the_reserved_handles_never_become_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``@id``, ``@type``, ``entity_id`` and ``type`` are the entity's own handles, not
+        properties (#286), on the path that amends a person or an organisation the crate
+        already holds as on the one that drafts them."""
+        _orcid(monkeypatch, HAMERS_RECORD)
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        reserved = {"@id": "#x", "@type": "Thing", "entity_id": "x", "type": "Thing"}
+        state = _stating(HAMERS)
+        state.metadata.organizations = [VU]
+        person = draft_person(state, "T. Hamers", {"orcid": HAMERS["orcid"]})
+        organisation = draft_organization(state, VU_RECORD["name"], {"ror": VU["ror"]})
+        assert draft_person(state, "Timo Hamers", dict(reserved)) is person
+        assert draft_organization(state, VU["name"], dict(reserved)) is organisation
+        for entity in (person, organisation):
+            assert not set(reserved) & set(entity.fields), entity.fields
+        additional = [n for n in _graph(state) if n.get("additionalProperty")]
+        assert additional == []
+
+
 class TestTheCrateSaysWhatTheDepositStates:
     def test_the_pipeline_names_people_and_their_organisations_by_the_stated_ids(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
