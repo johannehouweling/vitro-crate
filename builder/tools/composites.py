@@ -848,7 +848,7 @@ def _event_tokens(text: str) -> frozenset[str]:
     return frozenset(cleaned.split())
 
 
-def key_event_candidates(state: CrateState) -> list[dict[str, Any]]:
+def key_event_candidates(state: CrateState) -> tuple[list[dict[str, Any]], list[str]]:
     """The Key Events an Assay of this crate can be linked to, as AOP-Wiki nodes.
 
     The events AOP-Wiki lists for each pathway in the crate, in the pathway's
@@ -858,25 +858,31 @@ def key_event_candidates(state: CrateState) -> list[dict[str, Any]]:
     an event two pathways share is listed once. The lookup is asked by the
     ``identifier`` it gave the pathway; nothing is stored and the lookup's cached
     answer is handed on unchanged.
+
+    Returned beside the candidates are the addresses of the pathways AOP-Wiki
+    gave no key events for. Their events are then missing from the candidates,
+    so a caller says so rather than that a name matched nothing.
     """
     from builder.tools.lookups import lookup_aop
 
     candidates: dict[str, dict[str, Any]] = {}
+    unlisted: list[str] = []
     for pathway in state.list_entities("AdverseOutcomePathway"):
         identifier = pathway.fields.get("identifier")
         if not identifier:
             continue
         result = lookup_aop(str(identifier))
-        if not result.get("found"):
-            continue
-        for event in result["data"].get("events", []):
+        events = result["data"].get("events", []) if result.get("found") else []
+        if not events:
+            unlisted.append(pathway.entity_id)
+        for event in events:
             if event.get("@id"):
                 candidates.setdefault(str(event["@id"]), event)
     for held in state.list_entities("KeyEvent"):
         candidates.setdefault(
             held.entity_id, {"@id": held.entity_id, "@type": "KeyEvent", **held.fields}
         )
-    return list(candidates.values())
+    return list(candidates.values()), unlisted
 
 
 def link_assay_to_key_event(
@@ -916,7 +922,9 @@ def link_assay_to_key_event(
         ``{"ok": True, "assay_id", "key_event_ids", "matched_names", "unmatched"}``
         when at least one name resolved (``key_event_id``/``matched_name`` are
         kept as the first match for existing callers), else
-        ``{"ok": False, "error", "candidates"}`` with nothing written.
+        ``{"ok": False, "error", "candidates"}`` with nothing written. Either
+        carries ``unlisted_pathways`` while AOP-Wiki gives no key events for a
+        pathway in the crate.
     """
     from builder.tools.management import set_fields
 
@@ -924,11 +932,14 @@ def link_assay_to_key_event(
     if assay is None or assay.type != "Assay":
         return {"ok": False, "error": f"Assay not found: {assay_id!r}", "candidates": []}
 
-    events = key_event_candidates(state)
+    events, unlisted = key_event_candidates(state)
+    # Reported with every answer while AOP-Wiki gives no events for a pathway in
+    # the crate: a name that matches none of the candidates may name one of them.
+    outage = {"unlisted_pathways": unlisted} if unlisted else {}
     if not events:
-        if state.list_entities("AdverseOutcomePathway"):
+        if unlisted:
             error = (
-                "AOP-Wiki gave no key events for the pathway in the crate, so there "
+                f"AOP-Wiki gave no key events for {', '.join(unlisted)}, so there "
                 "is nothing to match the event against — try again when AOP-Wiki "
                 "answers"
             )
@@ -938,7 +949,7 @@ def link_assay_to_key_event(
                 "the event can be matched against the key events AOP-Wiki lists "
                 "for it"
             )
-        return {"ok": False, "error": error, "candidates": []}
+        return {"ok": False, "error": error, "candidates": [], **outage}
 
     candidates = [{"@id": e["@id"], "name": e.get("name")} for e in events]
     wanted_names = [event_name] if isinstance(event_name, str) else list(event_name)
@@ -960,11 +971,13 @@ def link_assay_to_key_event(
 
     if not linked:
         detail = "; ".join(f"{u['matches']} match {u['name']!r}" for u in unmatched)
-        return {
-            "ok": False,
-            "error": (f"{detail}; refusing to guess which Key Event this assay measures"),
-            "candidates": candidates,
-        }
+        error = f"{detail}; refusing to guess which Key Event this assay measures"
+        if unlisted:
+            error += (
+                f" — AOP-Wiki gave no key events for {', '.join(unlisted)}, so they "
+                "were not among those compared; try again when AOP-Wiki answers"
+            )
+        return {"ok": False, "error": error, "candidates": candidates, **outage}
 
     # Union with what is already recorded: a second answer adds to the first.
     # `set_fields` normalises a `{"@id": …}` reference down to the bare id, so
@@ -996,6 +1009,7 @@ def link_assay_to_key_event(
     if unmatched:
         result["unmatched"] = unmatched
         result["candidates"] = candidates
+    result.update(outage)
     return result
 
 

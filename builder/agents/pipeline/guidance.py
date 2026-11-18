@@ -314,7 +314,8 @@ def _key_event_candidates(engine: AgentEngine) -> list[dict[str, str]]:
     not on this list cannot be resolved to an entity anyway.
     """
     out: list[dict[str, str]] = []
-    for event in key_event_candidates(engine.state):
+    events, _unlisted = key_event_candidates(engine.state)
+    for event in events:
         name = str(event.get("name") or "").strip()
         if not name:
             continue
@@ -759,6 +760,16 @@ def _apply_key_event_value(
         logger.warning("Could not link the key event %r: %s", text, exc)
         return False
 
+    # The options are read from AOP-Wiki when the question is asked. While it
+    # gives no events for the crate's pathway they lack that pathway's events, so
+    # an answer that matches none of them is not the user's wording at fault.
+    unlisted = bool(isinstance(result, dict) and result.get("unlisted_pathways"))
+    outage = (
+        " AOP-Wiki returned no key events for this crate's pathway, so its events "
+        "were not among them; try again when AOP-Wiki answers."
+        if unlisted
+        else ""
+    )
     if isinstance(result, dict) and result.get("ok"):
         # A partly-resolved answer is progress, but the reader is told which
         # names went nowhere rather than left assuming all of them landed.
@@ -767,20 +778,19 @@ def _apply_key_event_value(
             _notify(
                 human,
                 f"linked {len(result.get('key_event_ids') or [])} key event(s); "
-                f"{', '.join(unmatched)} did not name one to choose from and was not stored.",
+                f"{', '.join(unmatched)} did not name one to choose from and was not stored."
+                + outage,
             )
         return True
 
     offered = result.get("candidates") or [] if isinstance(result, dict) else []
     candidates = [str(c.get("name")) for c in offered if isinstance(c, dict) and c.get("name")]
     if not candidates:
-        # The options are read from AOP-Wiki when the question is asked, so an
-        # empty list is its own answer, and it is not the user's wording at fault.
         _notify(
             human,
             (
                 "AOP-Wiki returned no key events for this crate's pathway"
-                if engine.state.list_entities("AdverseOutcomePathway")
+                if unlisted
                 else "this crate names no pathway whose key events could be listed"
             )
             + f", so there is nothing to match '{text}' against and your answer was not stored.",
@@ -789,7 +799,7 @@ def _apply_key_event_value(
     _notify(
         human,
         f"'{text}' does not name exactly one of the key events to choose from, so "
-        f"your answer was not stored. They are: {', '.join(candidates)}.",
+        f"your answer was not stored. They are: {', '.join(candidates)}." + outage,
     )
     return False
 

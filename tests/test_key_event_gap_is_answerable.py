@@ -368,6 +368,26 @@ class TestAnAnswerStoresTheEventItNames:
         assert "keyEvent" not in _assay(pathway_engine).fields
         assert "AOP-Wiki returned no key events" in human.notes[0]
 
+    def test_the_user_is_told_when_only_held_events_could_be_compared(
+        self, pathway_engine, monkeypatch
+    ):
+        """With AOP-Wiki down, only the events the crate holds are compared, so an
+        answer naming another event of the pathway is not refused for its wording."""
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+
+        link_assay_to_key_event(pathway_engine.state, "a1", "Inhibition, MCT8")
+        monkeypatch.setattr(tool_lookups, "lookup_aop", _gives_nothing)
+        human = _Listening()
+
+        answer = "Altered, white brain matter"
+        assert _apply_value(pathway_engine, self._gap(), answer, human=human) is False
+
+        assert _assay(pathway_engine).fields["keyEvent"] == _MCT8
+        assert "Inhibition, MCT8" in human.notes[0]
+        assert "AOP-Wiki returned no key events" in human.notes[0]
+
 
 class TestTheChoiceStaysTheScientists:
     def test_the_prompt_offers_rather_than_answers(self, engine):
