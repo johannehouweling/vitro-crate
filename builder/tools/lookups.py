@@ -323,9 +323,13 @@ def lookup_cell_line_by_name(name: str) -> dict[str, Any]:
         return _failure(f"Cellosaurus name search failed: {exc}")
 
 
-@functools.lru_cache(maxsize=256)
 def lookup_aop(aop_id: str) -> dict[str, Any]:
     """Look up an Adverse Outcome Pathway by its AOP-Wiki identifier.
+
+    An answer is cached for the life of the process; a transient failure is not,
+    so the next call asks AOP-Wiki again. A Key Event is matched against the
+    events AOP-Wiki lists for the crate's pathway when the question is put, so a
+    kept outage would refuse every later match although AOP-Wiki answers again.
 
     Args:
         aop_id: Numeric AOP identifier, e.g. "610" or 42.
@@ -337,15 +341,32 @@ def lookup_aop(aop_id: str) -> dict[str, Any]:
             error: Error message or None on success.
     """
     try:
-        result = lookup_aop_wiki(str(aop_id))
+        return _lookup_aop_answer(str(aop_id))
+    except TransientLookupError as exc:
+        return _failure(f"AOP-Wiki unavailable (transient): {exc}", transient=True)
+
+
+@functools.lru_cache(maxsize=256)
+def _lookup_aop_answer(aop_id: str) -> dict[str, Any]:
+    """AOP-Wiki's answer for :func:`lookup_aop`, cached.
+
+    A transient failure is raised rather than returned, so ``lru_cache`` keeps no
+    record of it.
+    """
+    try:
+        result = lookup_aop_wiki(aop_id)
         if result and result.get("aop"):
             return _success(result)
         return _failure(f"AOP '{aop_id}' not found in AOP-Wiki")
-    except TransientLookupError as exc:
-        return _failure(f"AOP-Wiki unavailable (transient): {exc}", transient=True)
+    except TransientLookupError:
+        raise
     except Exception as exc:
         logger.exception("AOP-Wiki lookup failed for '%s'", aop_id)
         return _failure(f"AOP-Wiki lookup failed: {exc}")
+
+
+# Expose the answer cache so tests can clear it like the other lookups.
+lookup_aop.cache_clear = _lookup_aop_answer.cache_clear  # ty: ignore[unresolved-attribute]
 
 
 @functools.lru_cache(maxsize=256)

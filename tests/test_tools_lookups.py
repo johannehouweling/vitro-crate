@@ -420,7 +420,7 @@ class TestLookupAOP:
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self):
-        lookup_aop.cache_clear()
+        lookup_aop.cache_clear()  # ty: ignore[unresolved-attribute]
         yield
 
     def test_returns_correct_structure_on_success(self, monkeypatch):
@@ -486,6 +486,52 @@ class TestLookupAOP:
         result = lookup_aop("42")
         assert result["found"] is True
         assert result["data"]["aop"]["identifier"] == "42"
+
+    def test_an_answer_is_kept_for_the_next_call(self, monkeypatch):
+        calls: list[str] = []
+
+        def mock_lookup_aop(aop_id):
+            calls.append(aop_id)
+            return {
+                "aop": {"name": "AOP 610", "identifier": "610"},
+                "events": [],
+                "relationships": [],
+            }
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop)
+        lookup_aop("610")
+        result = lookup_aop("610")
+        assert result["found"] is True
+        assert calls == ["610"]
+
+    def test_a_transient_failure_is_not_kept(self, monkeypatch):
+        """An outage is no answer, so the next call asks AOP-Wiki again.
+
+        A Key Event is matched against the events AOP-Wiki lists for the crate's
+        pathway when the question is put. A kept outage would refuse every later
+        match in the process, although AOP-Wiki answers again.
+        """
+        from lookups._http import TransientLookupError
+
+        calls: list[str] = []
+
+        def mock_lookup_aop(aop_id):
+            calls.append(aop_id)
+            if len(calls) == 1:
+                raise TransientLookupError("503 Service Unavailable")
+            return {
+                "aop": {"name": "AOP 610", "identifier": "610"},
+                "events": [],
+                "relationships": [],
+            }
+
+        monkeypatch.setattr("builder.tools.lookups.lookup_aop_wiki", mock_lookup_aop)
+        first = lookup_aop("610")
+        second = lookup_aop("610")
+        assert first["found"] is False
+        assert first["transient"] is True
+        assert second["found"] is True
+        assert calls == ["610", "610"]
 
 
 class TestLookupBAOTerm:

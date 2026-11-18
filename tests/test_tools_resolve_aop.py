@@ -87,7 +87,7 @@ def _offline_aop(monkeypatch):
     from builder.tools import lookups as tool_lookups
 
     monkeypatch.setattr(tool_lookups, "lookup_aop", _lookup_aop)
-    tool_lookups.lookup_aop.cache_clear()
+    tool_lookups.lookup_aop.cache_clear()  # ty: ignore[unresolved-attribute]
     yield
     aopwiki.lookup_aop.cache_clear()
     aopwiki._event_details.cache_clear()
