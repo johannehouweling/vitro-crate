@@ -242,6 +242,27 @@ class TestWhatTheRecordCarriedIsOnTheDocument:
         assert document["name"] == "SOP.docx", "the document keeps its own name"
         assert _texts(document["alternateName"]) == ["Readout procedure"]
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("url", {"@id": "https://www.protocols.io/view/readout"}),
+            ("url", ["https://www.protocols.io/view/readout", "https://lab.example/readout"]),
+            ("description", ["Read at 450 nm.", "Read again at 620 nm."]),
+        ],
+        ids=["a url as a reference", "two urls", "a description in two parts"],
+    )
+    def test_a_statement_that_is_no_text_reaches_the_document(self, field, value):
+        """``set_fields`` stores a reference or a list as readily as a text, and the
+        record carried such a statement as the lab made it."""
+        state = _state()
+        _document(state, "sop", SOP, assay="assay_1")
+        stated = {"name": "Readout procedure", "description": "Read at 450 nm.", field: value}
+        state.add_entity(_ent("stated", "LabProtocol", **stated))
+        _step(state, "read", "EndpointReadout", labprotocol="stated")
+        nodes = _nodes(state)
+        assert _ids(nodes["#LabProcess_read"]["executesLabProtocol"]) == [SOP]
+        assert nodes[SOP][field] == value
+
     def test_a_description_the_document_has_is_kept(self):
         """The precedent of ``draft_protocol``: only an empty field is filled. A
         description the build derived from the file's content is recorded with the
@@ -386,6 +407,34 @@ class TestStepsShareADocumentOnlyWhenTheyAgree:
             "https://www.protocols.io/view/a",
             "https://www.protocols.io/view/b",
         )
+        assert "url" not in nodes[self.CULTURE]
+
+    def test_steps_that_state_one_url_as_a_reference_execute_the_document(self):
+        page = {"@id": "https://www.protocols.io/view/a"}
+        state = self._two_cultures({"labprotocol": "first"}, labprotocol="second")
+        for entity_id in ("first", "second"):
+            state.add_entity(
+                _ent(entity_id, "LabProtocol", name="Growth", description="DMEM.", url=dict(page))
+            )
+        nodes = _nodes(state)
+        for step in ("#LabProcess_tsp_1", "#LabProcess_tsp_2"):
+            assert _ids(nodes[step]["executesLabProtocol"]) == [self.CULTURE]
+        assert nodes[self.CULTURE]["url"] == page
+
+    def test_steps_that_state_different_links_keep_their_records(self):
+        """Statements that are no text are compared as they were made."""
+        state = self._two_cultures({"labprotocol": "first"}, labprotocol="second")
+        links = {
+            "first": ["https://www.protocols.io/view/a", "https://www.protocols.io/view/b"],
+            "second": {"@id": "https://www.protocols.io/view/a"},
+        }
+        for entity_id, url in links.items():
+            state.add_entity(
+                _ent(entity_id, "LabProtocol", name="Growth", description="DMEM.", url=url)
+            )
+        nodes = _nodes(state)
+        first, second = self._records(nodes, "#LabProcess_tsp_1", "#LabProcess_tsp_2")
+        assert (first["url"], second["url"]) == (links["first"], links["second"])
         assert "url" not in nodes[self.CULTURE]
 
     def test_what_one_step_states_is_written_for_all_that_execute_the_document(self):
