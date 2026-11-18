@@ -184,6 +184,35 @@ class TestTheAcceptedLabellingIsReadFirst:
 
         assert _folders(state) == {_key(assay): "Assay_OATP1C1"}
 
+    def test_a_file_in_a_folder_that_is_no_assays_is_no_file_against_the_only_one(self) -> None:
+        """Nor does a protocol in a folder of its own, which no assay folder holds."""
+        state = deposit_state("Assay_X/a.csv", "protocols/sop.docx")
+        _study, (assay,) = backbone(state, "Uptake")
+        _place_files(state, assay, "protocols/sop.docx")
+        state.deposit_structure = structure(".", "Assay_X")
+
+        assert _folders(state) == {_key(assay): "Assay_X"}
+
+    def test_the_only_assay_folder_goes_to_the_assay_whose_files_lie_in_it(self) -> None:
+        """With two Assays the count pairs neither of them with the folder, and the
+        files of the first say that it is the first's."""
+        state = deposit_state("Assay_X/a.csv", "README.txt")
+        _study, (first, _second) = backbone(state, "First", "Second")
+        place(state, first, "Assay_X")
+        state.deposit_structure = structure(".", "Assay_X")
+
+        assert _folders(state) == {_key(first): "Assay_X"}
+
+    def test_a_labelled_folder_the_scan_did_not_see_is_none(self) -> None:
+        state = deposit_state("Assay_X/a.csv", "README.txt")
+        _study, (assay,) = backbone(state, "Uptake")
+        state.deposit_structure = structure(".", "Assay_X")
+        assert _folders(state) == {_key(assay): "Assay_X"}
+
+        state.scanned_files = []
+
+        assert _folders(state) == {}
+
     def test_each_assay_takes_the_assay_folder_its_files_lie_in(self) -> None:
         state = deposit_state("s/README.txt", "s/a1/x.csv", "s/a2/y.csv")
         study, (first, second) = backbone(state, "First", "Second")
@@ -266,6 +295,28 @@ class TestAFolderIsOneEntitysAlone:
         _place_files(state, second, "cell_line_protocols/sk.docx")
 
         assert _folders(state) == {}
+
+    def test_an_assay_takes_no_folder_that_holds_a_file_of_another(self) -> None:
+        """The other Assay has no folder of its own, and a file of it lies in this
+        one's."""
+        state = deposit_state("x/a.csv", "x/b.csv", "y/c.csv")
+        _study, (first, second) = backbone(state, "First", "Second")
+        _place_files(state, first, "x/a.csv")
+        _place_files(state, second, "x/b.csv", "y/c.csv")
+
+        assert _folders(state) == {}
+
+    def test_a_study_takes_no_folder_that_holds_a_file_of_another_studys_assay(self) -> None:
+        state = deposit_state("s/README.txt", "s/a1/x.csv", "s/x.csv", "t/y.csv")
+        study, (own,) = backbone(state, "Own")
+        investigation = state.list_entities("Investigation")[0]
+        other = draft_study(state, investigation.entity_id, {"name": "Other"})
+        foreign = draft_assay(state, other.entity_id, {"name": "Foreign"})
+        _place_files(state, study, "s/README.txt")
+        place(state, own, "s/a1")
+        _place_files(state, foreign, "s/x.csv", "t/y.csv")
+
+        assert _folders(state) == {_key(own): "s/a1"}
 
     def test_an_assay_inside_the_folder_of_another_leaves_both_without_one(self) -> None:
         state = deposit_state("x/a.csv", "x/sub/b.csv")
