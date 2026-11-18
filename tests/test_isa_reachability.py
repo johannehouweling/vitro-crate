@@ -19,7 +19,8 @@ our side instead: a structural entity this crate mints must be reachable from th
 root by a directed walk — "referenced by something" is not enough, because an
 island references its own members (#738). An entity named by an absolute URI is
 described here but lives elsewhere, the same line #530 draws for the payload, so
-it is excluded — except the AOP head, which stands for the subgraph under it.
+it is excluded — except the pathway, which is in the crate only as the one a Study
+addresses.
 """
 
 from __future__ import annotations
@@ -147,8 +148,8 @@ class TestVerifyIsaReachability:
         nothing pointing at it. That is a record of an external thing, not a
         hole in this crate's backbone — the same line #530 draws for the
         payload — and a characteristic it carries (a passage, a cell type) is
-        its own description, reached through it alone. Only the AOP head, which
-        stands for the subgraph the crate mints under it, is the exception (#738).
+        its own description, reached through it alone. Only the pathway, which is
+        in the crate as the one a Study addresses, is the exception (#738).
         """
         term = "http://purl.obolibrary.org/obo/NCIT_C16403"
         doc = _doc(
@@ -199,10 +200,12 @@ class TestVerifyIsaReachability:
 
 
 class TestAnAopIslandIsDetached:
-    """`materialize_aop_subgraph("610")` with no Study: 36 nodes attached to nothing (#738).
+    """A pathway written with no Study to mention it: 36 nodes attached to nothing (#738).
 
-    Every KeyEvent is referenced — by the head, inside the island — and every id
+    Every KeyEvent was referenced — by the head, inside the island — and every id
     is an AOP-Wiki IRI, so "referenced by anything, local ids only" saw nothing.
+    The graph below is such a crate. One written now holds the head without its
+    events, and the head is reported the same way.
     """
 
     _HEAD = "https://aopwiki.org/aops/610"

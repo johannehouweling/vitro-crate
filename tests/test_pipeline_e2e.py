@@ -439,7 +439,7 @@ class TestPipelineE2EConformanceAndFidelity:
         protocol section (asserted directly in
         :meth:`test_fidelity_expected_entity_types_present`); the summed-count bar is
         kept here as the honest, non-drifting aggregate fidelity floor. (The spine
-        over-delivers on the chain, files, AOP subgraph, and now the protocol.)
+        over-delivers on the chain, files, and now the protocol.)
         """
         from builder.agents.pipeline.pipeline import run_pipeline
 
