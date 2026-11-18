@@ -436,6 +436,21 @@ class TestADraftedPersonTakesTheOrcidTheDepositStates:
         assert not person.fields.get("orcid")
         assert HAMERS["orcid"] not in orcid.asked
 
+    @pytest.mark.parametrize(
+        "hints", [{}, {"givenName": "Daniëlle", "familyName": "Westerbeek"}], ids=["split", "given"]
+    )
+    def test_the_person_keeps_the_name_the_deposit_states(
+        self, monkeypatch: pytest.MonkeyPatch, hints: dict[str, str]
+    ) -> None:
+        """Only the iD is taken. ORCID may spell the name otherwise, and the crate states the
+        name as the deposit does."""
+        stated = {"name": "Daniëlle Westerbeek", "orcid": "0000-0001-6004-8653"}
+        _orcid(monkeypatch, {stated["orcid"]: ("Danielle", "Westerbeek")})
+        person = draft_person(_stating(stated), stated["name"], dict(hints))
+        assert person.entity_id == "https://orcid.org/0000-0001-6004-8653"
+        names = (person.fields["name"], person.fields["givenName"], person.fields["familyName"])
+        assert names == ("Daniëlle Westerbeek", "Daniëlle", "Westerbeek")
+
     def test_one_orcid_written_two_ways_is_one_orcid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The record may give a person's ORCID bare in one place and as its address in
         another: that is one ORCID, not two."""
