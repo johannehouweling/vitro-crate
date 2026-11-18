@@ -396,7 +396,7 @@ class TestWhoseFindingItIs:
 
 class TestAnUnnamedFolderIsCalledByItsName:
     def test_the_last_part_of_the_folder_is_what_a_reader_is_shown(self) -> None:
-        """As the deposit spells it, so that a reader finds it there."""
+        """It is shown as the deposit spells it, so that a reader finds it there."""
         from builder.tools.remediation import _entity_label
 
         assert _entity_label("./assay_01_TH_uptake/", {}) == "assay_01_TH_uptake"

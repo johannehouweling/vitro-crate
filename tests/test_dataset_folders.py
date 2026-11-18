@@ -185,7 +185,8 @@ class TestTheAcceptedLabellingIsReadFirst:
         assert _folders(state) == {_key(assay): "Assay_OATP1C1"}
 
     def test_a_file_in_a_folder_that_is_no_assays_is_no_file_against_the_only_one(self) -> None:
-        """Nor does a protocol in a folder of its own, which no assay folder holds."""
+        """A protocol in a folder that no assay folder holds confirms no assay folder
+        and refutes none either."""
         state = deposit_state("Assay_X/a.csv", "protocols/sop.docx")
         _study, (assay,) = backbone(state, "Uptake")
         _place_files(state, assay, "protocols/sop.docx")
