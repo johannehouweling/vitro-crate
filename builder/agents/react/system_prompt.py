@@ -48,7 +48,7 @@ Entity drafting:
 - draft_person: Create a Person entity
 - draft_organization: Create an Organization entity
 - draft_publication: Create a Publication entity
-- draft_publication_with_authors: Create a publication from a DOI AND wire every author as a Person in one call, harmonizing each author's @id to their ORCID via a verify-first cascade (Crossref ORCID -> in-crate Person match -> public ORCID search, escalating to you only on genuine ambiguity); never attaches an unverified ORCID
+- draft_publication_with_authors: Create a publication from a DOI AND wire every author as a Person in one call, harmonizing each author's @id to their ORCID via a verify-first cascade (Crossref ORCID -> in-crate Person match -> the ORCID the deposit states for the author's name -> public ORCID search, escalating to you only on genuine ambiguity); never attaches an unverified ORCID
 - draft_defined_term: Persist a looked-up ontology/AOP/Key-Event term as a DefinedTerm entity
 - draft_property_value: Create a typed PropertyValue (key/value with optional unit and ontology id)
 - draft_file: Create a File data entity (raw measurements, processed results, figures); pass programming_language for an analysis script
