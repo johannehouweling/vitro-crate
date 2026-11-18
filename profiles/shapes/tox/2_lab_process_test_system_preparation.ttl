@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # LabProcess - Test System Preparation: prepares the test system from its source cells.
-# A LabProcess whose protocol record's intendedUse is a preparation term: growth
+# A LabProcess whose executed protocol's intendedUse is a preparation term: growth
 # protocol (EFO:0003789), transfection (OBI:0001152) or cell differentiation
 # (GO:0030154). The additionalType labels "TestSystemPreparation" and "CellCulture"
 # are read as aliases.

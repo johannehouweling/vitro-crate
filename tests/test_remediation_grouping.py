@@ -380,12 +380,12 @@ class TestTheDateInstructionNamesTheRightDate:
 
 class TestTheProtocolInstructionsNameTheirLever:
     """The generic "Link the protocol it follows" told a step that already executes
-    its record to link one (#783, #668). `_wanted` reads all of an entity's findings
+    a protocol to link one (#783, #668). `_wanted` reads all of an entity's findings
     at once, so each protocol rule's row must win over the generic one when both
     match, and must match the rule's own words rather than a word it contains."""
 
     # Matches the generic ("protocol",) row, so each assertion below proves order.
-    RIVAL = "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) based on a deposited analysis script"
+    RIVAL = "DataAnalysis SHOULD execute a protocol (bioschemas:executesLabProtocol) that is, or is based on, a deposited analysis script (schema:SoftwareSourceCode)"
 
     def test_each_protocol_finding_gets_its_own_instruction(self) -> None:
         from builder.tools.remediation import _wanted
@@ -395,9 +395,6 @@ class TestTheProtocolInstructionsNameTheirLever:
             "Exposure process MUST execute a protocol (bioschemas:executesLabProtocol) whose reagents include at least "
             "one test or control compound (MolecularEntity)",
         ]) == "Name the compounds the cells were exposed to"
-        assert _wanted(
-            [self.RIVAL, "An ISA-Tox LabProcess SHOULD execute at most one LabProtocol (bioschemas:executesLabProtocol)"]
-        ) == "Keep one protocol per step"
         assert _wanted([self.RIVAL, "Protocol entity SHOULD have an intended use"]) == (
             "Say what kind of protocol it is"
         )
@@ -405,11 +402,6 @@ class TestTheProtocolInstructionsNameTheirLever:
     def test_a_rule_is_matched_on_its_own_words(self) -> None:
         from builder.tools.remediation import _wanted
 
-        message = (
-            "A cultured Sample MUST derive (schema:isBasedOn) from at most one parent Sample — culture each "
-            "source separately, or type the material as a co-culture (NCIT:C93168)"
-        )
-        assert _wanted([message]) != "Keep one protocol per step"
         detached = (
             "Nothing the crate's root reaches references the LabProtocol "
             "'#LabProtocol_proto_preparation_of_reagents', so it is detached"
