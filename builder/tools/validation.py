@@ -451,7 +451,7 @@ def _local_name(iri: str | None) -> str:
 # (profiles/shapes/tox/6_study_aop.ttl, 7_assay_key_event.ttl). Both are reported
 # on `schema:mentions`, and a value typed into that property is a link with no
 # entity behind it: the pathway and the key event are looked up and stored by
-# the tool, which sets the link itself.
+# the tool, which sets the link itself. Each tool takes the id the finding gives.
 _TOOL_FIXES: tuple[tuple[str, str], ...] = (
     (
         "reference its Adverse Outcome Pathway",

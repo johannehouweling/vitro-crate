@@ -759,7 +759,8 @@ def resolve_aop(
     Args:
         state: The crate state to materialise into.
         aop_id: Numeric AOP-Wiki identifier, e.g. ``"610"``.
-        study_id: entity_id of the Study to wire the AOP onto; defaults to the
+        study_id: entity_id of the Study to wire the AOP onto, or the id the crate
+            gives it, which is how a validation finding names it; defaults to the
             sole Study when exactly one exists.
 
     Returns:
@@ -770,6 +771,7 @@ def resolve_aop(
         ``{"ok": False, "error": ...}``.
     """
     from builder.tools.lookups import lookup_aop
+    from builder.tools.management import resolve_entity_id
 
     if not study_id:
         studies = state.list_entities("Study")
@@ -798,7 +800,7 @@ def resolve_aop(
 
     wired_to_study: str | None = None
     if study_id and aop_entity is not None:
-        study = state.get_entity(study_id)
+        study = state.get_entity(resolve_entity_id(state, study_id))
         if study is not None and study.type == "Study":
             existing_refs = study.fields.get("aop") or []
             if not isinstance(existing_refs, list):
@@ -809,7 +811,7 @@ def resolve_aop(
                 existing_refs = [*existing_refs, ref]
             study.fields["aop"] = existing_refs
             study.set_field_status("aop", "filled", "lookup")
-            wired_to_study = study_id
+            wired_to_study = study.entity_id
 
     return {
         "aop_id": str(aop_id),
@@ -921,7 +923,8 @@ def link_assay_to_key_event(
 
     Args:
         state: The crate state holding the Assay and the pathway it belongs to.
-        assay_id: ``entity_id`` of the Assay.
+        assay_id: ``entity_id`` of the Assay, or the id the crate gives it, which
+            is how a validation finding names it.
         event_name: One Key Event name, or several.
 
     Returns:
@@ -932,8 +935,9 @@ def link_assay_to_key_event(
         carries ``unlisted_pathways`` while AOP-Wiki gives no key events for a
         pathway in the crate.
     """
-    from builder.tools.management import set_fields
+    from builder.tools.management import resolve_entity_id, set_fields
 
+    assay_id = resolve_entity_id(state, assay_id)
     assay = state.get_entity(assay_id)
     if assay is None or assay.type != "Assay":
         return {"ok": False, "error": f"Assay not found: {assay_id!r}", "candidates": []}
