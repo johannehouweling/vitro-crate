@@ -669,6 +669,13 @@ class CrateMetadata:
     # "identifier": <grant number>}`` per statement, either key absent when unstated.
     # The build writes the funder as an Organization and the grant as a Grant.
     funding: list[dict[str, str]] = field(default_factory=list)
+    # The people and organisations the deposit identifies, as it states them: one
+    # ``{"name": <name>, "orcid": <ORCID iD>}`` per person and one ``{"name": <name>,
+    # "ror": <ROR id>}`` per organisation, and nothing else of them. Drafting a Person
+    # or an Organization of exactly that name takes the identifier once its registry
+    # confirms it.
+    people: list[dict[str, str]] = field(default_factory=list)
+    organizations: list[dict[str, str]] = field(default_factory=list)
     input_path: str | None = None
     output_path: str | None = None
     # When the crate was last written to ``output_path`` (ISO-8601, local tz).
@@ -706,6 +713,10 @@ class CrateMetadata:
             d["doi"] = self.doi
         if self.funding:
             d["funding"] = [dict(stated) for stated in self.funding]
+        if self.people:
+            d["people"] = [dict(stated) for stated in self.people]
+        if self.organizations:
+            d["organizations"] = [dict(stated) for stated in self.organizations]
         if self.input_path is not None:
             d["input_path"] = self.input_path
         if self.output_path is not None:
@@ -735,6 +746,10 @@ class CrateMetadata:
             license_from_deposit=bool(data.get("license_from_deposit", False)),
             doi=data.get("doi"),
             funding=[dict(f) for f in data.get("funding") or [] if isinstance(f, dict)],
+            people=[dict(p) for p in data.get("people") or [] if isinstance(p, dict)],
+            organizations=[
+                dict(o) for o in data.get("organizations") or [] if isinstance(o, dict)
+            ],
             input_path=data.get("input_path"),
             output_path=data.get("output_path"),
             exported_at=data.get("exported_at"),
