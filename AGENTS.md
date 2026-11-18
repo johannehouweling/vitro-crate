@@ -1049,6 +1049,11 @@ names resolving to the same `pubchem_cid` can no longer mint the same `@id` (whi
 ro-crate-py silently overwrites — data loss). When the record carries no identity
 field, it falls back to name-keyed reuse so re-running the same name still reuses
 the entity rather than duplicating it.
+Two chemicals that still mint one `@id` at build time, as two names do when the
+Compound Wiki holds them as one item, are written as one node
+(`_crate_mapping._add_leaves`): the first in state describes it, with its name and
+identifiers; of each later one only the name is written, as an `alternateName`;
+and a reference to either reaches it.
 
 `resolve_cell_line` (Issue #372) is the cell-line counterpart of
 `resolve_compound`, and the deterministic arm's **only** name→Cellosaurus path.
@@ -1268,7 +1273,12 @@ PubChem CID's is `{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`; DTXSID's 
 `compoundwiki_id` gains a fourth, `Compound Wiki` (`propertyID`
 `{"@id": https://compoundcloud.wikibase.cloud/entity}`); `resolve_compound` finds that
 id by the InChIKey the lookup returned, an exact statement search on the wiki, and
-keeps none when two items state one InChIKey (D5). These source fields
+keeps none when two items state one InChIKey (D5). A `compoundwiki_id` a caller
+hands in as a hint is written as the caller's, and the wiki is then not asked. The
+id the wiki gives for an InChIKey the caller handed in, where the lookup returned
+none, is the caller's as well. Only the wiki's answer for the lookup's own InChIKey
+is recorded as looked up, and such an id is also the chemical's `@id` (§10); any
+other is an identifier value and nothing more. These source fields
 are consumed structurally (kept off the node as raw literals). A Person's
 `affiliation` and a Publication's `author` are resolved to `{"@id"}` references
 (via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so
@@ -2046,6 +2056,25 @@ identifier the lookup actually produced over a local fragment (Issue #179, D5:
 never fabricated; a compound with no `pubchem_cid` and no ChEBI identity still
 falls back to the fragment). `pubchem_cid` (the PubChem compound URL) still wins
 when both are present.
+
+**A chemical is identified by its Compound Wiki address.** Where `resolve_compound`
+found the chemical's item (the one item that states the InChIKey the lookup
+returned, §5), the `MolecularEntity`'s `@id` is that item's address,
+`https://compoundcloud.wikibase.cloud/entity/Q<n>`. The PubChem compound URL is the
+`@id` only of a chemical the wiki has no item for, and the ChEBI PURL and the
+fragment follow as above. The id must be one a lookup wrote, which its completion
+record says (`_crate_mapping._compound_wiki_iri`): a `compoundwiki_id` a model or a
+person wrote is still written as an identifier value and never becomes the `@id`
+(D5). Nor does an address on the wiki that the chemical was given as its own id: the
+chemical then keeps a local id, and a reference holding that id still reaches it.
+The item a name search hits in `lookup_compound`'s fallback does not count
+either; it stays the chemical's `sameAs`, and is the `@id` instead only when the
+InChIKey search finds it too. The identifier values (CAS, PubChem CID, DTXSID,
+Compound Wiki) are the same whichever address the chemical has. An unreachable wiki
+reads as no item, so the chemical then keeps its PubChem address. A reference that
+holds one of a chemical's addresses rather than its state id, such as the PubChem
+address it had before the wiki named it, resolves to the chemical's node
+(`_crate_mapping._compound_addresses`).
 
 ### Anti-Hallucination
 The agent **never fabricates identifiers**. Every identifier is verified against its source. If verification fails, the field is cleared and the agent tries alternatives or asks the user.
@@ -3490,6 +3519,8 @@ ledger", #399). The sequence:
    configured — that gate is what keeps the no-provider path both deterministic and
    offline. Whatever is still missing comes back as `unresolved_compounds` so the
    summary can say so out loud (#338).
+   A compound the retry resolves keeps the Compound Wiki id it was given, recorded
+   as looked up, so it is identified by that item like one resolved at first.
    Behind the same gate the spine then calls `resolve_characteristic_terms` once.
    `resolve_cell_line` looks up the terms of what the plan states, but the drafter
    states an organ or a tissue afterwards, so this is where those words get the

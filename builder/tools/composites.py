@@ -2009,6 +2009,9 @@ def resolve_compound(
         hints: Optional extra descriptive field values for the MolecularEntity
             (e.g. ``{"description": ...}``). Looked-up identifier fields win over
             same-named hints so the verified source value is never overwritten.
+            A ``compoundwiki_id`` among them is recorded as the caller's, so it is
+            an identifier value and never the chemical's ``@id``, and the wiki is
+            then not asked.
         verify: When ``None``/``True`` (the default), verify the minted
             identifiers against source. Pass ``False`` to skip verification (the
             return then reports ``verified`` as ``None``); use only when you will
@@ -2079,6 +2082,10 @@ def resolve_compound(
     # Identifier/source fields win over caller hints so a verified value from the
     # source is never clobbered by a (possibly stale) hint.
     merged_hints: dict[str, Any] = dict(hints or {})
+    # A Compound Wiki id the caller hands in is theirs, never the wiki's answer,
+    # however the entity is chosen below: the build takes only a looked-up one as
+    # the chemical's @id (D5). It is written as theirs once the entity is chosen.
+    handed_in_wiki_id = merged_hints.pop("compoundwiki_id", None)
     # Tracked separately from the merged hints so the values the AUTHORITY
     # supplied can be recorded as such. Everything else in ``merged_hints`` is
     # the caller's (a plan value, a model-drafted hint) and keeps that origin.
@@ -2129,6 +2136,8 @@ def resolve_compound(
             # above, which already record these as ``"lookup"`` (#424).
             if looked_up:
                 entity.set_fields_from_dict(looked_up, source="lookup")
+    if handed_in_wiki_id is not None:
+        entity.set_fields_from_dict({"compoundwiki_id": handed_in_wiki_id}, source="llm")
 
     # Best-effort EPA DTXSID enrichment (#179). DTXSID is a first-class ISA-Tox
     # chemical identifier that the deterministic pipeline otherwise never
@@ -2156,17 +2165,22 @@ def resolve_compound(
             if dtxsid:
                 entity.set_fields_from_dict({"dtxsid": dtxsid}, source="lookup")
 
-    # The Compound Wiki id, found by the InChIKey the lookup returned: an exact
-    # statement on the wiki's item, so never a name guess (D5). Enrichment like
-    # the DTXSID above, so a miss or an outage is non-fatal.
-    if not entity.fields.get("compoundwiki_id") and entity.fields.get("inchikey"):
+    # The Compound Wiki id, found by the chemical's InChIKey: an exact statement on
+    # the wiki's item, so never a name guess (D5). Only the item of the structure
+    # the lookup returned is a looked-up id, which the build takes as the
+    # chemical's @id; the item of an InChIKey the caller handed in is theirs. A
+    # miss or an outage is non-fatal, as for the DTXSID above: the chemical then
+    # keeps its PubChem address.
+    inchikey = entity.fields.get("inchikey")
+    if not entity.fields.get("compoundwiki_id") and inchikey:
         try:
-            wiki_id = compound_wiki_id(str(entity.fields["inchikey"]))
+            wiki_id = compound_wiki_id(str(inchikey))
         except Exception:
             logger.debug("Compound Wiki id lookup failed for '%s'", display_name, exc_info=True)
             wiki_id = ""
         if wiki_id:
-            entity.set_fields_from_dict({"compoundwiki_id": wiki_id}, source="lookup")
+            source = "lookup" if inchikey == data.get("inchikey") else "llm"
+            entity.set_fields_from_dict({"compoundwiki_id": wiki_id}, source=source)
 
     identifiers = {
         key: data[key] for key in _COMPOUND_IDENTIFIER_FIELDS if data.get(key) not in (None, "")

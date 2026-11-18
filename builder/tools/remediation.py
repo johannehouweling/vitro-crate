@@ -234,6 +234,7 @@ _IRI_PHRASING: tuple[tuple[str, str], ...] = (
     ("https://doi.org/", "the publication with DOI {}"),
     ("https://www.cellosaurus.org/", "the cell line {}"),
     ("https://pubchem.ncbi.nlm.nih.gov/compound/", "the compound with PubChem CID {}"),
+    ("https://compoundcloud.wikibase.cloud/entity/", "the compound with Compound Wiki id {}"),
 )
 
 # Type prefixes on a minted fragment id. `_make_entity_id` builds

@@ -304,6 +304,248 @@ class TestResolveCompoundWikiId:
         assert "compoundwiki_id" not in _by_type(state, "MolecularEntity")[0].fields
 
 
+class TestOnlyTheWikiGivesACompoundWikiId:
+    """Only the Compound Wiki id the wiki gives is recorded as looked up (D5).
+
+    One the caller hands in is written as theirs, an identifier value that no
+    lookup wrote, and the wiki is not asked over it, as before. One typed onto the
+    entity beforehand stays what it was in the same way.
+    """
+
+    @staticmethod
+    def _wiki_id(state: CrateState) -> tuple[str | None, str | None]:
+        """The id on the one chemical in *state*, and what is recorded as its source."""
+        (mol,) = _by_type(state, "MolecularEntity")
+        status = mol.get_field_status("compoundwiki_id")
+        return mol.fields.get("compoundwiki_id"), status.source if status is not None else None
+
+    def test_the_id_the_wiki_gives_is_recorded_as_looked_up(self, offline_lookup, monkeypatch):
+        monkeypatch.setattr(composites, "compound_wiki_id", lambda key: "Q1881")
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._wiki_id(state) == ("Q1881", "lookup")
+
+    def test_an_id_the_caller_hands_in_is_written_as_theirs(self, offline_lookup):
+        state = CrateState()
+        result = resolve_compound(
+            state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"}
+        )
+        assert self._wiki_id(state) == ("Q2026", "llm")
+        assert result["identifiers"]["compoundwiki_id"] == "Q2026"
+
+    def test_the_wiki_is_not_asked_over_an_id_the_caller_hands_in(
+        self, offline_lookup, monkeypatch
+    ):
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q1881"
+        )
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert seen == []
+        assert self._wiki_id(state) == ("Q2026", "llm")
+
+    def test_resolving_again_does_not_record_a_handed_in_id_as_looked_up(self, offline_lookup):
+        """A resolve that reuses the entity records only what the lookup gave as looked up."""
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert self._wiki_id(state) == ("Q2026", "llm")
+
+    def test_a_second_name_does_not_record_a_handed_in_id_as_looked_up(self, offline_lookup):
+        """The second name reuses the entity of the first by the identity the lookup gave."""
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin", hints={"compoundwiki_id": "Q2026"})
+        assert self._wiki_id(state) == ("Q2026", "llm")
+
+    def test_an_id_handed_in_for_a_chemical_drafted_before_is_theirs_too(self, offline_lookup):
+        from builder.tools.drafters import draft_molecular_entity
+
+        state = CrateState()
+        draft_molecular_entity(state, "Silychristin A", {})
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert self._wiki_id(state) == ("Q2026", "llm")
+
+    def test_an_id_typed_onto_the_entity_stays_what_it_was(self, offline_lookup, monkeypatch):
+        from builder.tools.drafters import draft_molecular_entity
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q1881"
+        )
+        state = CrateState()
+        draft_molecular_entity(state, "Silychristin A", {"compoundwiki_id": "Q2026"})
+        resolve_compound(state, name="Silychristin A")
+        assert self._wiki_id(state) == ("Q2026", "llm")
+        assert seen == []
+
+    def test_the_wiki_is_asked_with_the_inchikey_the_lookup_returned(
+        self, offline_lookup, monkeypatch
+    ):
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q1881"
+        )
+        state = CrateState()
+        resolve_compound(
+            state, name="Silychristin A", hints={"inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N"}
+        )
+        assert seen == ["ABCDEFGHIJKLMN-UHFFFAOYSA-N"]
+
+    def test_the_item_an_inchikey_the_caller_hands_in_finds_is_theirs(self, monkeypatch):
+        """The wiki is asked with that InChIKey, as before, and its answer is the caller's (D5).
+
+        The ChEBI fallback gives a term and no InChIKey. One the caller hands in
+        is theirs, and so is the item found by it: an identifier value, never the
+        ``@id``.
+        """
+        from builder.tools._crate_mapping import _mint_id
+
+        chebi_only = {
+            "found": True,
+            "error": None,
+            "data": {
+                "iupac_name": "caffeine",
+                "source": "chebi",
+                "chebiId": "CHEBI_27732",
+                "sameAs": {"@id": "http://purl.obolibrary.org/obo/CHEBI_27732"},
+            },
+        }
+        seen: list[str] = []
+        monkeypatch.setattr(composites, "lookup_compound", lambda name: dict(chebi_only))
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q2026"
+        )
+        state = CrateState()
+        resolve_compound(
+            state, name="Caffeine", hints={"inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N"}
+        )
+        assert seen == ["RYYVLZVUVIJVGH-UHFFFAOYSA-N"]
+        assert self._wiki_id(state) == ("Q2026", "llm")
+        (mol,) = _by_type(state, "MolecularEntity")
+        assert _mint_id(mol) == "http://purl.obolibrary.org/obo/CHEBI_27732"
+
+
+class TestAResolvedChemicalIsIdentifiedByItsWikiItem:
+    """The build takes the id the wiki gave as the chemical's ``@id``, and no other."""
+
+    WIKI = "https://compoundcloud.wikibase.cloud/entity/"
+    PUBCHEM = "https://pubchem.ncbi.nlm.nih.gov/compound/443515"
+
+    @staticmethod
+    def _address(state: CrateState) -> str:
+        from builder.tools._crate_mapping import _mint_id
+
+        (mol,) = _by_type(state, "MolecularEntity")
+        return _mint_id(mol)
+
+    def test_the_item_the_wiki_gives_is_the_address(self, offline_lookup, monkeypatch):
+        monkeypatch.setattr(composites, "compound_wiki_id", lambda key: "Q1881")
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.WIKI + "Q1881"
+
+    def test_without_an_item_the_pubchem_address_stays(self, offline_lookup):
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_outage_leaves_the_pubchem_address(self, offline_lookup, monkeypatch):
+        def boom(key):  # noqa: ANN001
+            raise RuntimeError("wiki down")
+
+        monkeypatch.setattr(composites, "compound_wiki_id", boom)
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_id_the_caller_hands_in_is_not_the_address(self, offline_lookup):
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_id_the_caller_hands_in_over_the_wikis_is_not_the_address(
+        self, offline_lookup, monkeypatch
+    ):
+        """The caller's id is written over the wiki's, as before, and it is still theirs."""
+        monkeypatch.setattr(composites, "compound_wiki_id", lambda key: "Q1881")
+        state = CrateState()
+        resolve_compound(state, name="Silychristin A")
+        resolve_compound(state, name="Silychristin A", hints={"compoundwiki_id": "Q2026"})
+        assert self._address(state) == self.PUBCHEM
+
+    def test_an_id_typed_onto_the_entity_is_not_the_address(self, offline_lookup):
+        from builder.tools.drafters import draft_molecular_entity
+
+        state = CrateState()
+        draft_molecular_entity(state, "Silychristin A", {"compoundwiki_id": "Q2026"})
+        resolve_compound(state, name="Silychristin A")
+        assert self._address(state) == self.PUBCHEM
+
+
+class TestTheItemANameSearchHitsIsNotTheAddress:
+    """The item the wiki's name search hits is no guess at the ``@id`` (D5).
+
+    When PubChem has no entry, ``lookup_compound`` falls back to that search and
+    keeps the item only as ``sameAs``. The chemical is identified by the item only
+    when the InChIKey search finds it too.
+    """
+
+    WIKI = "https://compoundcloud.wikibase.cloud/entity/Q2026"
+    RECORD = {
+        "compoundwiki_id": "Q2026",
+        "@id": WIKI,
+        "name": "Caffeine",
+        "inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+        "smiles": "Cn1c(=O)c2c(ncn2C)n(C)c1=O",
+        "inchi": "",
+        "formula": "C8H10N4O2",
+        "cas": "58-08-2",
+        "pubchem_cid": "2519",
+        "dtxcid": "",
+    }
+
+    @pytest.fixture
+    def found_by_name(self, monkeypatch):
+        """PubChem has no entry, and the wiki's name search hits Q2026."""
+        from builder.tools import lookups
+
+        lookups.lookup_compound.cache_clear()
+        monkeypatch.setattr(lookups, "lookup_pubchem", lambda query: {})
+        monkeypatch.setattr(lookups, "lookup_compound_wiki", lambda name: dict(self.RECORD))
+        yield
+        lookups.lookup_compound.cache_clear()
+
+    @staticmethod
+    def _chemical(state: CrateState):
+        (mol,) = _by_type(state, "MolecularEntity")
+        return mol
+
+    def test_the_item_stays_a_same_as_link(self, found_by_name):
+        from builder.tools._crate_mapping import _mint_id
+
+        state = CrateState()
+        resolve_compound(state, name="caffeine", verify=False)
+        mol = self._chemical(state)
+        assert "compoundwiki_id" not in mol.fields
+        assert mol.fields["sameAs"] == {"@id": self.WIKI}
+        assert _mint_id(mol) == "https://pubchem.ncbi.nlm.nih.gov/compound/2519"
+
+    def test_the_inchikey_search_makes_it_the_address(self, found_by_name, monkeypatch):
+        from builder.tools._crate_mapping import _mint_id
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q2026"
+        )
+        state = CrateState()
+        resolve_compound(state, name="caffeine", verify=False)
+        assert seen == [self.RECORD["inchikey"]]
+        assert _mint_id(self._chemical(state)) == self.WIKI
+
+
 class TestResolveCompoundIdempotent:
     def test_second_call_no_duplicate(self, offline_lookup):
         state = CrateState()

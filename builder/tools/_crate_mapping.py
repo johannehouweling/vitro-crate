@@ -32,6 +32,7 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
 from builder.tools.document_discovery import CLASS_PROTOCOL, SCRIPT_SUFFIXES
+from lookups.compoundwiki import BASE as COMPOUND_WIKI
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, LabProtocol, Sample, param_id
 from profiles.models.tox import (
@@ -222,7 +223,10 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
             "inchikey": "InChIKey, if known.",
             "smiles": "SMILES string, if known.",
             "molecular_formula": "Molecular formula, if known.",
-            "pubchem_cid": "PubChem CID (resolves the entity @id when present).",
+            "pubchem_cid": (
+                "PubChem CID (resolves the entity @id unless a lookup found the compound "
+                "in the Compound Wiki)."
+            ),
         },
     ),
     "CellLineSample": EntityDraftSchema(
@@ -817,8 +821,16 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
     place.
     """
     root = crate.root_dataset
+    # Two chemicals that mint one @id are written as one node, which the first in
+    # state describes (`_add_leaves`). A later one gave it only its name, so what
+    # is kept of it here would describe that node as another sample.
+    chemical_nodes: set[str] = set()
     for entity in state.list_entities():
         node = idx.get(f"{entity.type}:{entity.entity_id}") or idx.get(entity.entity_id)
+        if entity.type == "MolecularEntity" and node is not None:
+            if node.id in chemical_nodes:
+                continue
+            chemical_nodes.add(node.id)
         # A field a process constructor consumes is NOT unowned: the constructor
         # mints the parameter. Scoped to LabProcess, because the same name on
         # another entity really is unowned — `detection_instrument` on a File is
@@ -1029,6 +1041,39 @@ def _bare_doi(raw: str) -> str:
     return value
 
 
+def _compound_wiki_iri(entity: Entity) -> str | None:
+    """The Compound Wiki address of a MolecularEntity a lookup found there, or None.
+
+    ``resolve_compound`` asks the wiki which one item states the InChIKey the
+    lookup returned, and records the ``compoundwiki_id`` it writes as looked up.
+    Only that record makes the id an address: an id a caller, a model or a person
+    wrote stays an identifier value, and a value that is no bare ``Q`` id is never
+    joined into an address (D5).
+    """
+    status = entity.get_field_status("compoundwiki_id")
+    wiki_id = str(entity.fields.get("compoundwiki_id") or "")
+    if status is None or status.source != "lookup" or not re.fullmatch(r"Q[0-9]+", wiki_id):
+        return None
+    return f"{COMPOUND_WIKI}/entity/{wiki_id}"
+
+
+def _compound_addresses(entity: Entity) -> list[str]:
+    """The addresses a MolecularEntity is known by, the one that identifies it first.
+
+    Its Compound Wiki item where a lookup found one, its PubChem compound and its
+    ChEBI PURL, where it has them. :func:`_mint_id` takes the first as the
+    ``@id``; a reference may hold any of them, and the build index knows the
+    chemical by each.
+    """
+    cid = entity.fields.get("pubchem_cid")
+    found = (
+        _compound_wiki_iri(entity),
+        f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}" if cid else None,
+        _chebi_purl(entity),
+    )
+    return [address for address in found if address]
+
+
 def _chebi_purl(entity: Entity) -> str | None:
     """The resolvable ChEBI PURL for a ChEBI-fallback MolecularEntity, or None.
 
@@ -1067,15 +1112,19 @@ def _mint_id(entity: Entity) -> str:
         r = str(f["ror"]).strip()
         return r if r.startswith("http") else f"https://ror.org/{r.lstrip('/')}"
     if t == "MolecularEntity":
-        # A PubChem CID is the preferred clean external @id. A ChEBI-fallback
+        # A chemical is identified by its Compound Wiki address where a lookup
+        # found it there, and by its PubChem address otherwise. A ChEBI-fallback
         # compound (no CID) carries a resolvable ChEBI PURL on sameAs / chebiId —
         # use it instead of a `#MolecularEntity_<eid>` fragment so the @id is
         # externally resolvable (#179, D5: only ids the lookup produced).
-        if f.get("pubchem_cid"):
-            return f"https://pubchem.ncbi.nlm.nih.gov/compound/{f['pubchem_cid']}"
-        chebi_purl = _chebi_purl(entity)
-        if chebi_purl:
-            return chebi_purl
+        addresses = _compound_addresses(entity)
+        if addresses:
+            return addresses[0]
+        # An address on the Compound Wiki that the chemical was given as its own id
+        # is no lookup's answer, so the chemical keeps a local id (D5).
+        host = eid.partition("://")[2].partition("/")[0]
+        if host.lower() == COMPOUND_WIKI.partition("://")[2]:
+            return "#" + _slug(t) + "_" + eid
     if t == "CellLineSample":
         # A Cellosaurus accession IS the cell line's identifier, and it
         # dereferences. Minting `#CellLineSample_cell_cho_k1` next to a field
@@ -1882,12 +1931,30 @@ def _add_leaves(
         _wire_job_title(crate, node, person.fields.get("jobTitle"), idx)
         crate.root_dataset.append_to("author", node)
 
+    # Two chemicals that mint one @id are one molecule and one node: two names
+    # the Compound Wiki holds as one item. The first gives the node its name and
+    # identifiers, and the name of a later one is an alternate name. `crate.add`
+    # would replace the first without a word.
+    chem_nodes: dict[str, Any] = {}
     for chem in state.list_entities("MolecularEntity"):
-        node = crate.add(
+        chem_id = _mint_id(chem)
+        if (node := chem_nodes.get(chem_id)) is not None:
+            name = chem.fields.get("name")
+            if name and name not in (node.get("name"), *_child_ids(node, "alternateName")):
+                node.append_to("alternateName", name)
+            logger.info("%s is written as the chemical already at %s", chem.entity_id, chem_id)
+            _idx_add(idx, chem, node)
+            continue
+        props = _scalar_props(chem)
+        # The Compound Wiki's by-name record states its item as sameAs. Once that
+        # item is the chemical's own @id the link says nothing, so it is left out.
+        if _compound_wiki_iri(chem) and props.get("sameAs") in (chem_id, {"@id": chem_id}):
+            del props["sameAs"]
+        node = chem_nodes[chem_id] = crate.add(
             ContextEntity(
                 crate,
-                _mint_id(chem),
-                properties={"@type": "MolecularEntity", **_scalar_props(chem)},
+                chem_id,
+                properties={"@type": "MolecularEntity", **props},
             )
         )
         _idx_add(idx, chem, node)
@@ -1895,6 +1962,16 @@ def _add_leaves(
         # gold-crate order (CAS first, then PubChem CID) (#180).
         for pv in _build_identifier_pvs(crate, _MOLECULAR_IDENTIFIERS, chem):
             node.append_to("identifier", pv)
+    # A reference may hold one of a chemical's addresses instead of its id in the
+    # state, such as the PubChem address a chemical had before the Compound Wiki
+    # named it, or the id it is written at, such as the local id of one given a
+    # wiki address as its own id. It reaches the chemical written at that address,
+    # and otherwise the one that has the address beside the one it is identified by.
+    for chem in state.list_entities("MolecularEntity"):
+        chem_id = _mint_id(chem)
+        node = chem_nodes[chem_id]
+        for address in (chem_id, *_compound_addresses(chem)):
+            idx.setdefault(address, chem_nodes.get(address, node))
 
     for pv in state.list_entities("PropertyValue"):
         _idx_add(
@@ -3327,7 +3404,7 @@ def _synth_condition_table(
     )
     table = crate.add(File(crate, source, dest_path=rel, properties=table_props))
     for chem in chems:
-        table.append_to("about", chem)
+        _append_unique(table, "about", chem)
     # Typed CSVW: a linked schema entity carries the per-column datatype +
     # propertyUrl (and valueUrl resolving the cell-line/compound columns to their
     # entity ids). The table points to it via tableSchema (canonical CSVW) and
@@ -4164,7 +4241,7 @@ def _wire_mention(node: Any, prop: str, value: Any, idx: dict[str, Any]) -> None
             continue
         ent = _resolve_one(idx, item)
         if ent is not None:
-            node.append_to(prop, ent)
+            _append_unique(node, prop, ent)
         elif isinstance(item, dict) and item.get("@id"):
             node.append_to(prop, item)
         elif isinstance(item, str) and ("://" in item or item.startswith("#")):
