@@ -1288,9 +1288,11 @@ PubChem CID's is `{"@id": https://pubchem.ncbi.nlm.nih.gov/compound}`; DTXSID's 
 `{"@id": https://compoundcloud.wikibase.cloud/entity}`); `resolve_compound` finds that
 id by the InChIKey the lookup returned, an exact statement search on the wiki, and
 keeps none when two items state one InChIKey (D5). A `compoundwiki_id` a caller
-hands in as a hint is written as the caller's, and the wiki is then not asked; only
-the wiki's own answer is recorded as looked up. Such an id is also the chemical's
-`@id` (§10); any other is an identifier value and nothing more. These source fields
+hands in as a hint is written as the caller's, and the wiki is then not asked. The
+id the wiki gives for an InChIKey the caller handed in, where the lookup returned
+none, is the caller's as well. Only the wiki's answer for the lookup's own InChIKey
+is recorded as looked up, and such an id is also the chemical's `@id` (§10); any
+other is an identifier value and nothing more. These source fields
 are consumed structurally (kept off the node as raw literals). A Person's
 `affiliation` and a Publication's `author` are resolved to `{"@id"}` references
 (via `_wire_reference` / `_resolve_many`) rather than emitted as literals, so

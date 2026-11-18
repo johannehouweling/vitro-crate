@@ -2239,19 +2239,22 @@ def resolve_compound(
             if dtxsid:
                 entity.set_fields_from_dict({"dtxsid": dtxsid}, source="lookup")
 
-    # The Compound Wiki id, found by the InChIKey the lookup returned: an exact
-    # statement on the wiki's item, so never a name guess, and never the item of
-    # a structure the caller handed in (D5). The build takes it as the chemical's
-    # @id. A miss or an outage is non-fatal, as for the DTXSID above: the
-    # chemical then keeps its PubChem address.
-    if not entity.fields.get("compoundwiki_id") and data.get("inchikey"):
+    # The Compound Wiki id, found by the chemical's InChIKey: an exact statement on
+    # the wiki's item, so never a name guess (D5). Only the item of the structure
+    # the lookup returned is a looked-up id, which the build takes as the
+    # chemical's @id; the item of an InChIKey the caller handed in is theirs. A
+    # miss or an outage is non-fatal, as for the DTXSID above: the chemical then
+    # keeps its PubChem address.
+    inchikey = entity.fields.get("inchikey")
+    if not entity.fields.get("compoundwiki_id") and inchikey:
         try:
-            wiki_id = compound_wiki_id(str(data["inchikey"]))
+            wiki_id = compound_wiki_id(str(inchikey))
         except Exception:
             logger.debug("Compound Wiki id lookup failed for '%s'", display_name, exc_info=True)
             wiki_id = ""
         if wiki_id:
-            entity.set_fields_from_dict({"compoundwiki_id": wiki_id}, source="lookup")
+            source = "lookup" if inchikey == data.get("inchikey") else "llm"
+            entity.set_fields_from_dict({"compoundwiki_id": wiki_id}, source=source)
 
     identifiers = {
         key: data[key] for key in _COMPOUND_IDENTIFIER_FIELDS if data.get(key) not in (None, "")
