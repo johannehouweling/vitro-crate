@@ -1388,10 +1388,11 @@ def entity_for_crate_id(state: CrateState, crate_id: str, *, files: bool = True)
     A finding, a reference or a tool argument names an entity by the ``@id`` the
     crate gave it, and everything that turns that id back into a state entity
     asks here. The match is exact: the ``./`` a validator puts before a relative
-    id is removed as a prefix, an entity is found by the id :func:`_mint_id`
-    gives it and by the ``#<Type>_<entity_id>`` fragment it would have without an
-    address or a folder, and a File by its path percent-encoded, which is the id
-    ro-crate-py gives its node. A Study or an Assay is therefore found by the
+    id is removed as a prefix, and an entity is found by the id of its node and
+    by the ``#<Type>_<entity_id>`` fragment it would have without a path, an
+    address or a folder. The id of a File's node is its path percent-encoded,
+    which is the id ro-crate-py gives it, and that of any other the one
+    :func:`_mint_id` gives it. A Study or an Assay is therefore found by the
     folder it is identified by (:func:`dataset_folders`, asked only for an id that
     ends in ``/``) and by the local id it had before it took one. *files* False
     leaves Files out, for a caller that reports a finding on a file rather than
@@ -1402,13 +1403,14 @@ def entity_for_crate_id(state: CrateState, crate_id: str, *, files: bool = True)
         return None
     folders = dataset_folders(state) if candidate.endswith("/") and "://" not in candidate else None
     for entity in state.list_entities():
-        if entity.type == "File":
-            if files and urllib.parse.quote(Path(_file_dest(entity)).as_posix()) == candidate:
-                return entity
-        elif candidate in (
-            _mint_id(entity, folders),
-            "#" + _slug(entity.type) + "_" + entity.entity_id,
-        ):
+        if entity.type == "File" and not files:
+            continue
+        node_id = (
+            urllib.parse.quote(Path(_file_dest(entity)).as_posix())
+            if entity.type == "File"
+            else _mint_id(entity, folders)
+        )
+        if candidate in (node_id, "#" + _slug(entity.type) + "_" + entity.entity_id):
             return entity
     return None
 
