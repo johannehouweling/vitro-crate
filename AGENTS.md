@@ -2333,8 +2333,10 @@ profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST 
   describes such a folder as it describes its files, at `#<folder>/` with a `localPath`.
 - Gives **each level a distinct identifier**: a Study or an Assay with a folder states the folder's
   path, and one without, or whose folder's path another level already states, the hierarchical
-  descriptor `_isa_identifier` mints (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). The
-  `@id` is the true unique key; the `identifier` *property* is the ISA descriptor and must not
+  descriptor `_isa_identifier` mints (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). Under a
+  root identified by its DOI the descriptor nests under the deposit's accession instead
+  (`S-VHPS21/study-<id>`), because one built under a web address reads as an address that resolves
+  to nothing. The `@id` is the true unique key; the `identifier` *property* is the ISA descriptor and must not
   collide across levels. It is also a Study's or Assay's **only** `schema:identifier`: a drafted
   field the context expands to `schema:identifier` (`accession`, `dsstoxId`, … —
   `_identifier_terms`) is not emitted on either, because their ISA shapes cap the property at one
