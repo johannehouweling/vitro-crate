@@ -6,13 +6,16 @@ address, ``https://compoundcloud.wikibase.cloud/entity/Q<n>``, is the
 PubChem address, then its ChEBI one, then a local id, as before.
 
 Only an id a lookup wrote counts (D5). ``resolve_compound`` records the id it
-finds as looked up; one a caller or a model handed in is recorded as theirs, is
-still written as an identifier value, and never becomes the ``@id``. The
-identifier values (CAS, PubChem CID, DTXSID, Compound Wiki) are the same
-whichever address the chemical sits at.
+finds as looked up; one a model or a person wrote onto the chemical is recorded
+as theirs, is still written as an identifier value, and never becomes the
+``@id``. The identifier values (CAS, PubChem CID, DTXSID, Compound Wiki) are the
+same whichever address the chemical sits at.
 
-Two chemicals in the state that resolve to one item are one entity in the crate.
-Every assertion reads the assembled JSON-LD graph: no network and no SHACL.
+Two chemicals in the state that resolve to one item are one entity in the crate,
+and a report calls a chemical that has no name by its item.
+
+Every assertion reads the assembled JSON-LD graph or the words of a report: no
+network and no SHACL.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from rocrate.rocrate import ROCrate
 
 from builder.state import CompletionSource, CrateState, Entity, EntityProvenance, EntityType
 from builder.tools._crate_mapping import _mint_id, populate_crate
+from builder.tools.remediation import _entity_label
 from profiles.context import ISA_TOX_CONTEXT
 
 WIKI = "https://compoundcloud.wikibase.cloud/entity/"
@@ -357,6 +361,17 @@ class TestTwoChemicalsOnOneItemAreOneEntity:
         other.set_fields_from_dict({"compoundwiki_id": "Q2026"}, source="llm")
         graph = _graph(_state(first, other))
         assert [n["@id"] for n in _chemicals(graph)] == [WIKI + "Q2026", PUBCHEM + "64119"]
+
+
+class TestAReportCallsAnUnnamedChemicalByItsItem:
+    """A finding on a chemical with no name says which compound it is."""
+
+    def test_the_item_is_named_as_a_compound(self):
+        label = _entity_label(WIKI + "Q2026", {})
+        assert label == "the compound with Compound Wiki id Q2026"
+
+    def test_the_name_in_the_graph_still_wins(self):
+        assert _entity_label(WIKI + "Q2026", {WIKI + "Q2026": "Caffeine"}) == "Caffeine"
 
 
 class TestAReferenceHeldAsAnAddressFollowsTheChemical:
