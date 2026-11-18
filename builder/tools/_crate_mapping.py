@@ -1144,8 +1144,8 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
     Placed means what ``attach_files`` writes, the entity's ``hasPart``. A file
     the build adds itself, such as a step's result, a protocol it places or the
     condition table, is no evidence. A Study's folder holds the folders of its
-    Assays, and where a Study and an Assay would take one folder the Assay takes
-    it.
+    Assays, and without a labelling the files placed on them as well; where a
+    Study and an Assay would take one folder the Assay takes it.
     """
     input_path = state.metadata.input_path
     if not input_path:
@@ -1212,6 +1212,10 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
             continue  # an Assay takes the folder, or one around it
         if any(_contains(folder, at) != (other in own) for other, at in assay_folders.items()):
             continue  # an Assay of its own lies outside it, or another's inside
+        if labelled is None and any(
+            not _contains(folder, path) for assay in own for path in placed[assay]
+        ):
+            continue  # without a labelling, an Assay of its own lies where its files do
         strangers = [other for other in placed if other != key and other not in own]
         if holds_files_of(folder, strangers):
             continue

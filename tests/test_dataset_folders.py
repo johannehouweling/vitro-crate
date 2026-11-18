@@ -304,6 +304,26 @@ class TestAFolderIsOneEntitysAlone:
 
         assert _folders(state) == {_key(assay): "elsewhere"}
 
+    def test_a_study_takes_no_folder_that_its_assays_files_lie_outside(self) -> None:
+        """Its only files are its culture protocols, and its one Assay holds the data
+        of the folders beside them, so the protocols' folder is not the study's."""
+        state = deposit_state(
+            "cell_line_protocols/h4.docx",
+            "cell_line_protocols/sk.docx",
+            "assay_01/a.csv",
+            "assay_02/b.csv",
+        )
+        study, (assay,) = backbone(state, "Everything")
+        place(state, study, "cell_line_protocols")
+        place(state, assay, "assay_01")
+        place(state, assay, "assay_02")
+
+        assert _folders(state) == {}
+
+        state.deposit_structure = fallback_structure()
+
+        assert _folders(state) == {}
+
     def test_two_studies_in_one_folder_take_none(self) -> None:
         state = deposit_state("s/one.txt", "s/two.txt")
         first, _assays = backbone(state)
@@ -440,6 +460,22 @@ class TestTheRealDeposits:
 
         assert _folders(state) == expected, "the study is the deposit root either way"
         assert _key(study) not in _folders(state)
+
+    def test_a_study_holding_the_protocols_of_an_assay_over_four_folders_takes_none(self) -> None:
+        """One Assay holds the data of the four assay folders and the Study the
+        culture protocols, as an agent may place them."""
+        state = _scanned("svhps22_real_input").state
+        study, (assay,) = backbone(state, "Thyroid hormone assays")
+        for folder in (
+            "assay_01_TH_uptake",
+            "assay_02_deiodinase",
+            "assay_03_metabolism",
+            "assay_04_TRactivation",
+        ):
+            place(state, assay, folder)
+        place(state, study, "cell_line_protocols")
+
+        assert _folders(state) == {}
 
     def test_one_assay_holding_all_four_folders_takes_none(self) -> None:
         state = _scanned("svhps22_real_input").state
