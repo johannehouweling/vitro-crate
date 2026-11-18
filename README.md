@@ -37,8 +37,8 @@ from the current state of the crate. During a build it:
 
 1. reads the folder's documentation, protocols, metadata sheets and data files;
 2. drafts the investigation, studies, assays, samples, chemicals and process steps;
-3. resolves identifiers through PubChem, CompTox, Cellosaurus, ORCID, ROR, Crossref,
-   AOP-Wiki and the BioAssay Ontology;
+3. resolves identifiers through PubChem, the Compound Wiki, CompTox, Cellosaurus, ORCID,
+   ROR, Crossref, AOP-Wiki and the BioAssay Ontology;
 4. validates the crate and repairs the issues it can;
 5. asks for input when a decision requires it;
 6. exports the crate.
