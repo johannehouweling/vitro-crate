@@ -136,12 +136,15 @@ def _existing_person(
     """
     wanted_orcid = _bare_orcid(orcid_id or hints.get("orcid"))
     wanted_name = _person_key(name)
-    for person in state.list_entities("Person"):
-        if wanted_orcid:
-            held = _bare_orcid(person.fields.get("orcid") or person.entity_id)
-            if held and held == wanted_orcid:
-                return person
-        if wanted_name and _person_key(person.fields.get("name")) == wanted_name:
+    people = state.list_entities("Person")
+    # Every person is asked for the ORCID before any is asked for the name: a
+    # namesake given an ORCID another person holds would put two people at one id.
+    for person in people if wanted_orcid else []:
+        held = _bare_orcid(person.fields.get("orcid") or person.entity_id)
+        if held and held == wanted_orcid:
+            return person
+    for person in people if wanted_name else []:
+        if _person_key(person.fields.get("name")) == wanted_name:
             return person
     return None
 
