@@ -461,6 +461,67 @@ class TestAResolvedChemicalIsIdentifiedByItsWikiItem:
         assert self._address(state) == self.PUBCHEM
 
 
+class TestTheItemANameSearchHitsIsNotTheAddress:
+    """The item the wiki's name search hits is no guess at the ``@id`` (D5).
+
+    When PubChem has no entry, ``lookup_compound`` falls back to that search and
+    keeps the item only as ``sameAs``. The chemical is identified by the item only
+    when the InChIKey search finds it too.
+    """
+
+    WIKI = "https://compoundcloud.wikibase.cloud/entity/Q2026"
+    RECORD = {
+        "compoundwiki_id": "Q2026",
+        "@id": WIKI,
+        "name": "Caffeine",
+        "inchikey": "RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+        "smiles": "Cn1c(=O)c2c(ncn2C)n(C)c1=O",
+        "inchi": "",
+        "formula": "C8H10N4O2",
+        "cas": "58-08-2",
+        "pubchem_cid": "2519",
+        "dtxcid": "",
+    }
+
+    @pytest.fixture
+    def found_by_name(self, monkeypatch):
+        """PubChem has no entry, and the wiki's name search hits Q2026."""
+        from builder.tools import lookups
+
+        lookups.lookup_compound.cache_clear()
+        monkeypatch.setattr(lookups, "lookup_pubchem", lambda query: {})
+        monkeypatch.setattr(lookups, "lookup_compound_wiki", lambda name: dict(self.RECORD))
+        yield
+        lookups.lookup_compound.cache_clear()
+
+    @staticmethod
+    def _chemical(state: CrateState):
+        (mol,) = _by_type(state, "MolecularEntity")
+        return mol
+
+    def test_the_item_stays_a_same_as_link(self, found_by_name):
+        from builder.tools._crate_mapping import _mint_id
+
+        state = CrateState()
+        resolve_compound(state, name="caffeine", verify=False)
+        mol = self._chemical(state)
+        assert "compoundwiki_id" not in mol.fields
+        assert mol.fields["sameAs"] == {"@id": self.WIKI}
+        assert _mint_id(mol) == "https://pubchem.ncbi.nlm.nih.gov/compound/2519"
+
+    def test_the_inchikey_search_makes_it_the_address(self, found_by_name, monkeypatch):
+        from builder.tools._crate_mapping import _mint_id
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            composites, "compound_wiki_id", lambda key: seen.append(key) or "Q2026"
+        )
+        state = CrateState()
+        resolve_compound(state, name="caffeine", verify=False)
+        assert seen == [self.RECORD["inchikey"]]
+        assert _mint_id(self._chemical(state)) == self.WIKI
+
+
 class TestResolveCompoundIdempotent:
     def test_second_call_no_duplicate(self, offline_lookup):
         state = CrateState()
