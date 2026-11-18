@@ -134,12 +134,14 @@ def _existing_person(
     """The Person already in state that *name*/ORCID refers to, if any.
 
     ORCID decides when present — it is the identifier, and two people can share a
-    name, so a namesake who holds another ORCID is another person. Otherwise an
+    name, so a namesake who holds another ORCID than the one ORCID confirmed
+    (*orcid_id*) is another person, drafted at that ORCID's address. Otherwise an
     exact match on the normalised name, which is deliberately strict: merging two
     different people would be worse than the duplicate this prevents, so nothing
     fuzzy happens here.
     """
     wanted_orcid = _bare_orcid(orcid_id or hints.get("orcid"))
+    confirmed = _bare_orcid(orcid_id)
     wanted_name = _person_key(name)
     people = state.list_entities("Person")
     # Every person is asked for the ORCID before any is asked for the name: a
@@ -150,7 +152,7 @@ def _existing_person(
             return person
     for person in people if wanted_name else []:
         if _person_key(person.fields.get("name")) == wanted_name and (
-            not wanted_orcid or _real_orcid(person) in ("", wanted_orcid)
+            not confirmed or _real_orcid(person) in ("", confirmed)
         ):
             return person
     return None

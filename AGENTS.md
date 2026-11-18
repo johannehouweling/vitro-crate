@@ -2370,13 +2370,13 @@ the ORCID record resolves and states the same family name; only the iD is taken,
 as the deposit spells it. A name the record gives two ORCIDs is given neither, though an ORCID or a
 ROR id written bare in one place and as its address in another is one identifier. A person the crate
 already holds under that ORCID is amended before any namesake is, so no two people take one address,
-and a namesake who holds another ORCID is another person. `draft_organization` takes the ROR id
-stated for an organisation of exactly its name once `fetch_ror_by_id` returns that record, with the
-website and country the record states, and an Organization the crate already holds under that ROR id
-is amended instead; a name the record gives two ROR ids is given neither. An author whose ORCID
-record gives that ROR id is affiliated to the Organization that holds it, whatever name the record
-uses for it. No ROR id is taken for a name alone, and a declared funder is still written as it is
-declared.
+and a namesake who holds another ORCID than the one confirmed is another person, at the confirmed
+ORCID's address. `draft_organization` takes the ROR id stated for an organisation of exactly its
+name once `fetch_ror_by_id` returns that record, with the website and country the record states, and
+an Organization the crate already holds under that ROR id is amended instead; a name the record
+gives two ROR ids is given neither. An author whose ORCID record gives that ROR id is affiliated to
+the Organization that holds it, whatever name the record uses for it. No ROR id is taken for a name
+alone, and a declared funder is still written as it is declared.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 
