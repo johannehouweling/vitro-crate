@@ -97,7 +97,7 @@ def with_kinds(graph_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """*graph_nodes*, each unlabelled step and test-system source given the label its
     term implies (#799).
 
-    A crate types a step by the intendedUse of the record it executes and a source by
+    A crate types a step by the intendedUse of the protocol it executes and a source by
     its sampleType, while the readers name kinds by the additionalType labels older
     crates carry. A node that has a label keeps it; a labelled copy stands in for the
     rest, so the caller's graph is never edited.

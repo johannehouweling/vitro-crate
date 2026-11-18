@@ -12,8 +12,8 @@ from profiles.models.isa import (
 from profiles.ontology_iris import iri
 
 # The test system preparation types, by CURIE and name: existing EFO, OBI and GO
-# terms, not a set the profile mints. A step whose protocol record's intendedUse is
-# one of them is a test system preparation (#785).
+# terms, not a set the profile mints. A step whose executed protocol's intendedUse
+# is one of them is a test system preparation (#785).
 PREPARATION_TYPES: dict[str, str] = {
     "EFO:0003789": "growth protocol",
     "OBI:0001152": "transfection",
@@ -77,16 +77,16 @@ def _pvs(*candidates):
 
 @reader_compatible
 class LabProcessExposure(LabProcess):
-    """Exposure step, typed by its protocol record (treatment protocol, #799).
+    """Exposure step, typed by the protocol it executes (treatment protocol, #799).
 
     object  = the cultured cell ``Sample``(s) being exposed.
     result  = the exposed cell ``Sample``(s) the step produces.
     executesLabProtocol
-            = the step's protocol record, whose ``reagent``s are the test and
-              control compounds — never ``schema:object`` (the base ISA shape
-              allows only File/Sample/BioSample there). The run-specific CSVW
-              condition table is a data file ``about`` the exposed Samples
-              (profiles/shapes/tox/8_condition_table_csvw.ttl).
+            = the documents the step follows, or else its protocol record. Their
+              ``reagent``s are the test and control compounds — never
+              ``schema:object`` (the base ISA shape allows only File/Sample/BioSample
+              there). The run-specific CSVW condition table is a data file ``about``
+              the exposed Samples (profiles/shapes/tox/8_condition_table_csvw.ttl).
     """
 
     def __init__(

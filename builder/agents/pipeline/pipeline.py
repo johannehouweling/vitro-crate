@@ -1935,7 +1935,7 @@ def _materialize_plan(
       hand-rolled JSON-LD) with the canonical ISA-Tox reference fields: every
       resolved ``MolecularEntity`` → the **Exposure** LabProcess via ``chemicals``
       (ISA forbids a MolecularEntity as a process object, so the build makes each
-      compound a ``reagent`` of the Exposure's protocol record), the resolved
+      compound a ``reagent`` of the protocol the Exposure executes), the resolved
       ``CellLineSample`` → the **TestSystemPreparation** LabProcess via ``cell_line`` (its
       consumed input, replacing the synthesized generic ``..._input``), and BOTH
       onto the scaffolded Study via ``schema:mentions`` (``chemicals`` /
@@ -1945,9 +1945,9 @@ def _materialize_plan(
     * each ``protocols[]`` → ``draft_protocol``: the deposited File its
       ``source_file`` names, or else what the lab stated (name and description —
       D5: no identifier). It is linked to the ``LabProcess`` it governs via the
-      ``labprotocol`` reference field: a document is what the step's record is
-      based on where the deposit places none of its own, and what the lab stated
-      fills the record (AGENTS.md D17). The plan's ``process_hint`` is matched
+      ``labprotocol`` reference field: a document is what the step follows where the
+      deposit places none of its own, and what the lab stated reaches the documents
+      it executes or its record (AGENTS.md D17). The plan's ``process_hint`` is matched
       conservatively (by ``process_type``, then by step name); no hint or no match
       links nothing, and the link is left for the guidance loop rather than guessed
       (:func:`_select_process_for_protocol`).
@@ -2116,7 +2116,7 @@ def _materialize_plan(
     # into the Exposure below (#273) — without this they are graph orphans.
     compound_ids: list[str] = []
     # The compounds a readout measures (its substrate), by entity id with the name
-    # the plan gives each. They are the reagents of the readout's protocol record.
+    # the plan gives each. They are reagents of the protocol the readout executes.
     # An exposure applies something, so where the crate has one, a plan that names
     # no test compound says its substrate is what the cells were exposed to: only
     # then is a substrate the Exposure's chemical as well. One that neither step
@@ -2224,7 +2224,7 @@ def _materialize_plan(
     #   * each MolecularEntity → the Exposure LabProcess via `chemicals`. ISA
     #     forbids a MolecularEntity as a process object (objects MUST be
     #     File/Sample/BioSample), so the build makes it a `reagent` of the
-    #     Exposure's protocol record (_crate_mapping._protocol_record).
+    #     protocol the Exposure executes (_crate_mapping._build_process).
     #   * the CellLineSample → the TestSystemPreparation LabProcess via `cell_line` (its
     #     consumed input), replacing the synthesized generic `..._input` placeholder.
     #   * both also surface on the Study via schema:mentions (`chemicals` /
@@ -2333,8 +2333,9 @@ def _materialize_plan(
         if target_process_id is None:
             continue
         try:
-            # `labprotocol` is a reference field on LabProcess (-> its protocol
-            # record's isBasedOn); set_fields wires it, the build resolves it.
+            # `labprotocol` is a reference field on LabProcess (-> the documents
+            # it executes, or its record's isBasedOn); set_fields wires it, the
+            # build resolves it.
             engine.run_tool(
                 "set_fields",
                 entity_id=target_process_id,

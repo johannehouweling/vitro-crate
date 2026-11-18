@@ -2,10 +2,10 @@
 
 These pin the contract from profiles/docs/isa_tox.md: Study/Assay as
 Dataset+additionalType linked by hasPart, LabProcess subtypes discriminated by
-additionalType with input/output (→ schema:object/result via the context), one
-protocol record per step based on the deposit's documents, the Exposure's
-compounds as its record's reagents, conformsTo gating on validation, and the
-#-fragment / resolvable-URI id scheme.
+additionalType with input/output (→ schema:object/result via the context), each
+step executing the deposit's documents for it or else one protocol record, the
+Exposure's compounds as reagents of what it executes, conformsTo gating on
+validation, and the #-fragment / resolvable-URI id scheme.
 """
 
 from __future__ import annotations
@@ -59,13 +59,18 @@ def _ids(value):
 
 
 def _kind(by_id, pid):
-    """What a built step is, read from its record as the reports read it (#799)."""
+    """What a built step is, read from what it executes as the reports read it (#799)."""
     return {n["@id"]: n.get("additionalType") for n in with_kinds(list(by_id.values()))}[pid]
 
 
 def _documents(by_id, pid):
-    """What a step's protocol record is based on; each step executes exactly one (#783)."""
-    (record,) = _ids(by_id[pid].get("executesLabProtocol"))
+    """The documents a step follows: the deposited files it executes, or else what
+    its one protocol record is based on."""
+    executed = _ids(by_id[pid].get("executesLabProtocol"))
+    types = [by_id[i]["@type"] for i in executed]
+    if executed and all("File" in (t if isinstance(t, list) else [t]) for t in types):
+        return executed
+    (record,) = executed
     return _ids(by_id[record].get("isBasedOn"))
 
 
@@ -202,12 +207,12 @@ class TestTheAssayProtocolReachesItsStep:
     transporter assay, Bradford, deiodinase activity, the UPLC run, RNA
     isolation, cDNA/qPCR — were carried in the payload and followed by no step.
 
-    Three rules, each pinned below, on what the step's protocol record is based on:
+    Three rules, each pinned below, on which documents the step executes:
 
     * **The default is EndpointReadout.** Measuring is what an assay's SOP
       describes; culture and analysis are reached only by an explicit cue, or,
       for analysis, by being source code (#786).
-    * **A step's record is based on ALL of its documents, not one.** Every assay
+    * **A step executes ALL of its documents, not one.** Every assay
       in the deposit ships two to four (assay_04 has three sequential ones: RNA
       isolation, DNase, cDNA/qPCR). The single-hit D5 rule still governs the
       culture lookup, where a *cell line* has to disambiguate; here there is no
@@ -255,10 +260,10 @@ class TestTheAssayProtocolReachesItsStep:
             )
         return state
 
-    def test_the_readouts_record_is_based_on_the_assays_protocol(self, tmp_path):
+    def test_the_readout_executes_the_assays_protocol(self, tmp_path):
         _, by_id = _build(self._state(), tmp_path)
-        executed = _documents(by_id, "#LabProcess_proc_read")
-        assert executed, "the readout's record is based on none of its assay's protocols"
+        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
+        assert executed, "the readout executes none of its assay's protocols"
         assert any("Deiodinase" in e for e in executed), executed
 
     def test_the_protocol_is_the_document_itself(self, tmp_path):
@@ -269,13 +274,13 @@ class TestTheAssayProtocolReachesItsStep:
         )
         assert self.ASSAY_DIR in executed[0], executed
 
-    def test_the_record_is_based_on_every_protocol_the_assay_ships(self, tmp_path):
+    def test_the_readout_executes_every_protocol_the_assay_ships(self, tmp_path):
         """Two to four per assay is the norm; one-of-four would be a silent pick."""
         state = self._state(
             docs=("4.1 Deiodinase activity assay.docx", "3.3 Bradford protocol.xlsx")
         )
         _, by_id = _build(state, tmp_path)
-        executed = _documents(by_id, "#LabProcess_proc_read")
+        executed = _ids(by_id["#LabProcess_proc_read"].get("executesLabProtocol"))
         assert sum("Deiodinase" in e for e in executed) == 1, executed
         assert sum("Bradford" in e for e in executed) == 1, executed
 
@@ -356,11 +361,13 @@ class TestTheAssayProtocolReachesItsStep:
         )
 
 
-class TestEveryStepExecutesOneProtocolRecord:
-    """#783 / #799 — every ISA-Tox step executes exactly one protocol record.
+class TestStepsThatKeepAProtocolRecord:
+    """#783 / #799 — a step that executes no document executes one protocol record.
 
-    Bioschemas LabProcess and ISA-JSON give a process ONE protocol. The build
-    writes it: a LabProtocol at ``<process>_protocol`` whose ``intendedUse`` is
+    Here that is every step: the culture and the analysis have no document, and
+    the one SOP is placed on the readout by the deposit and named by the
+    Exposure, two kinds of step that cannot share it. The build writes each
+    record: a LabProtocol at ``<process>_protocol`` whose ``intendedUse`` is
     the step's protocol type as an ontology term, which is ``isBasedOn`` the
     documents the deposit places on the step, or what the drafter named where it
     places none, and whose ``reagent``s, on the Exposure, are the compounds applied. It carries no
@@ -431,7 +438,7 @@ class TestEveryStepExecutesOneProtocolRecord:
         assert _ids(record.get("reagent")) == ["#MolecularEntity_chem_1"], record
         assert _ids(record.get("isBasedOn")) == ["assay/SOP.docx"], record
         executed = {i for n in graph for i in _ids(n.get("executesLabProtocol"))}
-        assert "assay/SOP.docx" not in executed, "only records are executed"
+        assert "assay/SOP.docx" not in executed, "two kinds of step cannot share the SOP"
         assert by_id["assay/SOP.docx"]["@type"] == ["File", "LabProtocol"]
 
     def test_the_deposit_outranks_what_was_named(self, tmp_path):
@@ -690,8 +697,8 @@ class TestLabProcessSubtypes:
         assert invented == [], f"no protocol entity may be minted: {invented}"
 
     def test_an_attached_protocol_is_the_file_itself(self, tmp_path):
-        """A deposited protocol IS its document — @id is its path — and the step's
-        record is based on it.
+        """A deposited protocol IS its document — @id is its path — and the step
+        executes it.
 
         No `schema:HowTo` companion is added here, and that is right: the supertype
         pass exists so every entity carries a type in the schema.org namespace, and
@@ -712,7 +719,7 @@ class TestLabProcessSubtypes:
         )
         _, by_id = _build(state, tmp_path)
         executed = _documents(by_id, "#LabProcess_proc_1")
-        assert executed, "the culture's record must be based on the deposited protocol"
+        assert executed, "the culture must execute the deposited protocol"
         assert not executed[0].startswith("#"), (
             f"a protocol's @id must be its file path, not a minted fragment: {executed}"
         )
@@ -1037,8 +1044,7 @@ class TestTheCultureProtocolIsStudyLevel:
     combination.
 
     A deposited protocol IS its file: `@id` is the document's path, with `name`
-    derived on top, and each culture's protocol record is based on it (#783).
-    Nothing is minted.
+    derived on top, and each culture of its line executes it. Nothing is minted.
     """
 
     CULTURE_DOCS = (
@@ -1106,9 +1112,9 @@ class TestTheCultureProtocolIsStudyLevel:
         )
 
     def test_a_line_takes_its_own_document_before_the_named_protocol(self, tmp_path):
-        """#789, per line: a line the deposit holds a document for is based on it
-        alone, never on another line's; what the lab stated about the culture fills
-        each line's record."""
+        """#789, per line: a line the deposit holds a document for executes it
+        alone, never another line's; what the lab stated about the culture fills
+        the record of a line that has none."""
         state = self._two_assays(docs=self.CULTURE_DOCS[:1])
         state.add_entity(
             _ent("named", "LabProtocol", name="Culture procedure", description="DMEM, 37 °C.")
@@ -1128,8 +1134,8 @@ class TestTheCultureProtocolIsStudyLevel:
         document for any combination of lines.
 
         Since #678 the two lines are two cultures, so "one document per line"
-        means each part's record is based on its own single document rather than
-        one part's on two. The document itself is still shared by identity — a
+        means each part executes its own single document rather than one part
+        two. The document itself is still shared by identity — a
         protocol is study-level, and the same SK-N-AS procedure serves every
         assay that grows SK-N-AS.
         """
@@ -1247,14 +1253,16 @@ class TestTheCultureProtocolIsStudyLevel:
             else [attached["@type"]]
         )
         assert "File" in types and "LabProtocol" in types, types
-        # What kind of protocol it is belongs to the culture's record (#783).
-        assert "intendedUse" not in attached, attached
+        # It carries the protocol type of the cultures that execute it.
+        from profiles.ontology_iris import iri
+
+        assert attached["intendedUse"] == {"@id": iri("EFO:0003789")}, attached
         assert not any(
             str(n.get("@id", "")).startswith("#protocol_") for n in graph
         ), "nothing may be minted alongside the real document"
 
     def test_the_builder_writes_no_free_text_intended_use(self, tmp_path):
-        """A step's protocol type is an ontology term on its record (#783, #799).
+        """A step's protocol type is an ontology term on what it executes (#783, #799).
 
         The builder used to stamp its own sentences — "Cell culture", "Per-well
         exposure layout" — on the documents and the condition table.
@@ -1268,9 +1276,8 @@ class TestTheCultureProtocolIsStudyLevel:
                  assay_id="assay_1", chemicals="chem_1", duration="24h")
         )
         graph, by_id = _build(state, tmp_path)
-        assert by_id["#LabProcess_proc_1_protocol"]["intendedUse"] == {
-            "@id": iri("EFO:0003789")
-        }
+        (executed,) = _ids(by_id["#LabProcess_proc_1"]["executesLabProtocol"])
+        assert by_id[executed]["intendedUse"] == {"@id": iri("EFO:0003789")}
         assert not [n["@id"] for n in graph if isinstance(n.get("intendedUse"), str)]
 
 

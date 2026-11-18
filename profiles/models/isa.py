@@ -146,9 +146,8 @@ class LabProcess(AutoAddContextEntity):
     - ``agent``: schema.org/Person
       The performer.
     - ``executesLabProtocol``: bioschemas.org/LabProtocol
-      The protocol executed: the step's one protocol record
-      (:class:`LabProtocol`), which is ``isBasedOn`` the deposited documents
-      rather than being one of them.
+      The protocol executed: the deposited documents the step follows, or else
+      its protocol record (:class:`LabProtocol`), which is ``isBasedOn`` them.
     - ``parameterValue``: schema.org/PropertyValue
       Parameter value(s) of the experimental process, typically key-value pairs using ontology terms.
     - ``endTime``: DateTime
@@ -210,9 +209,10 @@ class LabProtocol(AutoAddContextEntity):
     """Bioschemas LabProtocol mapping of an ISA-JSON Protocol: a step's protocol record.
 
     This entity uses the Bioschemas type `https://bioschemas.org/LabProtocol`.
-    Every ISA-Tox LabProcess executes exactly one, written by the build from what
-    the deposit states. No file stands behind it: a deposited document is a
-    ``File`` co-typed ``LabProtocol`` that the record is ``isBasedOn`` (#783, #799).
+    The build writes one from what the deposit states for each ISA-Tox LabProcess
+    that executes no deposited document. No file stands behind it: a deposited
+    document is a ``File`` co-typed ``LabProtocol`` that a step executes itself,
+    or that the record is ``isBasedOn`` (#783, #799).
 
     Properties
     ----------
@@ -253,8 +253,8 @@ class LabProtocol(AutoAddContextEntity):
       ``LabProtocol_v0.6-DRAFT``; ``ChemicalSubstance`` and ``MolecularEntity``
       were missing from it, which mattered — a test compound is a
       ``MolecularEntity``, so this is the property that carries it. The compounds
-      of an exposure are ``reagent``s of the protocol record the Exposure
-      executes, because the bundled ISA process shape restricts
+      of an exposure are ``reagent``s of the protocol the Exposure executes,
+      because the bundled ISA process shape restricts
       ``schema:object`` to File/Sample/BioSample at Violation severity (#783).
     - ``url``: URL
       Pointer to protocol resources external to the ISA-Tab / ISA-JSON.
