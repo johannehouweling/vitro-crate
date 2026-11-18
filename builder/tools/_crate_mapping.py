@@ -1231,7 +1231,10 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
       the only one, if the labelling and the state each have one assay. A Study
       takes its study folder the same way.
     * Without such a labelling, the deepest folder common to the deposited files
-      placed on the entity, when no file of another Assay lies at or below it.
+      placed on the entity, when no file of another Assay lies at or below it. An
+      Assay that holds every deposited file, as the pipeline places them, takes
+      none this way: the folder that holds them all is the deposit's or its
+      study's, not one assay's.
 
     Placed means what ``attach_files`` writes, the entity's ``hasPart``. A file
     the build adds itself, such as a step's result, a protocol it places or the
@@ -1266,7 +1269,8 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
     proposed: dict[tuple[str, str], str] = {}
     for key, files in placed.items():
         if labelled is None:
-            folder = _common_folder(files) if files else None
+            wholesale = key[0] == "Assay" and set(files) == deposited
+            folder = _common_folder(files) if files and not wholesale else None
         elif key[0] == "Assay":
             labels = [assay["folder"] for study in labelled for assay in study["assays"]]
             folder = _labelled_folder(files, labels, len(assays))
