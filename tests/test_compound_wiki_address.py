@@ -6,10 +6,11 @@ address, ``https://compoundcloud.wikibase.cloud/entity/Q<n>``, is the
 PubChem address, then its ChEBI one, then a local id, as before.
 
 Only an id a lookup wrote counts (D5). ``resolve_compound`` records the id it
-finds as looked up; one a model or a person wrote onto the chemical is recorded
-as theirs, is still written as an identifier value, and never becomes the
-``@id``. The identifier values (CAS, PubChem CID, DTXSID, Compound Wiki) are the
-same whichever address the chemical sits at.
+finds as looked up; one a caller, a model or a person wrote onto the chemical is
+recorded as theirs, is still written as an identifier value, and never becomes
+the ``@id``. Nor does an address on the wiki given as the chemical's own id. The
+identifier values (CAS, PubChem CID, DTXSID, Compound Wiki) are the same
+whichever address the chemical sits at.
 
 Two chemicals in the state that resolve to one item are one entity in the crate,
 and a report calls a chemical that has no name by its item.
