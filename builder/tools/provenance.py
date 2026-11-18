@@ -31,7 +31,7 @@ from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import PROVENANCE_RELATIONS, _file_source
 from builder.tools.document_discovery import classification_of
 from builder.tools.drafters import _make_entity_id
-from builder.tools.management import entity_not_found_message
+from builder.tools.management import entity_not_found_message, resolve_entity_id
 from builder.tools.scanner import encoding_format_for_name
 
 logger = logging.getLogger(__name__)
@@ -169,9 +169,10 @@ def link(state: CrateState, from_id: str, relation: str, to_id: str) -> dict[str
 
     Args:
         state: The crate state to operate on.
-        from_id: entity_id of the source entity (the process or sample).
+        from_id: entity_id of the source entity (the process or sample), or the
+            id the crate gives it.
         relation: One of :data:`PROVENANCE_RELATIONS` (object/result/input/...).
-        to_id: entity_id of the target entity.
+        to_id: entity_id of the target entity, or the id the crate gives it.
 
     Returns:
         A small confirmation dict ``{"from_id", "relation", "to_id"}``.
@@ -187,11 +188,13 @@ def link(state: CrateState, from_id: str, relation: str, to_id: str) -> dict[str
     # most likely reaching for. A flat "not found" tells the agent its guess was
     # wrong without telling it what is right, so it guesses again — one profiled
     # session lost four iterations to exactly that, on ids it had never been shown.
-    src = state.get_entity(from_id)
+    src = state.get_entity(resolve_entity_id(state, from_id))
     if src is None:
         raise ValueError(f"link source: {entity_not_found_message(state, from_id)}")
-    if state.get_entity(to_id) is None:
+    target = state.get_entity(resolve_entity_id(state, to_id))
+    if target is None:
         raise ValueError(f"link target: {entity_not_found_message(state, to_id)}")
+    from_id, to_id = src.entity_id, target.entity_id
 
     # Write where the build reads, not where the caller pointed — see
     # _PROCESS_LINK_HOMES. Silently storing an edge assembly discards is worse
@@ -395,7 +398,7 @@ def attach_files(
 
     Args:
         state: The crate state to operate on.
-        to: entity_id of the target Study or Assay.
+        to: entity_id of the target Study or Assay, or the id the crate gives it.
         name_contains: Match files whose filename or path contains this substring.
         mime_contains: Match files whose mime_type contains this substring.
         paths: Explicit scanned paths/filenames to attach (with/instead of the
@@ -410,9 +413,10 @@ def attach_files(
     Raises:
         ValueError: If ``to`` is missing or is not a Study/Assay.
     """
-    target = state.get_entity(to)
+    target = state.get_entity(resolve_entity_id(state, to))
     if target is None:
         raise ValueError(f"attach_files target: {entity_not_found_message(state, to)}")
+    to = target.entity_id
     if target.type not in ("Study", "Assay"):
         raise ValueError(
             f"attach_files target must be a Study or Assay; {to!r} is a "

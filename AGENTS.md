@@ -2316,20 +2316,41 @@ profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST 
 - Keeps **Study and Assay as their own `Dataset` + `additionalType` nodes** (required by the ISA
   shapes); an Assay MAY be `hasPart` of either its Study or the Investigation (`2_assay.ttl`
   `AssayMustBeReferencedFromInvestigation`).
-- Mints **distinct hierarchical identifiers** per level via `_isa_identifier`
-  (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). The `@id` (the path) is the true unique
-  key; the `identifier` *property* is the ISA descriptor and must not collide across levels. It is
-  also a Study's or Assay's **only** `schema:identifier`: a drafted field the context expands to
-  `schema:identifier` (`accession`, `dsstoxId`, … — `_identifier_terms`) is not emitted on either,
-  because their ISA shapes cap the property at one (`sh:maxCount 1`); the deposit's own identifier
-  is the root's `identifier` (`CrateMetadata`'s DOI, else its accession).
+- Identifies **a Study or an Assay by its folder** where the deposit gives it one of its own (#852,
+  "the folder tree is the depositor's own statement of what the studies and assays are"):
+  `dataset_folders` reads the labelling `deposit_structure` holds when the checks accepted it, and
+  otherwise the deepest folder common to the files `attach_files` placed on the entity, except for
+  an Assay that holds every file of the deposit, as the pipeline's one Assay does; a folder counts
+  only if the scan saw it, never the deposit root, never one that holds a file placed on another
+  Assay, and never one another Study or Assay takes or is nested with (an Assay before its Study).
+  Such an entity is the directory Dataset at
+  that folder: its `@id` is the folder's path percent-encoded as a file's is and ending in `/`, its
+  `@type` the plain `Dataset` ro-crate-py walks. An Assay with a folder whose Study has none is
+  listed by the root as well, because ro-crate-py reaches a directory only through directories and
+  refuses a crate with one it does not reach. Without a folder (a flat deposit, a study at the
+  deposit root, a shared or nested folder, no scan) the entity keeps its contextual `#Study_…` /
+  `#Assay_…` id: no folder is invented and no directory is made for an id. A metadata-only crate
+  describes such a folder as it describes its files, at `#<folder>/` with a `localPath`.
+- Gives **each level a distinct identifier**: a Study or an Assay with a folder states the folder's
+  path, and one without, or whose folder's path another level already states, the hierarchical
+  descriptor `_isa_identifier` mints (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). Under a
+  root identified by its DOI the descriptor nests under the deposit's accession instead
+  (`S-VHPS21/study-<id>`), because one built under a web address reads as an address that resolves
+  to nothing. The `@id` is the true unique key; the `identifier` *property* is the ISA descriptor and must not
+  collide across levels. It is also a Study's or Assay's **only** `schema:identifier`: a drafted
+  field the context expands to `schema:identifier` (`accession`, `dsstoxId`, … —
+  `_identifier_terms`) is not emitted on either, because their ISA shapes cap the property at one
+  (`sh:maxCount 1`); the deposit's own identifier is the root's `identifier` (`CrateMetadata`'s
+  DOI, else its accession).
 - Attaches each **result `File` to its producing Assay's `hasPart`** (de-duped via `_append_unique`)
   **in addition to** the root's reference, never instead of it (#532) — raw/processed data are the
   data of an assay, and RO-Crate lets a data entity be `hasPart` of more than one `Dataset`. The
   root's reference is what keeps the file in the crate's **file tree**: that tree is walked from
-  `./` through *directory* Datasets, and an ISA container is a contextual `#Study_…` / `#Assay_…`
-  node, not a directory. Re-parenting therefore stranded every payload file — ro-crate-py refuses to
-  open such a crate, while all three SHACL profiles pass it, because none of them asks.
+  `./` through *directory* Datasets, and an ISA container without a folder of its own is a
+  contextual `#Study_…` / `#Assay_…` node, not a directory. Re-parenting therefore stranded every
+  payload file — ro-crate-py refuses to open such a crate, while all three SHACL profiles pass it,
+  because none of them asks. A file under a container that is a folder keeps the root's reference
+  too, so no file's place in the tree depends on which containers have one.
 - Re-emits the Assay's **`dataFiles` / `resources` PageTab aliases** (both expand to `schema:hasPart`
   via `profiles/context.py`) as resolved File references *and* nests those Files under the Assay's
   `hasPart` — same move as result Files, so the gold-crate JSON keys round-trip (`_wire_dataset_aliases`,
@@ -2570,8 +2591,9 @@ payload?" is REQUIRED by the base profile and answerable only where the payload 
 in-memory gate validates a document, so that check emits *nothing* there, and its silence must never
 be read as a pass. `verify_payload` states the invariant the crate itself must satisfy instead of
 naming a check id (ids move between upstream releases, and skipping a check that emits nothing
-suppresses nothing): every local data entity is backed by a source `crate.write()` will
-materialise, since ro-crate-py writes the metadata for a source-less entity and no bytes. Export
+suppresses nothing): every local file is backed by a source `crate.write()` will materialise,
+since ro-crate-py writes the metadata for a source-less file and no bytes; a directory needs none,
+because `crate.write()` makes the folder of a ro-crate-py `Dataset` itself. Export
 runs it against the assembled crate **before** the report is embedded — a verdict reached after the
 write could never reach the report shipping inside the crate — and files what it finds as REQUIRED
 issues, so the existing rendering flips the Profile-conformance verdict (the matrix's Required column — the report's one headline verdict) without knowing this check exists.
@@ -3303,9 +3325,10 @@ re-implementation. Its parts:
   assay (S-VHPS27 deposits its assays with the data to follow). A failed check, a model
   error or no provider stores the fallback — one study, one assay, at the root — and
   either way one line says what the deposit was read as. The structure rides in
-  `CrateState.deposit_structure` and the session, so a resumed build keeps it. Nothing
-  builds from it yet: the scaffold and the file attachment still make one Study and one
-  Assay.
+  `CrateState.deposit_structure` and the session, so a resumed build keeps it. The build
+  reads it for the folder a Study or an Assay is identified by (D13), so the validation
+  fingerprint covers it; the scaffold and the file attachment still make one Study and
+  one Assay.
 - **Composite meta-tools** — e.g. `draft_process_chain`, which wires the
   EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
   Violation trap) and wires a whole chain in one idempotent call (§5 Derivation

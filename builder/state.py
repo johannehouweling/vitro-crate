@@ -1575,15 +1575,21 @@ class CrateState:
         )
 
     def validation_fingerprint(self) -> str:
-        """Hash of what ``build_and_validate`` consumes: entities + metadata.
+        """Hash of what ``build_and_validate`` consumes: entities, metadata, deposit structure.
 
         Deliberately EXCLUDES ``validation`` / assessments / checkpoint. Those
         are *outputs* the #153 write-back mutates after every validation, so
         including them would change the hash on every call and defeat the #155
-        debounce. ``assemble_crate`` reads only entities + metadata, so this is a
-        safe superset of the validation inputs: a change to anything the
-        validator could observe busts the cache, while a change to a pure output
-        (a verdict, a score) does not.
+        debounce. ``assemble_crate`` reads entities + metadata, and the deposit
+        structure for the folder a Study or an Assay is identified by
+        (:func:`builder.tools._crate_mapping.dataset_folders`), so this is a safe
+        superset of the validation inputs: a change to anything the validator
+        could observe busts the cache, while a change to a pure output (a
+        verdict, a score) does not. The folder is also checked against the scan
+        inventory and the approved roots, which stay out as #380 keeps them out:
+        the files placed on an entity are entities, so only a scan that loses
+        files, or a second approved root that sorts before the input folder, can
+        move a folder without changing this hash.
         """
         metadata = self.metadata.to_dict() if hasattr(self.metadata, "to_dict") else None
         if metadata is not None:
@@ -1601,6 +1607,7 @@ class CrateState:
             if hasattr(self.entities, "to_dict")
             else str(self.entities),
             "metadata": metadata if metadata is not None else str(self.metadata),
+            "deposit_structure": self.deposit_structure,
         }
         return hashlib.sha256(
             json.dumps(content, sort_keys=True, default=str).encode("utf-8")

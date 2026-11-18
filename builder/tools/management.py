@@ -64,9 +64,11 @@ def _normalize_reference_one(state: CrateState, value: Any) -> str | None:
     """One reference value reduced to its bare entity id (or a kept-verbatim IRI).
 
     Accepts every encoding a caller might reach for — ``"assay_x"``,
-    ``{"@id": "assay_x"}``, ``"#assay_x"``, ``"./#Assay_assay_x"`` — because the
-    build resolves all of them. An external IRI is kept as-is; an unrecognised
-    string is kept verbatim rather than dropped, so nothing is silently lost.
+    ``{"@id": "assay_x"}``, ``"#assay_x"``, ``"./#Assay_assay_x"``, a File's
+    path — and reduces it through :func:`resolve_entity_id`, which matches the
+    id the crate gives an entity exactly. An external IRI is kept as-is; an
+    unrecognised string is kept verbatim rather than dropped, so nothing is
+    silently lost.
     """
     key = value.get("@id") if isinstance(value, dict) else value
     if not isinstance(key, str):
@@ -76,15 +78,8 @@ def _normalize_reference_one(state: CrateState, value: Any) -> str | None:
         return None
     if "://" in key:
         return key  # external identifier — already canonical
-    bare = key.lstrip("./").lstrip("#")
-    if state.get_entity(bare) is not None:
-        return bare
-    # Crate-style type-qualified id, e.g. "Assay_assay_x" -> "assay_x".
-    if "_" in bare:
-        candidate = bare.split("_", 1)[1]
-        if state.get_entity(candidate) is not None:
-            return candidate
-    return key
+    resolved = resolve_entity_id(state, key)
+    return resolved if state.get_entity(resolved) is not None else key
 
 
 def _split_named_list(state: CrateState, value: Any) -> list[str] | None:
@@ -266,26 +261,33 @@ def resolve_entity_id(state: CrateState, raw: str) -> str:
     failed this way, and the model had no way to tell a bad id from a bad name.
 
     Resolution is exact at every step, never fuzzy: the state id itself, then the
-    id with the crate's ``./``/``#`` decoration removed, then the type-qualified
-    form the mapper mints, then a File's destination path. An id that matches
-    nothing is returned unchanged so the caller still raises its own clear error.
+    id with the crate's ``./`` prefix and ``#`` removed, then the id a crate gives
+    an entity, with or without its ``#`` and with or without the crate's files
+    (:func:`~builder.tools._crate_mapping.entity_for_crate_id`, where a File is
+    its percent-encoded path and a Study or an Assay with a folder that folder,
+    encoded and ending in ``/``), then a File's destination path as written. A
+    Study or an Assay is named by that id, not by the folder path it states as
+    its identifier. An id that matches nothing is returned unchanged so the
+    caller still raises its own clear error.
     """
     if not isinstance(raw, str) or not raw.strip():
         return raw
     candidate = raw.strip()
     if state.get_entity(candidate) is not None:
         return candidate
-    bare = candidate.lstrip("./").lstrip("#")
+    bare = candidate.removeprefix("./").removeprefix("#")
     if state.get_entity(bare) is not None:
         return bare
     try:
-        from builder.tools._crate_mapping import _file_dest, _mint_id
+        from builder.tools._crate_mapping import _file_dest, entity_for_crate_id
 
-        for entity in state.list_entities():
-            if _mint_id(entity).lstrip("./").lstrip("#") == bare:
-                return entity.entity_id
-            if entity.type == "File" and _file_dest(entity).lstrip("./") == bare:
-                return entity.entity_id
+        found = entity_for_crate_id(state, candidate)
+        if found is None and not candidate.removeprefix("./").startswith("#"):
+            found = entity_for_crate_id(state, "#" + bare)
+        if found is None:
+            found = next((f for f in state.list_entities("File") if _file_dest(f) == bare), None)
+        if found is not None:
+            return found.entity_id
     except Exception:  # noqa: BLE001 — resolution never blocks the call
         logger.debug("entity id resolution failed for %r", raw, exc_info=True)
     return raw

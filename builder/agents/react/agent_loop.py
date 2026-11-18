@@ -3073,26 +3073,23 @@ def _issue_targets_own_entity(state: CrateState, line: str) -> bool:
     # its AOP-Wiki IRI is still the agent's to edit — 44 of them in one crate —
     # and treating "looks like a URL" as "the build emitted it" told the model to
     # ignore work it could actually do.
-    bare = entity_id.lstrip("./").lstrip("#")
+    bare = entity_id.removeprefix("./").removeprefix("#")
     for entity in state.list_entities():
         if entity_id == entity.entity_id or bare == entity.entity_id:
             return True
         if bare.endswith(f"_{entity.entity_id}"):
             return True
-    # Compare against the id the MAPPER would mint, not just the state id. A File
+    # Compare against the id the MAPPER gives, not just the state id. A File
     # is keyed in the graph by its destination path (`data/uptake.csv`) while
     # state calls it `file_uptake`, so sixteen findings on the agent's own files
     # were reported to it as "emitted by the build, not fixable from here" — the
     # one category it must never get wrong, because the model is told to stop
-    # trying. Asking the mapper is exact and stays right if the id scheme moves.
+    # trying. Asking the mapper, through the resolver the tools use, is exact and
+    # stays right if the id scheme moves.
     try:
-        from builder.tools._crate_mapping import _file_dest, _mint_id
+        from builder.tools.management import resolve_entity_id
 
-        for entity in state.list_entities():
-            if _mint_id(entity).lstrip("./").lstrip("#") == bare:
-                return True
-            if entity.type == "File" and _file_dest(entity).lstrip("./") == bare:
-                return True
+        return state.get_entity(resolve_entity_id(state, entity_id)) is not None
     except Exception:  # noqa: BLE001 — classification never breaks a turn
         logger.debug("issue ownership: mapper id comparison failed", exc_info=True)
     return False

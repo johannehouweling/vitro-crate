@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from builder.state import CrateState, Entity
-from builder.tools._crate_mapping import _mint_id
+from builder.tools._crate_mapping import entity_for_crate_id
 from builder.tools.provenance import _INPUT_FIELDS, _OUTPUT_FIELDS, _ref_ids
 from builder.tools.provenance import link as _link
 
@@ -79,20 +79,13 @@ def _resolve_state_entity(state: CrateState, focus_id: str | None) -> Entity | N
     ``build_and_validate`` reports ``entity_id`` as the crate-relative @id of the
     built graph node (e.g. ``"./#LabProcess_er1"`` or ``"./"``), not the state
     ``entity_id``. The build mints each node's @id via ``_mint_id``, so we invert
-    it: strip the base-relative ``"./"`` prefix the validator prepends, then match
-    the remainder against each entity's minted @id. Returns ``None`` for the root
+    it through :func:`~builder.tools._crate_mapping.entity_for_crate_id`, the one
+    function every reader of a crate id shares. Returns ``None`` for the root
     (``"./"``) — which folds the single Investigation and has no separate node —
-    or when no entity mints to that @id.
+    or when no entity mints to that @id. A finding on a File is reported and
+    never asked about, so a File is not resolved here.
     """
-    if not focus_id:
-        return None
-    candidate = focus_id[2:] if focus_id.startswith("./") else focus_id
-    if candidate in ("", "."):
-        return None
-    for entity in state.list_entities():
-        if _mint_id(entity) == candidate:
-            return entity
-    return None
+    return entity_for_crate_id(state, focus_id or "", files=False)
 
 
 # ---------------------------------------------------------------------------

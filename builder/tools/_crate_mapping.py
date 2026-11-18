@@ -12,7 +12,8 @@ profile's "guidance over strictness" stance.
 
 Identifiers follow RO-Crate best practice (ro-crate-1.2.0.md §Recommended
 Identifiers): a resolvable URI when a field provides one, else a `#`-prefixed
-local fragment; Files use a relative URI path.
+local fragment; Files use a relative URI path, and so does a Study or an Assay
+deposited in a folder of its own.
 """
 
 from __future__ import annotations
@@ -27,10 +28,12 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from rocrate.model import ContextEntity, DataEntity, File, Person
+from rocrate.model import ContextEntity, DataEntity, Dataset, File, Person
 from rocrate.rocrate import ROCrate
 
 from builder.state import CrateState, Entity
+from builder.tools.deposit_structure import ROOT as DEPOSIT_ROOT
+from builder.tools.deposit_structure import _contains, normalise_structure
 from builder.tools.document_discovery import CLASS_PROTOCOL, SCRIPT_SUFFIXES
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, LabProtocol, Sample, param_id
@@ -1052,14 +1055,19 @@ def _chebi_purl(entity: Entity) -> str | None:
     return None
 
 
-def _mint_id(entity: Entity) -> str:
-    """A spec-correct @id: resolvable URI when available, else `#`-fragment.
+def _mint_id(entity: Entity, folders: dict[tuple[str, str], str] | None = None) -> str:
+    """A spec-correct @id: a folder or resolvable URI when available, else `#`-fragment.
 
-    Fragment @ids are type-qualified (``#Sample_my_cell``) so two entities
-    of different types sharing an ``entity_id`` produce distinct @ids and
-    ro-crate-py never silently merges them in the graph (see Issue #57).
+    A Study or an Assay that *folders* (:func:`dataset_folders`) gives a folder
+    is that folder: its path percent-encoded as a File's is, ending in ``/``,
+    which is the id ro-crate-py gives the directory Dataset. Fragment @ids are
+    type-qualified (``#Sample_my_cell``) so two entities of different types
+    sharing an ``entity_id`` produce distinct @ids and ro-crate-py never
+    silently merges them in the graph (see Issue #57).
     """
     t, f, eid = entity.type, entity.fields, entity.entity_id
+    if t in ("Study", "Assay") and (folder := (folders or {}).get((t, eid))):
+        return urllib.parse.quote(folder) + "/"
     if t == "Person" and f.get("orcid"):
         o = str(f["orcid"]).strip()
         return o if o.startswith("http") else f"https://orcid.org/{o}"
@@ -1106,6 +1114,215 @@ def _mint_id(entity: Entity) -> str:
     if eid.startswith(("#", "http://", "https://", "./")) or "://" in eid:
         return eid
     return "#" + _slug(t) + "_" + eid
+
+
+def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
+    """The folder of the deposit each Study and Assay that has one is identified by (#852).
+
+    "The folder tree is the depositor's own statement of what the studies and
+    assays are." A Study or an Assay whose files lie in one folder that is its
+    alone is that folder in the crate. The result is keyed by ``(type,
+    entity_id)`` and gives the folder's path relative to the crate root; an
+    entity left out has no folder and keeps its local id.
+
+    A folder counts only if the scan saw a file in it. It is never the deposit
+    root, which is the Investigation, never one that another Study or Assay takes
+    or that is nested with another's, and never one that holds a file placed on
+    another Assay, or for a Study on an entity not its own. The evidence, in this
+    order:
+
+    * The labelling the checks accepted (``deposit_structure`` from the model),
+      when it is relative to the crate root. An Assay takes the one assay folder
+      that holds its files, and when none of its files lies in an assay folder,
+      the only one, if the labelling and the state each have one assay. A Study
+      takes its study folder the same way.
+    * Without such a labelling, the deepest folder common to the deposited files
+      placed on the entity. An Assay that holds every deposited file, as the
+      pipeline places them, takes none this way: the folder that holds them all is
+      the deposit's or its study's, not one assay's.
+
+    Placed means what ``attach_files`` writes, the entity's ``hasPart``. A file
+    the build adds itself, such as a step's result, a protocol it places or the
+    condition table, is no evidence. A Study's folder holds the folders of its
+    Assays, and without a labelling the files placed on them as well; where a
+    Study and an Assay would take one folder the Assay takes it.
+    """
+    input_path = state.metadata.input_path
+    if not input_path:
+        return {}
+    # The scan records each file under the resolved input folder, so its crate
+    # path is the rest of its path: what `provenance._scanned_dest` gives it.
+    root = Path(input_path).resolve()
+    inside = os.path.join(str(root), "")
+    deposited: set[str] = set()
+    seen: set[str] = set()
+    for scanned in state.scanned_files:
+        path = os.path.normpath(os.path.join(root, scanned.path))
+        if not path.startswith(inside):
+            continue
+        relative = path[len(inside) :].replace(os.sep, "/")
+        deposited.add(relative)
+        parts = relative.split("/")[:-1]
+        seen.update("/".join(parts[:end]) for end in range(1, len(parts) + 1))
+    studies, assays = state.list_entities("Study"), state.list_entities("Assay")
+    placed: dict[tuple[str, str], list[str]] = {
+        (entity.type, entity.entity_id): _placed_files(state, entity, deposited)
+        for entity in (*studies, *assays)
+    }
+
+    labelled = _labelled_studies(state, root)
+    proposed: dict[tuple[str, str], str] = {}
+    for key, files in placed.items():
+        if labelled is None:
+            wholesale = key[0] == "Assay" and set(files) == deposited
+            folder = _common_folder(files) if files and not wholesale else None
+        elif key[0] == "Assay":
+            labels = [assay["folder"] for study in labelled for assay in study["assays"]]
+            folder = _labelled_folder(files, labels, len(assays))
+        else:
+            folder = _labelled_folder(files, [study["folder"] for study in labelled], len(studies))
+        if folder in seen:
+            proposed[key] = folder
+
+    def nested(one: str, other: str) -> bool:
+        return _contains(one, other) or _contains(other, one)
+
+    def holds_files_of(folder: str, keys: list[tuple[str, str]]) -> bool:
+        return any(_contains(folder, path) for key in keys for path in placed[key])
+
+    folders: dict[tuple[str, str], str] = {}
+    for assay in assays:
+        key = ("Assay", assay.entity_id)
+        folder = proposed.get(key)
+        others = [other for other in placed if other[0] == "Assay" and other != key]
+        if folder is None or any(nested(folder, proposed[o]) for o in others if o in proposed):
+            continue
+        if holds_files_of(folder, others):
+            continue
+        folders[key] = folder
+    assay_folders = dict(folders)
+    for study in studies:
+        key = ("Study", study.entity_id)
+        folder = proposed.get(key)
+        others = [other for other in proposed if other[0] == "Study" and other != key]
+        if folder is None or any(nested(folder, proposed[other]) for other in others):
+            continue
+        own = {("Assay", a.entity_id) for a in assays if a.fields.get("study_id") == key[1]}
+        if any(_contains(taken, folder) for taken in assay_folders.values()):
+            continue  # an Assay takes the folder, or one around it
+        if any(_contains(folder, at) != (other in own) for other, at in assay_folders.items()):
+            continue  # an Assay of its own lies outside it, or another's inside
+        if labelled is None and any(
+            not _contains(folder, path) for assay in own for path in placed[assay]
+        ):
+            continue  # without a labelling, an Assay of its own lies where its files do
+        strangers = [other for other in placed if other != key and other not in own]
+        if holds_files_of(folder, strangers):
+            continue
+        folders[key] = folder
+    return folders
+
+
+def _placed_files(state: CrateState, entity: Entity, deposited: set[str]) -> list[str]:
+    """The crate paths of the deposited files ``attach_files`` placed on *entity*."""
+    paths = []
+    for key in ("hasPart", "has_part"):
+        value = entity.fields.get(key)
+        for ref in value if isinstance(value, list) else [value]:
+            ref_id = ref.get("@id") if isinstance(ref, dict) else ref
+            member = state.get_entity(str(ref_id)) if ref_id else None
+            if member is not None and member.type == "File":
+                if (path := _file_dest(member)) in deposited:
+                    paths.append(path)
+    return paths
+
+
+def _common_folder(paths: list[str]) -> str:
+    """The deepest folder that holds every one of *paths*: ``"."`` when only the root does."""
+    common: list[str] = []
+    for level in zip(*(path.split("/")[:-1] for path in paths)):
+        if len(set(level)) > 1:
+            break
+        common.append(level[0])
+    return "/".join(common) or DEPOSIT_ROOT
+
+
+def _labelled_studies(state: CrateState, root: Path) -> list[dict[str, Any]] | None:
+    """The studies of the labelling the checks accepted, when its folders are crate paths.
+
+    The labelling is relative to the folder that was scanned, the first approved
+    root as ``build._derive_structure`` reads it, and the crate to the input path.
+    Where the two differ, a labelled folder is not a path of the crate, and the
+    labelling is not used.
+    """
+    structure = state.deposit_structure
+    if not structure or structure.get("source") != "model":
+        return None
+    approved = sorted(state.approved_scan_roots)
+    scanned_from = approved[0] if approved else state.metadata.input_path
+    try:
+        if not scanned_from or Path(scanned_from).resolve() != root:
+            return None
+        return normalise_structure(structure)["studies"]
+    except (OSError, ValueError):
+        return None
+
+
+def _labelled_folder(files: list[str], folders: list[str], entities: int) -> str | None:
+    """The one labelled folder that holds *files*.
+
+    With none of *files* in a labelled folder, the only folder there is, when the
+    state has one entity to take it.
+    """
+    holding = {
+        folder
+        for folder in folders
+        if folder != DEPOSIT_ROOT and any(_contains(folder, path) for path in files)
+    }
+    if len(holding) == 1:
+        return holding.pop()
+    if not holding and len(folders) == 1 and entities == 1:
+        return folders[0]
+    return None
+
+
+def entity_for_crate_id(state: CrateState, crate_id: str, *, files: bool = True) -> Entity | None:
+    """The state entity whose node in the crate has *crate_id*, or None.
+
+    A finding, a reference or a tool argument names an entity by the ``@id`` the
+    crate gave it, and everything that turns that id back into a state entity
+    asks here. The match is exact: the ``./`` a validator puts before a relative
+    id is removed as a prefix, and an entity is found by the id of its node and
+    by the ``#<Type>_<entity_id>`` fragment it would have without a path, an
+    address or a folder. The id of a File's node is its path percent-encoded,
+    which is the id ro-crate-py gives it, and that of any other the one
+    :func:`_mint_id` gives it. A Study or an Assay is therefore found by the
+    folder it is identified by (:func:`dataset_folders`, asked only for an id that
+    ends in ``/``) and by the local id it had before it took one. A metadata-only
+    crate describes a file or a folder it leaves out at ``#`` and the id it has
+    with its payload (``builder._leave_files_out``), and that id finds it too
+    when no node has it as its own. *files* False leaves Files out, for a caller
+    that reports a finding on a file rather than acting on it.
+    """
+    candidate = str(crate_id or "").removeprefix("./")
+    if candidate in ("", "."):
+        return None
+    folders = dataset_folders(state) if candidate.endswith("/") and "://" not in candidate else None
+    left_out: Entity | None = None
+    for entity in state.list_entities():
+        if entity.type == "File" and not files:
+            continue
+        node_id = (
+            urllib.parse.quote(Path(_file_dest(entity)).as_posix())
+            if entity.type == "File"
+            else _mint_id(entity, folders)
+        )
+        if candidate in (node_id, "#" + _slug(entity.type) + "_" + entity.entity_id):
+            return entity
+        relative = not node_id.startswith("#") and "://" not in node_id
+        if left_out is None and relative and candidate == "#" + node_id:
+            left_out = entity
+    return left_out
 
 
 def _contain_dest(raw: str, fallback: str) -> str:
@@ -2312,9 +2529,12 @@ def _attach_explicit_parts(node: Any, entity: Entity, idx: dict[str, Any], root:
     never instead of it (#532). RO-Crate lets a data entity be ``hasPart`` of
     more than one Dataset, and the root's copy is what makes the file reachable
     at all: the file tree is walked from ``./`` through *directory* Datasets, and
-    an ISA container is a contextual ``#Study_…`` / ``#Assay_…`` node, not a
-    directory. Re-parenting therefore stranded every payload file — ro-crate-py
-    refuses to load such a crate, while all three SHACL profiles pass it.
+    an ISA container without a folder of its own is a contextual ``#Study_…`` /
+    ``#Assay_…`` node, not a directory. Re-parenting therefore stranded every
+    payload file — ro-crate-py refuses to load such a crate, while all three
+    SHACL profiles pass it. A file under a container that is a folder keeps the
+    root's reference as well, so no file's place in the tree depends on which
+    containers have one.
     """
     for key in ("hasPart", "has_part"):
         for child in _resolve_many(idx, entity.fields.get(key)):
@@ -2362,34 +2582,69 @@ def _add_structural(state: CrateState, crate: ROCrate, idx: dict[str, Any]) -> N
             _append_unique(root, "hasPart", node)
 
     root_ident = root.get("identifier") or "./"
+    # A descriptor is built under the root's identifier, unless that is a web address
+    # (the deposit's DOI): built under one, it reads as an address that resolves to
+    # nothing. It is then built under the deposit's accession, or under nothing.
+    nest_ident = root_ident if "://" not in str(root_ident) else state.metadata.accession or "."
     # ISA caps a Study's or Assay's schema:identifier at one: the minted one (#739).
     isa_skip = (*_AGENT_REFERENCE_FIELDS, *_identifier_terms())
+    # A Study or an Assay with a folder of its own is that folder (#852): a
+    # directory Dataset, which ro-crate-py walks, whose identifier is the folder's
+    # path unless another level already states that one. One without a folder
+    # keeps the hierarchical descriptor, an Assay's nested under its Study's
+    # descriptor whether or not that Study has a folder.
+    folders = dataset_folders(state)
+    stated = {root_ident}
+    descriptors: dict[str, str] = {}
 
     for st in state.list_entities("Study"):
+        folder = folders.get(("Study", st.entity_id))
         props = {
             "@type": "Dataset",
             "additionalType": "Study",
             **_scalar_props(st, skip=isa_skip),
         }
-        props["identifier"] = _isa_identifier(st, root_ident, "study")
-        node = crate.add(DataEntity(crate, _mint_id(st), properties=props))
+        descriptor = _isa_identifier(st, nest_ident, "study")
+        props["identifier"] = folder if folder and folder not in stated else descriptor
+        stated.add(props["identifier"])
+        node = crate.add(
+            Dataset(crate, dest_path=folder, properties=props)
+            if folder
+            else DataEntity(crate, _mint_id(st), properties=props)
+        )
+        descriptors[node.id] = descriptor
         _idx_add(idx, st, node)
         _append_unique(root, "hasPart", node)  # Study MUST be hasPart of the root
         _attach_explicit_parts(node, st, idx, root)
 
     for asy in state.list_entities("Assay"):
+        folder = folders.get(("Assay", asy.entity_id))
         props = {
             "@type": "Dataset",
             "additionalType": "Assay",
             **_scalar_props(asy, skip=isa_skip),
         }
         parent = _resolve_one(idx, asy.fields.get("study_id")) or root
-        props["identifier"] = _isa_identifier(asy, parent.get("identifier") or root_ident, "assay")
-        node = crate.add(DataEntity(crate, _mint_id(asy), properties=props))
+        above = (
+            descriptors.get(parent.id)
+            or (parent is not root and parent.get("identifier"))
+            or nest_ident
+        )
+        props["identifier"] = (
+            folder if folder and folder not in stated else _isa_identifier(asy, above, "assay")
+        )
+        stated.add(props["identifier"])
+        node = crate.add(
+            Dataset(crate, dest_path=folder, properties=props)
+            if folder
+            else DataEntity(crate, _mint_id(asy), properties=props)
+        )
         _idx_add(idx, asy, node)
         # crate.add auto-added the Assay to the root's hasPart; nest it under its
-        # Study instead (no double-parenting).
-        if parent is not root:
+        # Study instead (no double-parenting). A folder under a Study that is none
+        # stays listed by the root as well: ro-crate-py reaches a directory only
+        # through directories, and refuses a crate with one it does not reach.
+        if parent is not root and not (folder and parent.id.startswith("#")):
             _remove_child(root, "hasPart", node.id)
         _append_unique(parent, "hasPart", node)
         _attach_explicit_parts(node, asy, idx, root)
@@ -3797,8 +4052,8 @@ def _wire_process_node(
     # Result Files are the data of this assay → attach them to the Assay's
     # hasPart (ISA), de-duped, while KEEPING the root's reference (#532).
     # "Reachable transitively via File → Assay → Study → ./" was the
-    # premise for dropping it, and it is false: the file tree runs
-    # through directory Datasets, and an Assay is a contextual node.
+    # premise for dropping it, and it is false: the file tree runs through
+    # directory Datasets, and an Assay without a folder is a contextual node.
     for file_node in _result_file_nodes(node):
         _append_unique(assay, "hasPart", file_node)
     # ...and so are the documents its protocol record is based on, but WHERE they
@@ -4308,7 +4563,8 @@ def _wire_dataset_aliases(state: CrateState, crate: ROCrate, idx: dict[str, Any]
     * Assay ``dataFiles`` / ``resources`` -> File references, also attached to the
       assay's ``hasPart`` while KEEPING the root's reference (#532) — both expand
       to schema:hasPart, and the root's copy is what keeps the file in the file
-      tree, which is walked through directory Datasets rather than ISA nodes.
+      tree, which is walked through directory Datasets, and an ISA node without
+      a folder is none.
     """
 
     # Agent/organisation references on the ISA datasets. These were emitted

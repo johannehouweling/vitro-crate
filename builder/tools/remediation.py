@@ -308,6 +308,13 @@ def _entity_label(entity_id: str, labels: dict[str, str] | None) -> str:
         if entity_id.startswith(prefix):
             return phrasing.format(entity_id[len(prefix) :].strip("/"))
 
+    if entity_id.endswith("/") and "://" not in entity_id:
+        # A folder's id ends in "/", and its own name, as the deposit spells it,
+        # is what a reader knows: no type prefix stands before it.
+        from urllib.parse import unquote
+
+        return unquote(entity_id.rstrip("/").rsplit("/", 1)[-1].lstrip("#")) or entity_id
+
     tail = entity_id.rsplit("/", 1)[-1].lstrip("#").removeprefix("./")
     for prefix in _ID_TYPE_PREFIXES:
         if tail.startswith(prefix):
