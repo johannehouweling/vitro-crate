@@ -273,6 +273,21 @@ class TestAReferenceWrittenAsACrateId:
 
         assert readout.fields["assay_id"] == without.entity_id
 
+    def test_a_file_named_by_its_type_qualified_id_is_its_entity(self) -> None:
+        """The model is told that the ``./#Type_id`` form is stored as the state id,
+        and a File has that form as well as its path."""
+        state, with_folder, _without = _deposit()
+        plate = _file_at(state, "assay 01/plate 1.csv")
+        readout = draft_process(
+            state, with_folder.entity_id, "EndpointReadout", {"name": "Readout"}
+        )
+
+        set_fields(state, readout.entity_id, {"result": "#File_" + plate.entity_id})
+
+        assert readout.fields["result"] == [plate.entity_id]
+        assert resolve_entity_id(state, "./#File_" + plate.entity_id) == plate.entity_id
+        assert resolve_entity_id(state, "File_" + plate.entity_id) == plate.entity_id
+
     def test_a_file_named_by_its_crate_id_is_its_entity(self) -> None:
         state, with_folder, _without = _deposit()
         readout = draft_process(
