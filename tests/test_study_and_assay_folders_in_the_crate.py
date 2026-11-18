@@ -225,6 +225,8 @@ class TestTheGuidanceAsksNoArchive:
         assert {g.entity_type for g in on_the_folder} == {"Assay"}
 
 
+# What an export writes itself, beside the deposit's files.
+GENERATED = {"ro-crate-metadata.json", "ro-crate-preview.html", "ro-crate-metadata-maturity.html"}
 ASSAY = "Assay MCT8-MDCK1"
 ASSAY_ID = "Assay%20MCT8-MDCK1/"
 FILES = (
@@ -249,21 +251,38 @@ def _written(crate_dir: Path) -> dict[str, dict]:
     return {node["@id"]: node for node in document["@graph"]}
 
 
+def _references(value):
+    if isinstance(value, dict):
+        if set(value) == {"@id"}:
+            yield value["@id"]
+        for item in value.values():
+            yield from _references(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _references(item)
+
+
 @pytest.fixture(scope="module")
 def exported(tmp_path_factory: pytest.TempPathFactory) -> dict:
-    """One deposit, exported with its files."""
+    """One deposit, exported once with its files and once without them."""
     root = tmp_path_factory.mktemp("folders")
     state = _golden_deposit(root / "deposit")
     validated = graph_of(state)
+    public_state = _golden_deposit(root / "deposit_for_public")
+    public_state.metadata.metadata_only = True
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         full = export_crate(state, str(root / "full"))
+        public = export_crate(public_state, str(root / "public"))
     assert full["success"] is True, full
+    assert public["success"] is True, public
     return {
         "state": state,
         "validated": validated,
         "full_result": full,
         "full": root / "full",
+        "public_result": public,
+        "public": root / "public",
     }
 
 
@@ -352,6 +371,63 @@ class TestAStudyThatHasAFolderIsReadBack:
         assert "study%2001/assay%2001/" not in ids(nodes["./"]["hasPart"])
         assert isinstance(crate.dereference("study%2001/assay%2001/"), Dataset)
         assert result["validation"]["ok"] is True, state.validation.required_issues
+
+
+class TestWithoutItsFiles:
+    """A metadata-only crate describes a folder as it describes a file: under a
+    local identifier, with the path it belongs at."""
+
+    def test_the_assay_is_described_as_a_folder_that_is_not_present(self, exported) -> None:
+        nodes = _written(exported["public"])
+
+        assert ASSAY_ID not in nodes, "a relative @id says the folder is in the crate"
+        assert nodes["#" + ASSAY_ID]["localPath"] == ASSAY
+        assert nodes["#" + ASSAY_ID]["@type"] == "Dataset"
+        assert nodes["#" + ASSAY_ID]["additionalType"] == "Assay"
+        assert nodes["#" + ASSAY_ID]["identifier"] == ASSAY
+
+    def test_it_still_lists_its_files_and_is_still_listed(self, exported) -> None:
+        nodes = _written(exported["public"])
+
+        assert {
+            "#" + ASSAY_ID + "README.txt",
+            "#" + ASSAY_ID + "Raw%20data%20%2B%20processed%20data/plate%201.csv",
+        } <= set(ids(nodes["#" + ASSAY_ID]["hasPart"]))
+        assert "#" + ASSAY_ID in ids(nodes["#Study_study"]["hasPart"])
+        assert "#" + ASSAY_ID in ids(nodes["./"]["hasPart"])
+
+    def test_no_folder_and_no_data_file_is_written(self, exported) -> None:
+        assert {path.name for path in exported["public"].iterdir()} == GENERATED
+
+    def test_a_folder_is_not_counted_among_the_files_left_out(self, exported) -> None:
+        assert exported["public_result"]["files_left_out"] == len(FILES)
+
+    def test_nothing_points_at_an_entity_that_is_not_there(self, exported) -> None:
+        nodes = _written(exported["public"])
+        dangling = {
+            ref
+            for ref in _references(list(nodes.values()))
+            if not ref.startswith(("http://", "https://")) and ref not in nodes
+        }
+
+        assert dangling == set()
+
+    def test_every_profile_still_passes_it(self, exported) -> None:
+        assert exported["public_result"]["validation"]["ok"] is True
+
+    def test_the_validator_passes_it_on_disk(self, exported) -> None:
+        """On disk the base profile asks that a directory the crate describes
+        exists, which the document validated before the write cannot show."""
+        failed = [r.profile for r in validate_crate(exported["public"]) if not r.passed_required]
+
+        assert failed == []
+
+    def test_ro_crate_py_opens_it(self, exported) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            crate = ROCrate(str(exported["public"]))
+
+        assert crate.dereference("#" + ASSAY_ID)["localPath"] == ASSAY
 
 
 class TestTheViewsStillDraw:

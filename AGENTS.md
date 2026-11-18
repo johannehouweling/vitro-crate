@@ -2327,7 +2327,8 @@ profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST 
   listed by the root as well, because ro-crate-py reaches a directory only through directories and
   refuses a crate with one it does not reach. Without a folder (a flat deposit, a study at the
   deposit root, a shared or nested folder, no scan) the entity keeps its contextual `#Study_…` /
-  `#Assay_…` id: no folder is invented and no directory is made for an id.
+  `#Assay_…` id: no folder is invented and no directory is made for an id. A metadata-only crate
+  describes such a folder as it describes its files, at `#<folder>/` with a `localPath`.
 - Gives **each level a distinct identifier**: a Study or an Assay with a folder states the folder's
   path, and one without, or whose folder's path another level already states, the hierarchical
   descriptor `_isa_identifier` mints (`FAB-2026` → `FAB-2026/study-<id>` → `…/assay-<id>`). The
