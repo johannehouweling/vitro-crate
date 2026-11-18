@@ -237,6 +237,51 @@ class TestAnAopIslandIsDetached:
 
         assert verify_isa_reachability(doc) == []
 
+    def test_a_pathway_the_builder_writes_for_no_study_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The shape the builder writes now: the head alone, without its events or
+        # the links to them. With two Studies and none named, nothing reaches it.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.builder import assemble_crate
+        from builder.tools.composites import resolve_aop
+        from builder.tools.drafters import draft_investigation, draft_study
+
+        answer = {
+            "found": True,
+            "error": None,
+            "data": {
+                "aop": {
+                    "@id": self._HEAD,
+                    "@type": "AdverseOutcomePathway",
+                    "name": "AOP 610",
+                    "identifier": "610",
+                    "url": self._HEAD,
+                    "has_key_event": [{"@id": e} for e in self._EVENTS],
+                },
+                "events": [{"@id": e, "@type": "KeyEvent", "name": e} for e in self._EVENTS],
+                "relationships": [],
+            },
+        }
+        monkeypatch.setattr(tool_lookups, "lookup_aop", lambda aop_id: answer)
+        state = CrateState()
+        investigation = draft_investigation(state, {"name": "Inv"})
+        draft_study(state, investigation.entity_id, {"name": "Uptake"})
+        draft_study(state, investigation.entity_id, {"name": "Viability"})
+        resolve_aop(state, "610")
+
+        doc = assemble_crate(
+            state, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()
+        head = next(n for n in doc["@graph"] if n["@id"] == self._HEAD)
+        assert "has_key_event" not in head
+        assert not [n for n in doc["@graph"] if n["@id"] in self._EVENTS]
+
+        issues = verify_isa_reachability(doc)
+
+        assert [i["entity_id"] for i in issues] == [self._HEAD]
+        assert issues[0]["severity"] == "required"
+
 
 class TestTheCrateThatPassedClean:
     """`output/svhps26_real_input_crate` — three orphaned processes, ISA green."""
