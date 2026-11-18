@@ -1084,29 +1084,6 @@ def _bare_doi(raw: str) -> str:
     return value
 
 
-def _chebi_purl(entity: Entity) -> str | None:
-    """The resolvable ChEBI PURL for a ChEBI-fallback MolecularEntity, or None.
-
-    ``lookup_compound``'s ChEBI fallback (no PubChem CID) carries the
-    dereferenceable ontology IRI on ``sameAs`` as an ``{"@id": <PURL>}`` node and
-    the ChEBI CURIE on ``chebiId`` (the OLS ``short_form`` ``CHEBI_<n>`` or the
-    ``CHEBI:<n>`` colon form). Prefer the ``sameAs`` PURL verbatim when it is a
-    ChEBI obo IRI, else derive ``http://purl.obolibrary.org/obo/CHEBI_<n>`` from
-    the ``chebiId`` CURIE. Returns None when neither is present so the caller falls
-    back to the local fragment — never fabricating an id (D5).
-    """
-    same_as = entity.fields.get("sameAs")
-    iri = same_as.get("@id") if isinstance(same_as, dict) else same_as
-    if isinstance(iri, str) and "obo/CHEBI_" in iri:
-        return iri.strip()
-    chebi_id = entity.fields.get("chebiId")
-    if chebi_id:
-        num = str(chebi_id).strip().replace("CHEBI:", "CHEBI_")
-        if num.startswith("CHEBI_"):
-            return f"http://purl.obolibrary.org/obo/{num}"
-    return None
-
-
 def _compound_wiki_iri(entity: Entity) -> str | None:
     """The Compound Wiki address of a MolecularEntity a lookup found there, or None.
 
@@ -1138,6 +1115,29 @@ def _compound_addresses(entity: Entity) -> list[str]:
         _chebi_purl(entity),
     )
     return [address for address in found if address]
+
+
+def _chebi_purl(entity: Entity) -> str | None:
+    """The resolvable ChEBI PURL for a ChEBI-fallback MolecularEntity, or None.
+
+    ``lookup_compound``'s ChEBI fallback (no PubChem CID) carries the
+    dereferenceable ontology IRI on ``sameAs`` as an ``{"@id": <PURL>}`` node and
+    the ChEBI CURIE on ``chebiId`` (the OLS ``short_form`` ``CHEBI_<n>`` or the
+    ``CHEBI:<n>`` colon form). Prefer the ``sameAs`` PURL verbatim when it is a
+    ChEBI obo IRI, else derive ``http://purl.obolibrary.org/obo/CHEBI_<n>`` from
+    the ``chebiId`` CURIE. Returns None when neither is present so the caller falls
+    back to the local fragment — never fabricating an id (D5).
+    """
+    same_as = entity.fields.get("sameAs")
+    iri = same_as.get("@id") if isinstance(same_as, dict) else same_as
+    if isinstance(iri, str) and "obo/CHEBI_" in iri:
+        return iri.strip()
+    chebi_id = entity.fields.get("chebiId")
+    if chebi_id:
+        num = str(chebi_id).strip().replace("CHEBI:", "CHEBI_")
+        if num.startswith("CHEBI_"):
+            return f"http://purl.obolibrary.org/obo/{num}"
+    return None
 
 
 def _mint_id(entity: Entity) -> str:
