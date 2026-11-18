@@ -19,7 +19,8 @@ our side instead: a structural entity this crate mints must be reachable from th
 root by a directed walk — "referenced by something" is not enough, because an
 island references its own members (#738). An entity named by an absolute URI is
 described here but lives elsewhere, the same line #530 draws for the payload, so
-it is excluded — except the AOP head, which stands for the subgraph under it.
+it is excluded — except the pathway, which is in the crate only as the one a Study
+addresses.
 """
 
 from __future__ import annotations
@@ -147,8 +148,8 @@ class TestVerifyIsaReachability:
         nothing pointing at it. That is a record of an external thing, not a
         hole in this crate's backbone — the same line #530 draws for the
         payload — and a characteristic it carries (a passage, a cell type) is
-        its own description, reached through it alone. Only the AOP head, which
-        stands for the subgraph the crate mints under it, is the exception (#738).
+        its own description, reached through it alone. Only the pathway, which is
+        in the crate as the one a Study addresses, is the exception (#738).
         """
         term = "http://purl.obolibrary.org/obo/NCIT_C16403"
         doc = _doc(
@@ -199,10 +200,12 @@ class TestVerifyIsaReachability:
 
 
 class TestAnAopIslandIsDetached:
-    """`materialize_aop_subgraph("610")` with no Study: 36 nodes attached to nothing (#738).
+    """A pathway written with no Study to mention it: 36 nodes attached to nothing (#738).
 
-    Every KeyEvent is referenced — by the head, inside the island — and every id
+    Every KeyEvent was referenced — by the head, inside the island — and every id
     is an AOP-Wiki IRI, so "referenced by anything, local ids only" saw nothing.
+    The graph below is such a crate. One written now holds the head without its
+    events, and the head is reported the same way.
     """
 
     _HEAD = "https://aopwiki.org/aops/610"
@@ -233,6 +236,51 @@ class TestAnAopIslandIsDetached:
         doc = _doc(self._study(mentions=[{"@id": self._HEAD}]), *self._island())
 
         assert verify_isa_reachability(doc) == []
+
+    def test_a_pathway_the_builder_writes_for_no_study_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The shape the builder writes now: the head alone, without its events or
+        # the links to them. With two Studies and none named, nothing reaches it.
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.builder import assemble_crate
+        from builder.tools.composites import resolve_aop
+        from builder.tools.drafters import draft_investigation, draft_study
+
+        answer = {
+            "found": True,
+            "error": None,
+            "data": {
+                "aop": {
+                    "@id": self._HEAD,
+                    "@type": "AdverseOutcomePathway",
+                    "name": "AOP 610",
+                    "identifier": "610",
+                    "url": self._HEAD,
+                    "has_key_event": [{"@id": e} for e in self._EVENTS],
+                },
+                "events": [{"@id": e, "@type": "KeyEvent", "name": e} for e in self._EVENTS],
+                "relationships": [],
+            },
+        }
+        monkeypatch.setattr(tool_lookups, "lookup_aop", lambda aop_id: answer)
+        state = CrateState()
+        investigation = draft_investigation(state, {"name": "Inv"})
+        draft_study(state, investigation.entity_id, {"name": "Uptake"})
+        draft_study(state, investigation.entity_id, {"name": "Viability"})
+        resolve_aop(state, "610")
+
+        doc = assemble_crate(
+            state, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()
+        head = next(n for n in doc["@graph"] if n["@id"] == self._HEAD)
+        assert "has_key_event" not in head
+        assert not [n for n in doc["@graph"] if n["@id"] in self._EVENTS]
+
+        issues = verify_isa_reachability(doc)
+
+        assert [i["entity_id"] for i in issues] == [self._HEAD]
+        assert issues[0]["severity"] == "required"
 
 
 class TestTheCrateThatPassedClean:

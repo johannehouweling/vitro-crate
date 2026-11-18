@@ -455,9 +455,10 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
 }
 
 # The types an adverse outcome pathway is made of — the pathway, its events, and
-# the relationships that order them (`materialize_aop_subgraph` mints all three;
-# `profiles/shapes/tox/6_study_aop.ttl` and `7_assay_key_event.ttl` are where the
-# first two are wired to a Study and an Assay). ONE list, read by three rules
+# the relationships that order them (the build writes the first two, wired to a
+# Study and an Assay as `profiles/shapes/tox/6_study_aop.ttl` and
+# `7_assay_key_event.ttl` ask; a crate that carries a whole pathway holds all
+# three). ONE list, read by three rules
 # that would otherwise drift: which entities the Assays view follows a `mentions`
 # edge to (#627), what the node is captioned, and what colour it is drawn in
 # (#643). A type in one and not the others is drawn as science and captioned as
@@ -735,8 +736,9 @@ _IDENTIFIER_REL_KEYS = (
     "http://schema.org/identifier",
     "https://schema.org/identifier",
 )
-# The AOP-Wiki subgraph (profiles.context): an AdverseOutcomePathway points at its
-# KeyEvents and KeyEventRelationships, and each relationship at its upstream /
+# The links of a whole AOP-Wiki pathway (profiles.context), in a crate that
+# carries one: an AdverseOutcomePathway points at its KeyEvents and
+# KeyEventRelationships, and each relationship at its upstream /
 # downstream event. Entirely invisible before — the `keyEvent`/`key_events`
 # guesses in _MENTIONS_KEYS never matched the names actually serialized.
 _AOP_KEYS = (

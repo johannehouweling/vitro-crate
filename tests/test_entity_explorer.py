@@ -369,6 +369,16 @@ class TestViewMembership:
 
         assert counts["aop"] == 4
 
+    def test_the_aop_view_says_where_the_rest_of_a_pathway_is(self) -> None:
+        """A crate carries the pathway a study addresses and the key events its
+        assays measure, and nothing that orders them. The hint says the rest of
+        the pathway is on AOP-Wiki instead of promising an order the view cannot
+        draw."""
+        hints = {v["key"]: v["hint"] for v in build_explorer_payload(aop_linked_graph())["views"]}
+
+        assert "AOP-Wiki" in hints["aop"]
+        assert "follow one another" not in hints["aop"]
+
     def test_a_crate_with_no_pathway_is_not_offered_the_view(self) -> None:
         """The same rule the process flavours follow (#624): a view no entity
         satisfies is omitted, never offered as a chip that draws nothing."""

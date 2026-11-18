@@ -473,6 +473,27 @@ def test_the_identifier_literal_lint_flags_a_planted_literal():
     assert (nested, "Cellosaurus accession", "CVCL_0027") in hits
 
 
+def test_no_advertised_description_states_an_aop_wiki_identifier():
+    """No worked example hands the model a pathway or a key event to write by hand.
+
+    The two AOP composites look the pathway and the key event up and set the
+    Study's and the Assay's link themselves. An AOP-Wiki id the model copies into
+    a Study is a link to nothing the crate describes, and to whichever pathway
+    the example happened to name (D5).
+    """
+    aop_wiki_id = re.compile(r"\bAOP:\d+|aopwiki\.org/(?:aops|events)/\d+", re.IGNORECASE)
+    offenders = [
+        (path, literal)
+        for spec in TOOL_SPECS
+        for path, text in _iter_descriptions(spec, str(spec.get("name", "?")))
+        for literal in aop_wiki_id.findall(text)
+    ]
+    assert not offenders, (
+        f"Advertised text states AOP-Wiki identifier(s) a model can copy: {offenders}. "
+        "Leave the pathway and the key event to their composites."
+    )
+
+
 def test_no_description_advises_a_tool_it_cannot_call_from_its_own_arguments():
     """Advice to look something up must name a tool the caller can call.
 

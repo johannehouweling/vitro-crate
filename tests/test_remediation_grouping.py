@@ -216,6 +216,13 @@ class TestOrphansClusterByWhatTheyAre:
         assert actions[0].cleared == 21
         assert "AOP" in actions[0].subject
 
+    def test_an_orphaned_pathway_is_called_a_pathway(self):
+        # The crate carries a pathway and the key events its assays measure, never
+        # the rest of it, so an AOP-Wiki cluster asks for a pathway to be connected.
+        subject = group_orphans(["https://aopwiki.org/aops/610"])[0].subject
+        assert "pathway" in subject
+        assert "subgraph" not in subject
+
     def test_unrelated_orphans_stay_apart(self):
         actions = group_orphans(
             ["https://aopwiki.org/events/1", "#PropertyValue_pv_seeding", "#DefinedTerm_dt_role"]

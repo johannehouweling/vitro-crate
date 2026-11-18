@@ -565,7 +565,9 @@ nothing while looking familiar (#644). A test holds every namespace in the conte
 allow-list, so an invented one fails CI instead of shipping inside crates. The profile itself needs
 no AOP class: its Study and Assay shapes read the AOP-Wiki IRI a crate mentions
 (`https://aopwiki.org/aops/<id>`, `https://aopwiki.org/events/<id>`), so a bare link satisfies them
-and a node merely typed `KeyEvent` does not.
+and a node merely typed `KeyEvent` does not. The crate describes each of the two as one entity at
+that IRI, with its name: the pathway a Study mentions and the key event an Assay mentions. The rest
+of a pathway stays on AOP-Wiki, and the writer leaves it out whatever the state holds (§5).
 
 A property holding one value is written as that value, never as a one-item array: the compact
 JSON-LD form RO-Crate 1.2 recommends (`_write_single_values`, run after assembly and again before
@@ -969,8 +971,8 @@ this section (Issue #145).
 ### Entity Drafting Tools
 ```
 scaffold_isa_backbone(investigation=None, study=None, assay=None, validate_base=False) → dict  # composite: linked Investigation→Study→Assay in one call (idempotent-WITH-merge: a reused layer's EMPTY fields are filled from the supplied hints, fill-don't-clobber), the fast path to a BASE-passing crate
-materialize_aop_subgraph(aop_id: str, study_id: str | None = None) → dict  # composite: one AOP-Wiki id → AdverseOutcomePathway + KeyEvent[] + KeyEventRelationship[] subgraph, cross-linked deterministically; wired onto the Study named, or the sole Study when none is named — with several Studies and no name it wires nothing and the ISA reachability check names the island
-link_assay_to_key_event(assay_id: str, event_name: str | list[str]) → {ok, assay_id, key_event_ids, matched_names, unmatched?} | {ok: False, error, candidates}  # composite: link an Assay to the AOP Key Event(s) it MEASURES (schema:mentions via keyEvent), each name matched INDEPENDENTLY against the KeyEvents already in state; commits the in-state AOP-Wiki id, never one built from the name, and writes NOTHING for a name matching zero or several Key Events because which Key Event an assay measures is a scientific claim (D5); links ACCUMULATE deduplicated rather than replace — removing one is `set_fields`' job (`key_event_id`/`matched_name` are kept as the first match for callers written against the one-event form)
+resolve_aop(aop_id: str, study_id: str | None = None) → {aop_id, aop_entity_id, events, events_detail, wired_to_study} | {ok: False, error}  # composite: one AOP-Wiki id → the ONE AdverseOutcomePathway entity, at its AOP-Wiki address with its name; nothing else of the pathway is stored, and `events_detail` lists its key events for `link_assay_to_key_event`; wired onto the Study named (by its state id or by the id the crate gives it, as a finding does), or the sole Study when none is named — with several Studies and no name it wires nothing and the ISA reachability check names the island
+link_assay_to_key_event(assay_id: str, event_name: str | list[str]) → {ok, assay_id, key_event_ids, matched_names, unmatched?, unlisted_pathways?} | {ok: False, error, candidates, unlisted_pathways?}  # composite: link an Assay (named by its state id or by the id the crate gives it, as a finding does) to the AOP Key Event(s) it MEASURES (schema:mentions via keyEvent), each name matched INDEPENDENTLY against the events AOP-Wiki lists for the pathway(s) in state and the KeyEvents already there (a stated AOP-Wiki address or number is matched against the same events), and names under `unlisted_pathways` a pathway AOP-Wiki gave no events for; stores the ONE event a name matches and commits its AOP-Wiki id, never one built from the name, and writes NOTHING for a name matching zero or several Key Events because which Key Event an assay measures is a scientific claim (D5); links ACCUMULATE deduplicated rather than replace — removing one is `set_fields`' job (`key_event_id`/`matched_name` are kept as the first match for callers written against the one-event form)
 resolve_compound(name: str, hints: dict | None = None, verify=None) → {entity_id, name, identifiers, verifications, verified, source}  # composite: chemical name → lookup_compound → draft_molecular_entity → verify_identifier (+ best-effort CompTox DTXSID), in one idempotent call; carries the looked-up CAS + PubChem CID + EPA DTXSID and never keeps an unverified id (D5)
 resolve_cell_line(name: str, hints: dict | None = None, catalog_name: str | None = None, verify=None, made_from: str | None = None) → {entity_id, name, accession, match, query, verifications, verified, source}  # composite: cell-line name → lookup_cell_line_by_name (full name, then catalog_name) → draft_cell_line_sample → lookup_cell_line (which IS the verification), in one idempotent call; a miss is NOT a failure (no `ok` key) — the Sample is always minted and the accession is enrichment; `hints.source_kind="primary cells"` skips Cellosaurus
 resolve_characteristic_terms(entity_id: str | None = None) → {found, not_found, unavailable}  # composite: each stated organ / tissue / cell_type of a CellLineSample or Sample → the UBERON or CL term that word names (its label or an exact synonym), kept beside the word and written as the characteristic's valueReference; a word that names no term stays alone (D5); idempotent, and resolve_cell_line runs it for its own hints
@@ -999,22 +1001,34 @@ into the `@graph` and is referenceable (via `set_fields`/`link`) as a `mentions`
 `schema:PropertyValue` node (`value` + optional `propertyID` + `unitText`/`unitCode`).
 Both back the previously-unfilled `defined_terms` / `property_values` CrateState
 collections the mapping already rendered.
-`materialize_aop_subgraph` (Issue #180) is the AOP counterpart of
+`resolve_aop` (Issue #180) is the AOP counterpart of
 `scaffold_isa_backbone`: from the single model-supplied numeric `aop_id` it calls
-`lookup_aop` and materialises the entire pathway as typed contextual entities —
-one `aopo:AdverseOutcomePathway` carrying its `has_molecular_initiating_event`
-/ `has_key_event` / `has_adverse_outcome` / `has_key_event_relationship` link
-arrays, one `aopo:KeyEvent` per MIE/KE/AO (all share `@type KeyEvent`,
-discriminated only by the `eventType` string), and one
-`aopo:KeyEventRelationship` per relation (`upstream_event` /
-`downstream_event` by `@id`). Every node is keyed by its resolvable AOP-Wiki IRI,
+`lookup_aop` and stores the pathway as ONE typed contextual entity, an
+`aopo:AdverseOutcomePathway` with the name, identifier and url the lookup gave.
+**The crate carries the pathway a Study addresses and the key event an Assay
+measures, and nothing else of a pathway**: its other key events, its
+`KeyEventRelationship`s and the properties that link them (`has_key_event`,
+`upstream_event`, …) stay on AOP-Wiki, at the entity's address, and the Study and
+the Assay carry the only connection between the two. `link_assay_to_key_event`
+stores the measured event: it matches what the deposit states against the events
+`lookup_aop` lists for the pathway(s) in state (any entity at a pathway's AOP-Wiki
+address, a term drafted there included), and against the KeyEvents already
+there, and stores the one it matches as an `aopo:KeyEvent` (MIE/KE/AO all share
+`@type KeyEvent`, discriminated only by the `eventType` string). Since the match
+asks AOP-Wiki when the question is put, `lookup_aop` keeps no transient failure in
+its cache, and while AOP-Wiki gives no events for a pathway in the crate the
+answer says so rather than that the name matched nothing. Each node is
+keyed by its resolvable AOP-Wiki IRI and takes the facts the lookup gave for it,
 so all wiring is deterministic and idempotent and no id is ever fabricated (D5).
-These three types live in the shared `aop_entities` CrateState collection and
+Both types live in the shared `aop_entities` CrateState collection and
 build via `_crate_mapping` as `ContextEntity` nodes typed by their own AOP class.
+The writer is where the rule holds: it writes every pathway and the key events an
+Assay names, and never a relationship or a link property, so a session saved with
+a whole pathway builds the same crate and is itself left as it is.
 The AOP is wired onto a Study via the `aop` reference (an alias of
 `schema:mentions`) — the one `study_id` names, or the sole Study in the crate
 when none is named; with several Studies and no name it refuses to guess and
-wires nothing, and the subgraph is then an island `verify_isa_reachability`
+wires nothing, and the pathway is then an island `verify_isa_reachability`
 reports (#738). The wiring closes the largest gold-crate fidelity gap.
 
 `resolve_compound` (Issue #179, task 3) is the chemistry counterpart of
@@ -2589,11 +2603,11 @@ that layer, and the crate
 reports conformant precisely when its structure is most broken. The upstream shapes are not ours to
 restructure, so `verify_isa_reachability` asserts the invariant on our side, the one way an absent
 edge cannot game: a **directed** walk from `./` over every reference, and a structural entity (a
-`LabProcess`, `Sample`, `LabProtocol`, or an `AdverseOutcomePathway` head standing for its
-subgraph) the walk never visits is detached, whatever the profile could evaluate — "referenced by
+`LabProcess`, `Sample`, `LabProtocol`, or an `AdverseOutcomePathway`, which is there for a Study to
+address) the walk never visits is detached, whatever the profile could evaluate — "referenced by
 something" is a weaker test an island passes, since it references its own members (#738). An entity
 named by an absolute URI is described here and lives elsewhere, the same line `verify_payload`
-draws, so it is excluded — except the AOP head. `provenance_dag`'s orphan flag is undirected and is
+draws, so it is excluded — except the pathway. `provenance_dag`'s orphan flag is undirected and is
 not this test. `fold_isa_reachability` runs it beside the ISA pass in `build_and_validate` and the
 gap engine; `isa_reachability_checked` records that it ran.
 
@@ -2657,16 +2671,17 @@ its own `pathway` category, because what an assay measures takes part in the wor
 qualifying it, and the fallback bucket paints csvw columns and the build's own action (#643).
 `PATHWAY_TYPES` — the pathway, its key events and the `KeyEventRelationship`s that order them — is
 the one list all three rules read: which nodes the view follows to, how they are captioned, and what
-colour they are drawn in. A relationship is in it although nothing `mentions` one: what a view
-*reaches* and what an entity *is* are different questions, and a chain whose every link is drawn as
-vocabulary is not a chain.
+colour they are drawn in. A relationship is in it although nothing `mentions` one and the build
+writes none: what a view *reaches* and what an entity *is* are different questions, and in a crate
+that carries a whole pathway a chain whose every link is drawn as vocabulary is not a chain.
 
-**Adverse outcome pathway** draws the chain from the other end: every `pathway`-category entity — the adverse
-outcome pathway, its key events and the `KeyEventRelationship`s ordering them — plus the ISA entity
+**Adverse outcome pathway** draws the same entities from the other end: every `pathway`-category entity — the
+pathway a study addresses and the key events its assays measure — plus the ISA entity
 that `mentions` one, as context. Assays starts at the backbone and follows outward, so it shows only
-what an assay or study points at (5 of 36 on a real deposit); this view starts at the chain, so a
-relationship (which nothing mentions) and an event no assay measures directly are drawn too. The
-chip counts the chain, not the context (#625), and the view is not offered at all when the crate has
+what an assay or study points at; this view starts at the pathway entities, so in a crate that
+carries a whole pathway a relationship (which nothing mentions) and an event no assay measures are
+drawn too. Its hint says where the rest of a pathway is: on AOP-Wiki, at each entity's address. The
+chip counts the pathway entities, not the context (#625), and the view is not offered at all when the crate has
 none — `build_explorer_payload` omits any view no entity satisfies, so no per-view guard exists.
 It is named for the framework rather than shortened to "Pathways": in this community a *pathway* is a
 WikiPathways molecular pathway, so the short label would promise genes and deliver key events (#652).
@@ -3391,8 +3406,8 @@ D5 — identifiers come from lookups or the value is dropped, never fabricated):
   (`@type:[File, SoftwareSourceCode, LabProtocol]`, from the extension;
   `schema:programmingLanguage` when the caller names it).
 
-AOP subgraphs and publications-with-authors are materialized from the spine by their
-own composites (`materialize_aop_subgraph`, `draft_publication_with_authors`). Root
+AOP pathways and publications-with-authors are materialized from the spine by their
+own composites (`resolve_aop`, `draft_publication_with_authors`). Root
 `releaseDate` / `dateModified` are set through `set_crate_metadata` and emitted
 **only when explicitly supplied** — never guessed (D5); `datePublished` is auto-set
 by ro-crate-py at crate construction, so the builder never sets or fabricates it.
@@ -3586,7 +3601,7 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
 - **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
   — deterministically turns each plan section into linked ISA-Tox entities through
   `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /
-  `draft_process_chain` / `materialize_aop_subgraph` / `draft_person`. Identifiers
+  `draft_process_chain` / `resolve_aop` / `draft_person`. Identifiers
   come from the composites' own lookups, never from the plan. The backbone is
   scaffolded BEFORE the plan is materialized, so the plan's Study name/description
   are merged onto the already-scaffolded Study (fill-don't-clobber: only when the
@@ -3619,9 +3634,10 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
   and stop, so the crate listed a pathway's key events without ever saying which one
   the assay measures. Each `aops[]` item now also carries `measured_event_name` — a
-  NAME, never an id (D5) — and after the subgraph lands the spine calls
+  NAME, never an id (D5): an AOP-Wiki address or number there, which the tool would
+  match, is not passed on — and after the pathway is stored the spine calls
   `link_assay_to_key_event(assay_id, event_name)`, which matches that name against
-  the KeyEvents just materialized and commits THEIR AOP-Wiki IRI onto the Assay's
+  the pathway's events on AOP-Wiki, stores the one named and commits ITS IRI onto the Assay's
   `keyEvent` (camelCase: it is the `Assay:keyEvent` MIT slot). A zero or ambiguous
   match writes nothing and is logged, not raised — which key event an assay measures
   is a scientific claim, so an unlinked Assay is a legitimate outcome, and the

@@ -239,8 +239,8 @@ def verify_payload(crate: Any) -> list[dict[str, Any]]:
 
 
 # The ISA classes here carry a rule-set in the upstream profile that only
-# applies once something references the entity (#537); the AOP head stands for
-# the subgraph `materialize_aop_subgraph` mints whole (#738).
+# applies once something references the entity (#537); a pathway is in the crate
+# as the one a Study addresses, so one no Study reaches is detached too (#738).
 _ISA_STRUCTURAL_TYPES = frozenset({"LabProcess", "Sample", "LabProtocol", "AdverseOutcomePathway"})
 
 # Keys that describe the node rather than point away from it. `@type`'s values
@@ -268,8 +268,8 @@ def verify_isa_reachability(
     a DIRECTED walk from ``./`` over every reference in the graph, and a
     structural entity it never visits is detached, whatever the profile was
     able to evaluate. "Referenced by something" is a weaker test that an island
-    passes — an AOP subgraph minted without a Study references its own
-    KeyEvents, so all 36 of its nodes counted as attached while none was (#738).
+    passes — a pathway written with its key events and no Study referenced its
+    own events, so all 36 of its nodes counted as attached while none was (#738).
     Directed, because a process that points at the files it produced is not
     thereby connected to anything: ``provenance_dag.build_crate_graph`` flags
     orphans over an undirected walk, which is why it reports 19 orphans for
@@ -278,10 +278,9 @@ def verify_isa_reachability(
     Entities identified by an absolute URI are described here and live
     elsewhere — a Cellosaurus cell line is a record of an external thing, not a
     hole in this crate's backbone — so they are not reported, the same line
-    :func:`verify_payload` draws for the payload. The AOP head is the
-    exception: named by its AOP-Wiki IRI, it stands for the KeyEvents and
-    relationships ``materialize_aop_subgraph`` mints under it, so an unreached
-    one is an island.
+    :func:`verify_payload` draws for the payload. The pathway is the
+    exception: named by its AOP-Wiki IRI, it is in the crate only as the one a
+    Study addresses, so a pathway the walk never reaches is reported.
 
     :func:`fold_isa_reachability` asks it beside the ISA pass, so every
     in-memory verdict that ran the pass carries the answer (#738). O(V+E).
@@ -448,9 +447,33 @@ def _local_name(iri: str | None) -> str:
     return iri.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
 
 
+# The two findings a tool answers, matched on the words of their own shapes
+# (profiles/shapes/tox/6_study_aop.ttl, 7_assay_key_event.ttl). Both are reported
+# on `schema:mentions`, and a value typed into that property is a link with no
+# entity behind it: the pathway and the key event are looked up and stored by
+# the tool, which sets the link itself. Each tool takes the id the finding gives.
+# The key event's hint starts with what to state, because guidance shows it to a
+# person, who can name the event the assay measures but cannot call a tool.
+_TOOL_FIXES: tuple[tuple[str, str], ...] = (
+    (
+        "reference its Adverse Outcome Pathway",
+        "Call `resolve_aop` with the AOP-Wiki id of the pathway `{entity}` "
+        "addresses; it looks the pathway up and links the study to it.",
+    ),
+    (
+        "reference the Key Event",
+        "Name the key event `{entity}` measures: `link_assay_to_key_event` matches the "
+        "name against the events AOP-Wiki lists for the pathway and links the assay to it.",
+    ),
+)
+
+
 def _synthesize_fix(issue: RoutableIssue) -> str:
     """Build a short, actionable fix hint for a routable issue."""
     entity = issue.entity_id or "the affected entity"
+    for words, fix in _TOOL_FIXES:
+        if words in issue.message:
+            return fix.format(entity=entity)
     prop = _local_name(answering_field(issue.message, issue.property))
     if prop in _FIX_TEMPLATES:
         return _FIX_TEMPLATES[prop].format(entity=entity)

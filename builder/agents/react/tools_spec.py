@@ -48,7 +48,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_study",
-        "description": "Create a Study entity linked to an investigation. Example: draft_study(investigation_id='inv_hepatotoxicity_screen', hints={'name': 'Silychristin exposure', 'aop': 'Aop:144'}).",
+        "description": "Create a Study entity linked to an investigation. Example: draft_study(investigation_id='inv_hepatotoxicity_screen', hints={'name': 'Silychristin exposure'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -209,8 +209,8 @@ TOOL_SPECS = [
         },
     },
     {
-        "name": "materialize_aop_subgraph",
-        "description": "Turn ONE AOP-Wiki id into the full crate subgraph in one call: an AdverseOutcomePathway node plus every KeyEvent (MIE/KE/AO, discriminated by eventType) and KeyEventRelationship, all cross-linked deterministically from AOP-Wiki (never fabricated). Pass only the numeric aop_id. The AOP is wired onto a Study (schema:mentions): the one study_id names, or the sole Study in the crate when you pass none — with several Studies you must name one, or the pathway stays detached and build_and_validate reports it. Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting when you want the whole pathway in the crate. Example: materialize_aop_subgraph(aop_id='610', study_id='study_silychristin_exposure').",
+        "name": "resolve_aop",
+        "description": "Turn ONE AOP-Wiki id into the pathway a Study addresses in one call: an AdverseOutcomePathway node at its AOP-Wiki address with its name, looked up on AOP-Wiki (never fabricated). Nothing else of the pathway is stored — the rest stays on AOP-Wiki at that address — and the result lists the pathway's key events (events_detail: @id, name, eventType) so you can tell link_assay_to_key_event which one an assay measures. Pass only the numeric aop_id. The AOP is wired onto a Study (schema:mentions): the one study_id names, or the sole Study in the crate when you pass none — with several Studies you must name one, or the pathway stays detached and build_and_validate reports it. Idempotent (keyed by AOP-Wiki IRI). Prefer this over lookup_aop + manual drafting whenever a study addresses a pathway. Example: resolve_aop(aop_id='610', study_id='study_silychristin_exposure').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -228,7 +228,7 @@ TOOL_SPECS = [
     },
     {
         "name": "link_assay_to_key_event",
-        "description": "Link an Assay to the AOP Key Event it MEASURES, by the event's name (schema:mentions via the Assay's keyEvent field). Run materialize_aop_subgraph first so the KeyEvents exist in the crate — the reference committed is always the in-state AOP-Wiki id for the matched event, never one built from the name. Matching ignores case and punctuation. If the name matches zero or several events it writes NOTHING and returns the candidates for you to choose from, because which Key Event an assay measures is a scientific claim rather than a string match. Example: link_assay_to_key_event(assay_id='assay_oatp1c1_transport', event_name='Thyroperoxidase, Inhibition').",
+        "description": "Link an Assay to the AOP Key Event it MEASURES, by the event's name (schema:mentions via the Assay's keyEvent field). Run resolve_aop first so the pathway is in the crate: the name is matched against the key events AOP-Wiki lists for it, and the one event it matches is stored at its AOP-Wiki address with its name — the reference committed is always that AOP-Wiki id, never one built from the name. Matching ignores case and punctuation; where the source states the event's AOP-Wiki address or number instead of its name, pass that and it is matched against the same events. If the name matches zero or several events it writes NOTHING and returns the candidates for you to choose from, because which Key Event an assay measures is a scientific claim rather than a string match. Example: link_assay_to_key_event(assay_id='assay_oatp1c1_transport', event_name='Thyroperoxidase, Inhibition').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -238,7 +238,7 @@ TOOL_SPECS = [
                 },
                 "event_name": {
                     "type": "string",
-                    "description": "Name of the Key Event as written in the source, e.g. 'mitochondrial dysfunction'.",
+                    "description": "Name of the Key Event as written in the source, e.g. 'mitochondrial dysfunction'; or its AOP-Wiki address or number where the source states that instead.",
                 },
             },
             "required": ["assay_id", "event_name"],

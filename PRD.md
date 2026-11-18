@@ -33,7 +33,7 @@ The system:
 3. As a toxicology researcher, I want to enter a DOI, so that the builder fetches publication metadata from Crossref and populates the ScholarlyArticle entity.
 4. As a toxicology researcher, I want to enter a compound name, so that the builder looks up SMILES, InChIKey, formula, and CAS from PubChem and fills the MolecularEntity.
 5. As a toxicology researcher, I want to provide a Cellosaurus accession (CVCL_xxxx), so that the builder resolves species, organ, tissue, and sex for the cell line sample.
-6. As a toxicology researcher, I want to reference an AOP-Wiki ID, so that the builder resolves the AOP graph (key events, relationships) as DefinedTerm annotations.
+6. As a toxicology researcher, I want to reference an AOP-Wiki ID, so that the builder records the pathway and the key event each assay measures as DefinedTerm annotations at their AOP-Wiki addresses.
 7. As a toxicology researcher, I want to look up an ontology term (e.g., BAO query), so that the builder finds the correct IRI for measurement methods and techniques.
 8. As a toxicology researcher, I want to enter a person's ORCID, so that the builder resolves name, affiliation, and ROR from ORCID/ROR APIs.
 9. As a toxicology researcher, I want the agent to never fabricate identifiers, so that I can trust every ID in the crate is verified at its source.

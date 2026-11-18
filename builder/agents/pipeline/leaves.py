@@ -254,7 +254,7 @@ _PLAN_SYSTEM_PROMPT = (
     # #382: the Assay -> Key Event edge is the reason an ISA-Tox crate is more
     # than a file manifest, and only the documents can say WHICH event the assay
     # measures. Ask for the wording verbatim: `link_assay_to_key_event` matches
-    # against the AOP-Wiki event names already in the crate and deliberately
+    # against the names AOP-Wiki gives the pathway's events and deliberately
     # refuses to guess, so a paraphrase ("TPO inhibition" for "Thyroperoxidase,
     # Inhibition") silently drops the link rather than mislinking it.
     "For each AOP, also report in 'measured_event_name' the NAME of the key "
@@ -434,7 +434,7 @@ def _plan_schema() -> dict[str, Any]:
                     # #382: the ONE thing only the documents can say — which event
                     # of this pathway the assay measures. A NAME, never an id: the
                     # spine feeds it to `link_assay_to_key_event`, which matches it
-                    # against the KeyEvents AOP-Wiki just put in the crate and
+                    # against the events AOP-Wiki lists for the pathway and
                     # commits their IRI. Asking for an id here would let the model
                     # fabricate the very reference the lookup exists to supply (D5).
                     "measured_event_name": {
@@ -744,7 +744,7 @@ _PHRASE_SYSTEM_PROMPT = (
     "value to fill the blank — never make up a concrete cell-line / compound name "
     "or a code the data does not provide. D5: never fabricate a specific name, "
     "identifier, or value the data does not provide. When the context lists "
-    "'Options in this crate', those are the ONLY acceptable answers: name them in "
+    "'Options to choose from', those are the ONLY acceptable answers: name them in "
     "the question so the reader can choose one, and never choose for them — which "
     "AOP Key Event an assay measures is the scientist's judgement, not yours. "
     "When the context says the answer options are shown below the question, ask "
@@ -907,7 +907,7 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
     if suggestion:
         parts.append(f"Hint: {suggestion}")
     # The answers the crate can actually accept. For a gap whose value must
-    # resolve to an entity already in the crate — which AOP Key Event an assay
+    # name one of a few known entities — which Key Event of its pathway an assay
     # measures — a free-text question is unanswerable from memory and whatever
     # is typed gets refused. Listing the options makes it answerable by reading,
     # and the leaf is told to OFFER them, never to choose.
@@ -917,7 +917,7 @@ def _gap_context_block(gap_context: dict[str, Any]) -> str:
         if shown:
             more = len(candidates) - len(shown)
             listing = "; ".join(shown) + (f"; …and {more} more" if more > 0 else "")
-            parts.append(f"Options in this crate (offer these, do not pick one): {listing}")
+            parts.append(f"Options to choose from (offer these, do not pick one): {listing}")
     if gap_context.get("choices_shown"):
         parts.append("The answer options are shown below the question.")
     return "\n".join(parts)

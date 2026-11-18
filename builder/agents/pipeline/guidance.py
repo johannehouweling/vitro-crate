@@ -109,6 +109,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from builder.agents.llm import ModelOverrides, UsageSink, make_usage_logger
 from builder.agents.pipeline.pipeline import _look_up_characteristic_terms, draft_entity_fields
 from builder.config import get_provider
+from builder.tools.composites import key_event_candidates
 from builder.tools.field_kinds import (
     CITATION_FIELDS,
     IDENTIFIER_FIELDS,
@@ -235,13 +236,14 @@ _is_citation_field = is_citation_field
 
 # (#382) The Assay's AOP Key Event slot, in all three spellings the crate mapping
 # accepts (``_ASSAY_MENTION_FIELDS``); all expand to ``schema:mentions``. Its value
-# MUST be a reference to a ``KeyEvent`` ALREADY IN THE CRATE — ``_wire_mention``
+# MUST be a reference to a ``KeyEvent`` THE CRATE DESCRIBES — ``_wire_mention``
 # emits nothing for free text, so storing the user's reply as a literal string
 # would report success while the answer vanished and the gap re-emitted: the same
 # #275 / #179 re-ask class as the person and citation fields above. The reply is
 # instead routed to ``link_assay_to_key_event`` (see
-# :func:`_apply_key_event_value`), which resolves the name against the in-crate
-# KeyEvents and commits their AOP-Wiki IRI.
+# :func:`_apply_key_event_value`), which matches it against the events AOP-Wiki
+# lists for the crate's pathway, stores the one it names and commits its
+# AOP-Wiki IRI.
 #
 # Kept local rather than in :mod:`builder.tools.field_kinds`: unlike the person and
 # citation vocabularies, nothing outside this module asks the question — the gap
@@ -250,9 +252,9 @@ _is_citation_field = is_citation_field
 # reader has.
 _KEY_EVENT_FIELDS: frozenset[str] = frozenset({"key_event", "keyEvent", "key_events"})
 
-# How many Key Events a prompt lists before summarising the rest. An AOP's whole
-# subgraph can run to dozens; a prompt that prints all of them buries the
-# question it is asking.
+# How many Key Events a prompt lists before summarising the rest. A pathway's
+# events can run to dozens; a prompt that prints all of them buries the question
+# it is asking.
 _KEY_EVENT_CHOICES = 12
 
 
@@ -281,6 +283,20 @@ def _is_key_event_gap(gap: Gap) -> bool:
     return "key event" in (gap.message or "").casefold()
 
 
+def _stands_in_for_the_key_event(engine: AgentEngine, value: str) -> bool:
+    """Whether a Key Event answer names something the crate holds in the event's place.
+
+    A term the crate holds stands in for the event, at whatever id it is keyed,
+    and so does a fragment of the crate: either is a reference to keep, not an
+    event to look for (#382). A Key Event the crate holds is not one, because the
+    matcher finds it among its candidates and links it under ``keyEvent``.
+    """
+    if value.startswith("#"):
+        return True
+    held = engine.state.get_entity(value)
+    return held is not None and held.type != "KeyEvent"
+
+
 def _split_key_event_answer(text: str) -> list[str]:
     """One answer naming several Key Events, split into names.
 
@@ -296,29 +312,32 @@ def _split_key_event_answer(text: str) -> list[str]:
 
 
 def _key_event_candidates(engine: AgentEngine) -> list[dict[str, str]]:
-    """The Key Events the crate already holds, as answer options.
+    """The Key Events an assay of this crate can be linked to, as answer options.
 
-    The crate fetches an AOP's whole subgraph, so by the time this gap is asked
-    the Key Events are sitting in state with their names and event types. Asking
+    The crate holds its pathway and only the events an assay is linked to, so the
+    options are read where ``link_assay_to_key_event`` reads them
+    (:func:`~builder.tools.composites.key_event_candidates`): the events AOP-Wiki
+    lists for the pathway, and any Key Event the crate already holds. Asking
     "which Key Event does this assay measure?" without listing them makes the
     question unanswerable from memory and invites an invented name that the
     applier will then refuse — the user answers, nothing commits, and the gap
     comes round again.
 
-    Offering the crate's own Key Events is the opposite of deciding for the
+    Offering the pathway's own Key Events is the opposite of deciding for the
     scientist: WHICH one an assay measures stays their call, and a name that is
     not on this list cannot be resolved to an entity anyway.
     """
     out: list[dict[str, str]] = []
-    for entity in engine.state.list_entities("KeyEvent"):
-        name = str((entity.fields or {}).get("name") or "").strip()
+    events, _unlisted = key_event_candidates(engine.state)
+    for event in events:
+        name = str(event.get("name") or "").strip()
         if not name:
             continue
         out.append(
             {
                 "name": name,
-                "event_type": str((entity.fields or {}).get("eventType") or "").strip(),
-                "id": entity.entity_id,
+                "event_type": str(event.get("eventType") or "").strip(),
+                "id": str(event["@id"]),
             }
         )
     # Molecular Initiating Events first: an in-vitro assay most often measures
@@ -697,7 +716,7 @@ def _apply_citation_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
 def _apply_key_event_value(
     engine: AgentEngine, gap: Gap, value: str, *, human: HumanInterface | None = None
 ) -> bool:
-    """Resolve an Assay's Key Event answer against the in-crate KeyEvents (#382).
+    """Resolve an Assay's Key Event answer against the pathway's Key Events (#382).
 
     ``keyEvent`` is a reference-only property (an alias of ``schema:mentions``):
     the build strips it out of the node's scalar properties and ``_wire_mention``
@@ -707,15 +726,16 @@ def _apply_key_event_value(
     re-emitted next round — the #275 / #179 re-ask class.
 
     The answer is instead routed to ``link_assay_to_key_event`` (never hand-rolled
-    JSON-LD, AGENTS.md §4.7), which matches the name against the ``KeyEvent``
-    entities already in state and commits THEIR AOP-Wiki id.
+    JSON-LD, AGENTS.md §4.7), which matches it against the events AOP-Wiki lists
+    for the crate's pathway, stores the one it names and commits ITS AOP-Wiki id.
 
     Returns ``True`` only when the link was actually written. A zero or ambiguous
     match returns ``False`` **and commits nothing**: which Key Event an assay
     measures is a scientific claim, and reporting a refusal as progress would be
     the same lie in the opposite direction. The candidate names come back on the
-    tool result, so the user is shown what the crate can actually offer instead of
-    being asked the identical question again.
+    tool result, so the user is shown what there is to choose from instead of
+    being asked the identical question again; with nothing to choose from, the
+    user is told why.
     """
     text = (value or "").strip()
     if not text:
@@ -754,6 +774,16 @@ def _apply_key_event_value(
         logger.warning("Could not link the key event %r: %s", text, exc)
         return False
 
+    # The options are read from AOP-Wiki when the question is asked. While it
+    # gives no events for the crate's pathway they lack that pathway's events, so
+    # an answer that matches none of them is not the user's wording at fault.
+    unlisted = bool(isinstance(result, dict) and result.get("unlisted_pathways"))
+    outage = (
+        " AOP-Wiki returned no key events for this crate's pathway, so its events "
+        "were not among them; try again when AOP-Wiki answers."
+        if unlisted
+        else ""
+    )
     if isinstance(result, dict) and result.get("ok"):
         # A partly-resolved answer is progress, but the reader is told which
         # names went nowhere rather than left assuming all of them landed.
@@ -762,19 +792,28 @@ def _apply_key_event_value(
             _notify(
                 human,
                 f"linked {len(result.get('key_event_ids') or [])} key event(s); "
-                f"{', '.join(unmatched)} did not name one in the crate and was not stored.",
+                f"{', '.join(unmatched)} did not name one to choose from and was not stored."
+                + outage,
             )
         return True
 
     offered = result.get("candidates") or [] if isinstance(result, dict) else []
     candidates = [str(c.get("name")) for c in offered if isinstance(c, dict) and c.get("name")]
-    known = ""
-    if candidates:
-        known = f" The key events in this crate are: {', '.join(candidates)}."
+    if not candidates:
+        _notify(
+            human,
+            (
+                "AOP-Wiki returned no key events for this crate's pathway"
+                if unlisted
+                else "this crate names no pathway whose key events could be listed"
+            )
+            + f", so there is nothing to match '{text}' against and your answer was not stored.",
+        )
+        return False
     _notify(
         human,
-        f"'{text}' does not name exactly one key event already in the crate, so "
-        f"your answer was not stored.{known}",
+        f"'{text}' does not name exactly one of the key events to choose from, so "
+        f"your answer was not stored. They are: {', '.join(candidates)}." + outage,
     )
     return False
 
@@ -862,8 +901,8 @@ def _apply_value(
     so a string commit dropped the answer and the gap was re-asked every round.
 
     The Assay's ``keyEvent`` field (#382) is routed to
-    :func:`_apply_key_event_value`, which resolves the answer against the
-    ``KeyEvent`` entities in the crate: ``_wire_mention`` drops free text, so a
+    :func:`_apply_key_event_value`, which resolves the answer against the Key
+    Events of the crate's pathway: ``_wire_mention`` drops free text, so a
     literal commit would silently lose the one edge that says what the assay
     actually measures.
     """
@@ -879,12 +918,15 @@ def _apply_value(
     if _is_citation_field(field) and _gap_is_root(engine, gap):
         return _apply_citation_value(engine, gap, value)
 
-    # (#382) The Assay's key event needs a reference to a KeyEvent already in the
-    # crate. A value that ALREADY resolves (an AOP-Wiki IRI, or an in-state id the
-    # user pasted) is a reference, not prose, so it falls through to the generic
-    # reference path below — sending it to the name matcher would fail to match an
-    # IRI against the event NAMES and reject a perfectly good answer.
-    if _is_key_event_gap(gap) and not is_resolvable_reference(engine.state, value):
+    # (#382) The Assay's key event needs a reference to a KeyEvent the crate
+    # describes, and the crate describes one only once an assay is linked to it.
+    # So the answer goes to the matcher, a name, a number and an address alike, on
+    # whatever host and in whatever spelling: the matcher stores the event it names
+    # with the link, and refuses one the lookup does not list for the crate's
+    # pathway (D5). Only an answer naming something the crate holds in the event's
+    # place, such as a term standing in for it, is a reference rather than an event
+    # to look for, so it falls through to the generic reference path below.
+    if _is_key_event_gap(gap) and not _stands_in_for_the_key_event(engine, value):
         return _apply_key_event_value(engine, gap, value, human=human)
 
     # Assay measurementMethod is a DefinedTerm reference, but the user naturally
@@ -1064,13 +1106,13 @@ def _ask_user_prompt(gap: Gap, engine: AgentEngine | None = None) -> str:
         lines.append(f"Why: {gap.message}")
     if gap.suggestion:
         lines.append(f"Suggestion: {gap.suggestion}")
-    # A Key Event answer must name one of the crate's own Key Events — anything
-    # else cannot resolve to an entity and is refused. Listing them turns a
-    # question answerable only from memory into one answerable by reading.
+    # A Key Event answer must name one of the Key Events of the crate's pathway —
+    # anything else cannot resolve to an entity and is refused. Listing them turns
+    # a question answerable only from memory into one answerable by reading.
     if engine is not None and _is_key_event_gap(gap):
         candidates = _key_event_candidates(engine)
         if candidates:
-            lines.append("The AOP Key Events in this crate are:")
+            lines.append("The AOP Key Events to choose from are:")
             lines.extend(
                 f"  · {c['name']}" + (f" ({c['event_type']})" if c["event_type"] else "")
                 for c in candidates[:_KEY_EVENT_CHOICES]

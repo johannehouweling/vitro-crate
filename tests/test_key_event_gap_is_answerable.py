@@ -8,15 +8,19 @@ Two things were wrong, and either alone was enough to make the gap permanent:
   with ``property="mentions"``, missed the Key Event field set, and went down
   the generic path whose reference guard rejects prose. No reply the user could
   type would commit.
-* The question never listed the Key Events. The crate fetches an AOP's whole
-  subgraph, so they were sitting in state the whole time, but the reader was
-  asked to name one from memory — and a name that is not in the crate cannot
-  resolve to an entity, so a plausible answer would be refused anyway.
+* The question never listed the Key Events. AOP-Wiki lists them for the pathway
+  in the crate, but the reader was asked to name one from memory — and a name
+  that is none of them cannot resolve to an entity, so a plausible answer would
+  be refused anyway.
 
 What is NOT fixed here, deliberately: which Key Event an assay measures. That is
-a scientific judgement, and the crate offers its own Key Events as options
+a scientific judgement, and the crate offers its pathway's Key Events as options
 rather than choosing among them. A rule that picked one would be right for the
 crate it was written against and wrong for the next.
+
+The crate holds the pathway and none of its events until an assay is linked to
+one, so the options are read from AOP-Wiki when the question is asked, beside
+any Key Event the crate already holds, and an answer stores the event it names.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from builder.agents.pipeline.guidance import (
 )
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.gap_analysis import Gap
+from builder.tools.hitl import SimulatedHumanInterface
 
 
 def _Engine(state: CrateState):
@@ -79,6 +84,104 @@ def engine():
     return _Engine(state)
 
 
+# What the AOP-Wiki stub lists for the pathway of `pathway_engine`: the events the
+# `engine` fixture above stores by hand, under the same names and types.
+_LISTED = (
+    ("https://aopwiki.org/events/2376", "Inhibition, OATP1C1", "Molecular Initiating Event"),
+    ("https://aopwiki.org/events/2258", "Inhibition, MCT8", "Molecular Initiating Event"),
+    ("https://aopwiki.org/events/381", "Altered, white brain matter", "Key Event"),
+)
+_MCT8 = "https://aopwiki.org/events/2258"
+_KEY_EVENT_GAP = "Assay SHOULD annotate ... Key Event ..."
+
+
+def _lists_three_events(aop_id: str) -> dict:
+    """A stand-in for ``lookup_aop``: one pathway, the three events of ``_LISTED``."""
+    address = f"https://aopwiki.org/aops/{aop_id}"
+    return {
+        "found": True,
+        "data": {
+            "aop": {
+                "@id": address,
+                "@type": "AdverseOutcomePathway",
+                "name": f"AOP {aop_id}",
+                "identifier": str(aop_id),
+                "url": address,
+                "has_key_event": [{"@id": event} for event, _name, _kind in _LISTED],
+            },
+            "events": [
+                {
+                    "@id": event,
+                    "@type": "KeyEvent",
+                    "name": name,
+                    "eventType": kind,
+                    "identifier": event.rsplit("/", 1)[-1],
+                }
+                for event, name, kind in _LISTED
+            ],
+            "relationships": [],
+        },
+        "error": None,
+    }
+
+
+def _gives_nothing(aop_id: str) -> dict:
+    """A stand-in for ``lookup_aop`` on a day AOP-Wiki cannot be asked."""
+    return {"found": False, "data": {}, "error": "AOP-Wiki unavailable (transient)"}
+
+
+def _lists_one_name_twice(aop_id: str) -> dict:
+    """A stand-in for ``lookup_aop`` that lists two events under one name."""
+    answer = _lists_three_events(aop_id)
+    answer["data"]["events"].append(
+        {
+            "@id": "https://aopwiki.org/events/9258",
+            "@type": "KeyEvent",
+            "name": "Inhibition, MCT8",
+            "eventType": "Key Event",
+            "identifier": "9258",
+        }
+    )
+    return answer
+
+
+@pytest.fixture
+def pathway_engine(monkeypatch):
+    """A crate with a Study, an Assay and their pathway, and none of its events."""
+    from builder.tools import lookups as tool_lookups
+    from builder.tools.composites import resolve_aop
+
+    monkeypatch.setattr(tool_lookups, "lookup_aop", _lists_three_events)
+    state = CrateState()
+    for entity_id, kind, fields in (
+        ("s1", "Study", {"name": "A study"}),
+        ("a1", "Assay", {"name": "An assay", "study_id": "s1"}),
+    ):
+        entity = Entity(
+            entity_id=entity_id, type=kind, _provenance=EntityProvenance(created_by="llm")
+        )
+        entity.set_fields_from_dict(fields, source="llm")
+        state.add_entity(entity)
+    resolve_aop(state, "464", study_id="s1")
+    return _Engine(state)
+
+
+class _Listening(SimulatedHumanInterface):
+    """A human who is told things and asked nothing."""
+
+    def __init__(self) -> None:
+        self.notes: list[str] = []
+
+    def notify(self, message: str) -> None:
+        self.notes.append(message)
+
+
+def _assay(engine) -> Entity:
+    assay = engine.state.get_entity("a1")
+    assert assay is not None
+    return assay
+
+
 class TestTheGapIsRecognised:
     def test_the_shape_expresses_it_as_mentions(self):
         """The reason it was unanswerable: `mentions`, not `keyEvent`."""
@@ -121,7 +224,7 @@ class TestTheOptionsAreOffered:
     def test_a_crate_with_no_key_events_lists_nothing(self):
         gap = _gap("http://schema.org/mentions", "Assay SHOULD annotate ... Key Event ...")
         prompt = _ask_user_prompt(gap, _Engine(CrateState()))
-        assert "Key Events in this crate" not in prompt
+        assert "Key Events to choose from" not in prompt
 
     def test_an_unnamed_key_event_is_not_offered(self):
         """An option a reader cannot recognise is not an option."""
@@ -134,6 +237,222 @@ class TestTheOptionsAreOffered:
         entity.set_fields_from_dict({"eventType": "Key Event"}, source="lookup")
         state.add_entity(entity)
         assert _key_event_candidates(_Engine(state)) == []
+
+
+class TestTheOptionsComeFromAopWiki:
+    """The crate holds the pathway and none of its events, so the options are the
+    events AOP-Wiki lists for it."""
+
+    def test_the_events_aop_wiki_lists_for_the_pathway_are_the_candidates(self, pathway_engine):
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+
+        names = [c["name"] for c in _key_event_candidates(pathway_engine)]
+
+        # Initiating events lead, as for the events a crate holds itself.
+        assert names == ["Inhibition, MCT8", "Inhibition, OATP1C1", "Altered, white brain matter"]
+
+    def test_the_prompt_lists_them(self, pathway_engine):
+        prompt = _ask_user_prompt(_gap("http://schema.org/mentions", _KEY_EVENT_GAP), pathway_engine)
+
+        assert "Key Events to choose from" in prompt
+        for _event, name, _kind in _LISTED:
+            assert name in prompt
+
+    def test_listing_the_options_stores_none_of_them(self, pathway_engine):
+        _ask_user_prompt(_gap("http://schema.org/mentions", _KEY_EVENT_GAP), pathway_engine)
+
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+
+    def test_an_event_the_crate_already_holds_is_offered_once(self, pathway_engine):
+        from builder.tools.composites import link_assay_to_key_event
+
+        link_assay_to_key_event(pathway_engine.state, "a1", "Inhibition, MCT8")
+
+        ids = [c["id"] for c in _key_event_candidates(pathway_engine)]
+        assert sorted(ids) == sorted(event for event, _name, _kind in _LISTED)
+
+    def test_nothing_is_listed_when_aop_wiki_gives_no_events(self, pathway_engine, monkeypatch):
+        from builder.tools import lookups as tool_lookups
+
+        monkeypatch.setattr(tool_lookups, "lookup_aop", _gives_nothing)
+
+        assert _key_event_candidates(pathway_engine) == []
+        prompt = _ask_user_prompt(_gap("http://schema.org/mentions", _KEY_EVENT_GAP), pathway_engine)
+        assert "Key Events to choose from" not in prompt
+
+
+class TestAnAnswerStoresTheEventItNames:
+    """An answer is matched against the options, and the event it names is stored
+    with the link. The shape reports the gap on ``mentions``; the link is the
+    Assay's ``keyEvent`` whichever way the event was named."""
+
+    def _gap(self) -> Gap:
+        return _gap("http://schema.org/mentions", _KEY_EVENT_GAP, entity_id="./#Assay_a1")
+
+    def test_a_named_event_is_stored_with_the_link(self, pathway_engine):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        assert _apply_value(pathway_engine, self._gap(), "inhibition, mct8") is True
+
+        stored = pathway_engine.state.list_entities("KeyEvent")
+        assert [e.entity_id for e in stored] == [_MCT8]
+        assert stored[0].fields["name"] == "Inhibition, MCT8"
+        assert _assay(pathway_engine).fields["keyEvent"] == _MCT8
+
+    def test_an_address_aop_wiki_lists_is_stored_with_its_event(self, pathway_engine):
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.tools.builder import assemble_crate
+
+        assert _apply_value(pathway_engine, self._gap(), _MCT8) is True
+
+        assay = _assay(pathway_engine)
+        assert assay.fields["keyEvent"] == _MCT8
+        assert "mentions" not in assay.fields
+        # The crate describes the event the address names: it is no bare link.
+        graph = assemble_crate(
+            pathway_engine.state, materialize_payload=False, include_all_scanned=False
+        ).metadata.generate()["@graph"]
+        event = next(n for n in graph if n["@id"] == _MCT8)
+        assert event["@type"] == ["KeyEvent", "schema:DefinedTerm"]
+        assert event["name"] == "Inhibition, MCT8"
+
+    def test_a_number_aop_wiki_lists_is_stored_with_its_event(self, pathway_engine):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        assert _apply_value(pathway_engine, self._gap(), "2258") is True
+
+        assert [e.entity_id for e in pathway_engine.state.list_entities("KeyEvent")] == [_MCT8]
+        assert _assay(pathway_engine).fields["keyEvent"] == _MCT8
+
+    def test_an_address_aop_wiki_does_not_list_is_refused_with_the_options(self, pathway_engine):
+        """An address that names no event of the crate's pathway is not confirmed by
+        the lookup, and the crate could not describe the event it points at. It is
+        refused like any other answer that names none of the options (D5), rather
+        than stored as a link to an event the crate does not describe."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        human = _Listening()
+
+        assert (
+            _apply_value(pathway_engine, self._gap(), "https://aopwiki.org/events/1002", human=human)
+            is False
+        )
+
+        assay = _assay(pathway_engine)
+        assert "keyEvent" not in assay.fields
+        assert "mentions" not in assay.fields
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+        assert "Inhibition, MCT8" in human.notes[0]
+
+    @pytest.mark.parametrize(
+        "address",
+        [
+            "https://www.aopwiki.org/events/2258",
+            "HTTPS://AOPWIKI.ORG/EVENTS/2258",
+            "https://example.org/key-events/2258",
+        ],
+    )
+    def test_any_other_address_is_refused_with_the_options(self, pathway_engine, address):
+        """An address the crate does not hold is matched like any other answer, on
+        whatever host and in whatever spelling, rather than stored as a link to an
+        event the crate does not describe."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        human = _Listening()
+
+        assert _apply_value(pathway_engine, self._gap(), address, human=human) is False
+
+        assay = _assay(pathway_engine)
+        assert "keyEvent" not in assay.fields
+        assert "mentions" not in assay.fields
+        assert "Inhibition, MCT8" in human.notes[0]
+
+    def test_a_term_the_crate_holds_at_an_event_address_still_stands_in(self, pathway_engine):
+        """Unchanged: a term the crate holds is a reference, at whatever address it
+        is keyed, and AOP-Wiki need not list the event for the pathway."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        address = "https://aopwiki.org/events/1002"
+        term = Entity(
+            entity_id=address, type="DefinedTerm", _provenance=EntityProvenance(created_by="llm")
+        )
+        term.set_fields_from_dict({"name": "KE 1002"}, source="llm")
+        pathway_engine.state.add_entity(term)
+
+        assert _apply_value(pathway_engine, self._gap(), address) is True
+
+        assert _assay(pathway_engine).fields["mentions"] == [address]
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+
+    def test_a_term_the_crate_holds_still_stands_in(self, pathway_engine):
+        """Unchanged: an id pasted for something the crate holds is a reference, not
+        an event to look for."""
+        from builder.agents.pipeline.guidance import _apply_value
+
+        term = Entity(
+            entity_id="dt_ke_55", type="DefinedTerm", _provenance=EntityProvenance(created_by="llm")
+        )
+        term.set_fields_from_dict({"name": "KE 55"}, source="llm")
+        pathway_engine.state.add_entity(term)
+        gap = _gap("keyEvent", "MIT parameter linkage to AOPs", entity_id="a1")
+
+        assert _apply_value(pathway_engine, gap, "dt_ke_55") is True
+
+        assert _assay(pathway_engine).fields["keyEvent"] == "dt_ke_55"
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+
+    def test_a_name_that_is_no_option_is_refused_with_the_options(self, pathway_engine):
+        from builder.agents.pipeline.guidance import _apply_value
+
+        human = _Listening()
+
+        assert _apply_value(pathway_engine, self._gap(), "TPO inhibition", human=human) is False
+
+        assert "keyEvent" not in _assay(pathway_engine).fields
+        assert "Inhibition, MCT8" in human.notes[0]
+
+    def test_a_name_two_listed_events_share_stores_neither(self, pathway_engine, monkeypatch):
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.tools import lookups as tool_lookups
+
+        monkeypatch.setattr(tool_lookups, "lookup_aop", _lists_one_name_twice)
+
+        assert _apply_value(pathway_engine, self._gap(), "Inhibition, MCT8") is False
+
+        assert "keyEvent" not in _assay(pathway_engine).fields
+        assert pathway_engine.state.list_entities("KeyEvent") == []
+
+    def test_the_user_is_told_when_aop_wiki_gave_no_events(self, pathway_engine, monkeypatch):
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.tools import lookups as tool_lookups
+
+        monkeypatch.setattr(tool_lookups, "lookup_aop", _gives_nothing)
+        human = _Listening()
+
+        assert _apply_value(pathway_engine, self._gap(), "Inhibition, MCT8", human=human) is False
+
+        assert "keyEvent" not in _assay(pathway_engine).fields
+        assert "AOP-Wiki returned no key events" in human.notes[0]
+
+    def test_the_user_is_told_when_only_held_events_could_be_compared(
+        self, pathway_engine, monkeypatch
+    ):
+        """With AOP-Wiki down, only the events the crate holds are compared, so an
+        answer naming another event of the pathway is not refused for its wording."""
+        from builder.agents.pipeline.guidance import _apply_value
+        from builder.tools import lookups as tool_lookups
+        from builder.tools.composites import link_assay_to_key_event
+
+        link_assay_to_key_event(pathway_engine.state, "a1", "Inhibition, MCT8")
+        monkeypatch.setattr(tool_lookups, "lookup_aop", _gives_nothing)
+        human = _Listening()
+
+        answer = "Altered, white brain matter"
+        assert _apply_value(pathway_engine, self._gap(), answer, human=human) is False
+
+        assert _assay(pathway_engine).fields["keyEvent"] == _MCT8
+        assert "Inhibition, MCT8" in human.notes[0]
+        assert "AOP-Wiki returned no key events" in human.notes[0]
 
 
 class TestTheChoiceStaysTheScientists:

@@ -740,7 +740,7 @@ class TestMaterializePlan:
     these tests are fully offline. The contract under test:
 
     * a canned plan materializes the expected MolecularEntity / CellLineSample /
-      LabProcess chain / AOP subgraph / Person / Publication entities in state;
+      LabProcess chain / AOP pathway / Person / Publication entities in state;
     * with NO provider configured, the step is a STRICT no-op;
     * with a provider but NO usable context, the step is a strict no-op;
     * D5 — no identifier from the plan is ever set on an entity; identifiers come
@@ -862,7 +862,7 @@ class TestMaterializePlan:
                 ent.set_field_status(field, "verified", "lookup")
             return {"verified": True, "entity_id": entity_id, "field": field, "message": "ok"}
 
-        # materialize_aop_subgraph -> lookup_aop (imported lazily from tool_lookups).
+        # resolve_aop -> lookup_aop (imported lazily from tool_lookups).
         def fake_lookup_aop(aop_id):
             iri = f"https://aopwiki.org/aops/{aop_id}"
             mie = "https://aopwiki.org/events/1"
@@ -1031,9 +1031,10 @@ class TestMaterializePlan:
         assert str(ref_id).lstrip("#") == proto_id
         assert result["protocols"] >= 1
 
-        # AOP → AdverseOutcomePathway subgraph.
+        # AOP → the AdverseOutcomePathway alone: this plan names no measured
+        # event, so no key event is stored.
         assert self._by_type(engine, "AdverseOutcomePathway")
-        assert self._by_type(engine, "KeyEvent")
+        assert self._by_type(engine, "KeyEvent") == []
 
         # Person from the name, with a deterministic given/family split so it is
         # ISA-conformant (a non-empty given name is REQUIRED). No ORCID (D5).
@@ -1280,6 +1281,38 @@ class TestMaterializePlan:
         # field name, so the snake_case spelling would score as unfilled.
         assert "key_event" not in self._by_type(engine, "Assay")[0].fields
 
+    def test_plan_measured_event_is_the_only_event_stored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The stub lists two events and a relationship for the pathway; the crate
+        takes the pathway and the one event the plan says the assay measures."""
+        import builder.agents.pipeline.pipeline as pipeline_mod
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(
+            monkeypatch,
+            {
+                "aops": [
+                    {"aop_id": "610", "measured_event_name": "Mitochondrial dysfunction"}
+                ]
+            },
+        )
+        self._stub_lookups(monkeypatch)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        pipeline_mod._materialize_plan(engine)
+
+        assert [e.entity_id for e in self._by_type(engine, "AdverseOutcomePathway")] == [
+            "https://aopwiki.org/aops/610"
+        ]
+        assert [e.entity_id for e in self._by_type(engine, "KeyEvent")] == [
+            "https://aopwiki.org/events/1"
+        ]
+        assert self._by_type(engine, "KeyEventRelationship") == []
+        pathway = self._by_type(engine, "AdverseOutcomePathway")[0]
+        assert not {f for f in pathway.fields if f.startswith("has_")}
+
     def test_unnamed_event_leaves_assay_unlinked(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1299,9 +1332,10 @@ class TestMaterializePlan:
         pipeline_mod._scaffold_backbone(engine)
         result = pipeline_mod._materialize_plan(engine)
 
-        # The subgraph IS fully materialized; only the assay edge is missing.
+        # The pathway IS stored; no event is named, so none is stored and the
+        # assay edge is missing.
         assert self._by_type(engine, "AdverseOutcomePathway")
-        assert self._by_type(engine, "KeyEvent")
+        assert self._by_type(engine, "KeyEvent") == []
         assert "keyEvent" not in self._by_type(engine, "Assay")[0].fields
         assert result["key_events"] == 0
 
@@ -1334,6 +1368,45 @@ class TestMaterializePlan:
         assert "keyEvent" not in self._by_type(engine, "Assay")[0].fields
         assert result["key_events"] == 0
         assert result["aops"] == 1  # the pathway itself still landed
+
+    @pytest.mark.parametrize("stated", ["https://aopwiki.org/events/1", "1"])
+    def test_plan_cannot_name_the_measured_event_by_an_id(
+        self, monkeypatch: pytest.MonkeyPatch, stated: str
+    ) -> None:
+        """D5: ``measured_event_name`` is a NAME, never an id.
+
+        ``link_assay_to_key_event`` also matches an AOP-Wiki address or number, for
+        a source that states one. In the plan such a value came from the model, so
+        it links nothing, although the stubbed lookup lists the event it names.
+        """
+        import copy
+
+        import builder.agents.pipeline.pipeline as pipeline_mod
+        from builder.tools import lookups as tool_lookups
+
+        self._enable_provider(monkeypatch)
+        self._stub_extract_plan(
+            monkeypatch, {"aops": [{"aop_id": "610", "measured_event_name": stated}]}
+        )
+        self._stub_lookups(monkeypatch)
+        listed = tool_lookups.lookup_aop
+
+        def with_numbers(aop_id):
+            answer = copy.deepcopy(listed(aop_id))
+            for event in answer["data"]["events"]:
+                event["identifier"] = event["@id"].rsplit("/", 1)[-1]
+            return answer
+
+        monkeypatch.setattr(tool_lookups, "lookup_aop", with_numbers)
+
+        engine = _engine(self._titled_state())
+        pipeline_mod._scaffold_backbone(engine)
+        result = pipeline_mod._materialize_plan(engine)
+
+        assert "keyEvent" not in self._by_type(engine, "Assay")[0].fields
+        assert self._by_type(engine, "KeyEvent") == []
+        assert result["key_events"] == 0
+        assert result["aops"] == 1
 
     def test_plan_cannot_supply_an_event_identifier(
         self, monkeypatch: pytest.MonkeyPatch
