@@ -228,6 +228,19 @@ class TestOnlyALookupNamesTheAddress:
         chem = _chemical("chem_caffeine", "Caffeine", wiki_id=value, **CAFFEINE)
         assert _mint_id(chem) == PUBCHEM + "2519"
 
+    @pytest.mark.parametrize(
+        "address",
+        [
+            WIKI + "Q2026",
+            "http://compoundcloud.wikibase.cloud/entity/Q2026",
+            "https://compoundcloud.wikibase.cloud/wiki/Item:Q2026",
+        ],
+    )
+    def test_an_address_given_as_the_chemicals_own_id_leaves_a_local_id(self, address):
+        """A drafter takes the id a model hands it as it stands; no lookup wrote it."""
+        chem = _ent(address, "MolecularEntity", name="Test item A")
+        assert _mint_id(chem) == "#MolecularEntity_" + address
+
 
 class TestAChemicalTheWikiHasNoItemFor:
     """Without a looked-up Compound Wiki id the order is the one it was."""
@@ -362,6 +375,29 @@ class TestTwoChemicalsOnOneItemAreOneEntity:
         graph = _graph(_state(first, other))
         assert [n["@id"] for n in _chemicals(graph)] == [WIKI + "Q2026", PUBCHEM + "64119"]
 
+    def test_a_chemical_drafted_with_the_address_as_its_id_folds_nothing(self):
+        """The looked-up chemical keeps its own name and identifiers at its item."""
+        from builder.tools.drafters import draft_molecular_entity
+
+        state = _state()
+        typed = draft_molecular_entity(state, "Test item A", {"entity_id": WIKI + "Q2026"})
+        state.add_entity(_chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE))
+        graph = _graph(state)
+        assert typed.entity_id == WIKI + "Q2026"
+        assert [n["@id"] for n in _chemicals(graph)] == [
+            "#MolecularEntity_" + WIKI + "Q2026",
+            WIKI + "Q2026",
+        ]
+        node = _by_id(graph, WIKI + "Q2026")
+        assert node is not None and node["name"] == "Caffeine"
+        assert "alternateName" not in node
+        assert _identifiers(graph, node) == [
+            ("CAS", "58-08-2"),
+            ("PubChem CID", "2519"),
+            ("DTXSID", "DTXSID0020232"),
+            ("Compound Wiki", "Q2026"),
+        ]
+
 
 class TestAReportCallsAnUnnamedChemicalByItsItem:
     """A finding on a chemical with no name says which compound it is."""
@@ -431,3 +467,19 @@ class TestAReferenceHeldAsAnAddressFollowsTheChemical:
         graph = _graph(_with_a_study(chem, exposure=[WIKI + "Q2026"]))
         assert _reagents(graph, "#LabProcess_p_exp") == []
         assert _by_id(graph, WIKI + "Q2026") is None
+
+    @pytest.mark.parametrize("typed_first", [True, False])
+    def test_the_id_a_model_gave_a_chemical_still_reaches_that_chemical(self, typed_first):
+        """An address given as a chemical's own id does not lead to the item a lookup found.
+
+        The reference holds that chemical's id in the state, so it reaches the
+        chemical, now at its local id, and never the looked-up one (D5).
+        """
+        typed = _ent(WIKI + "Q2026", "MolecularEntity", name="Test item A")
+        found = _chemical("chem_caffeine", "Caffeine", wiki_id="Q2026", **CAFFEINE)
+        chemicals = (typed, found) if typed_first else (found, typed)
+        graph = _graph(
+            _with_a_study(*chemicals, study=[WIKI + "Q2026"], exposure=["chem_caffeine"])
+        )
+        assert _study_chemicals(graph) == ["#MolecularEntity_" + WIKI + "Q2026"]
+        assert _reagents(graph, "#LabProcess_p_exp") == [WIKI + "Q2026"]

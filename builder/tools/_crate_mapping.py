@@ -1155,6 +1155,11 @@ def _mint_id(entity: Entity) -> str:
         addresses = _compound_addresses(entity)
         if addresses:
             return addresses[0]
+        # An address on the Compound Wiki that the chemical was given as its own id
+        # is no lookup's answer, so the chemical keeps a local id (D5).
+        host = eid.partition("://")[2].partition("/")[0]
+        if host.lower() == COMPOUND_WIKI.partition("://")[2]:
+            return "#" + _slug(t) + "_" + eid
     if t == "CellLineSample":
         # A Cellosaurus accession IS the cell line's identifier, and it
         # dereferences. Minting `#CellLineSample_cell_cho_k1` next to a field

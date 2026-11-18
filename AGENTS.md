@@ -2077,7 +2077,9 @@ returned, §5), the `MolecularEntity`'s `@id` is that item's address,
 fragment follow as above. The id must be one a lookup wrote, which its completion
 record says (`_crate_mapping._compound_wiki_iri`): a `compoundwiki_id` a model or a
 person wrote is still written as an identifier value and never becomes the `@id`
-(D5). The item a name search hits in `lookup_compound`'s fallback does not count
+(D5). Nor does an address on the wiki that the chemical was given as its own id: the
+chemical then keeps a local id, and a reference holding that id still reaches it.
+The item a name search hits in `lookup_compound`'s fallback does not count
 either; it stays the chemical's `sameAs`, and is the `@id` instead only when the
 InChIKey search finds it too. The identifier values (CAS, PubChem CID, DTXSID,
 Compound Wiki) are the same whichever address the chemical has. An unreachable wiki
