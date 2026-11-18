@@ -718,7 +718,7 @@ class TestLabProcessSubtypes:
             )
         )
         _, by_id = _build(state, tmp_path)
-        executed = _documents(by_id, "#LabProcess_proc_1")
+        executed = _ids(by_id["#LabProcess_proc_1"].get("executesLabProtocol"))
         assert executed, "the culture must execute the deposited protocol"
         assert not executed[0].startswith("#"), (
             f"a protocol's @id must be its file path, not a minted fragment: {executed}"
