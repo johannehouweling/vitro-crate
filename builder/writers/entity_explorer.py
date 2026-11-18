@@ -110,17 +110,18 @@ def _select_files(crate: _Crate) -> set[str]:
 def _select_aop(crate: _Crate) -> set[str]:
     """The adverse outcome pathway itself, and who measures it.
 
-    The chain entire — the pathway, its key events and the relationships that
-    order them — plus the ISA entity that points into it, because *which assay
-    measures which event* is the question the view exists to answer and a bag of
-    events answers nothing.
+    Every pathway entity the crate describes — the pathway a study addresses and
+    the key events its assays measure — plus the ISA entity that points at one,
+    because *which assay measures which event* is the question the view exists
+    to answer and a bag of events answers nothing. A crate that carries a whole
+    pathway is drawn whole: its other key events and the relationships that order
+    them are pathway entities too.
 
-    Assays draws the same chain from the other end: it starts at the backbone and
-    follows `mentions` outward, so it shows only what an assay or study points
-    at — five of thirty-six on a real deposit. This view starts at the chain, so
-    a relationship (which nothing mentions) and a key event no assay measures
-    directly are drawn too, and the ISA entities arrive as context rather than as
-    the subject (#652).
+    Assays draws the same entities from the other end: it starts at the backbone
+    and follows `mentions` outward, so it shows only what an assay or study
+    points at. This view starts at the pathway entities, so one nothing in the
+    backbone mentions (a relationship, a key event no assay measures) is drawn
+    too, and the ISA entities arrive as context rather than as the subject (#652).
 
     Context, not everything that points here: a `CreativeWork` note mentioning a
     key event is not part of the science, so the source is filtered to the
@@ -631,8 +632,8 @@ EXPLORER_VIEWS: tuple[ExplorerView, ...] = (
     ExplorerView(
         "aop",
         "Adverse outcome pathway",
-        "The pathway your assays measure — the events, how they follow one "
-        "another, and which assay measures which",
+        "The pathway your studies address and the key events your assays measure — "
+        "the rest of the pathway is on AOP-Wiki, at each entity's address",
         False,
         _select_aop,
         _of_category("pathway"),
