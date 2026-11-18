@@ -31,7 +31,7 @@ from builder.state import CrateState, Entity
 from builder.tools import drafters
 from builder.tools.builder import assemble_crate
 from builder.tools.drafters import draft_organization, draft_person
-from builder.tools.file_readers import extract_deposit_people
+from builder.tools.file_readers import extract_deposit_funding, extract_deposit_people
 from lookups._http import TransientLookupError
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -186,6 +186,23 @@ class TestExtractDepositPeople:
         funding = _section("Funding", Agency="EU Horizon 2020", Grant_id="825161")
         assert extract_deposit_people(json.dumps(record)) is None
         assert extract_deposit_people(_descriptor(funding)) is None
+
+    def test_a_contributor_is_read_whatever_its_role(self) -> None:
+        """A funder DataCite names among the contributors is an organisation the record
+        identifies, and the funding is still read from the funding statements alone."""
+        commission = {"name": "European Commission", "ror": "https://ror.org/00k4n6c32"}
+        identifier = {"nameIdentifier": commission["ror"], "nameIdentifierScheme": "ROR"}
+        record = {
+            "contributors": [
+                {
+                    "name": commission["name"],
+                    "contributorType": "Funder",
+                    "nameIdentifiers": [identifier],
+                }
+            ]
+        }
+        assert extract_deposit_people(json.dumps(record)) == ([], [commission])
+        assert extract_deposit_funding(json.dumps(record)) == []
 
     def test_every_statement_is_kept_once_in_document_order(self) -> None:
         scholze = {"name": "Martin Scholze", "orcid": "0000-0002-9569-7562"}

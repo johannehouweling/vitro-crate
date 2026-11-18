@@ -1318,8 +1318,10 @@ def extract_deposit_people(
     ``contributors`` and the identifiers of their ``affiliation``, an ORCID or a ROR
     by the scheme stated beside it. Both values are kept verbatim, and nothing else is
     kept: the same sections hold an e-mail address, a role and a country, and none of
-    them identifies anyone. A funder is the funding's, read by its name
-    (:func:`extract_deposit_funding`), and is not read here.
+    them identifies anyone. A contributor is read whatever its role, a funder named
+    among them too; the funding statements themselves, a BioStudies ``Funding``
+    section or DataCite's ``fundingReferences``, are the funding's
+    (:func:`extract_deposit_funding`) and are not read here.
 
     ``None`` when the document identifies nobody, prose included: only a document
     whose top level is a mapping is a metadata record.
