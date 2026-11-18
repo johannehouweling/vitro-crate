@@ -44,6 +44,7 @@ from builder.tools.document_discovery import (
 from builder.tools.drafters import (
     _ORCID_RE,
     VALID_PROCESS_TYPES,
+    _existing_person,
     _make_entity_id,
     draft_assay,
     draft_cell_line_sample,
@@ -1483,7 +1484,13 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
     """Find-or-create a Person whose @id is the ORCID URL, with a verified ORCID."""
     bare = _bare_orcid(orcid)
     orcid_url = f"https://orcid.org/{bare}"
-    existing = state.get_entity(orcid_url) or state.get_entity(bare)
+    # A person given this ORCID after they were drafted keeps the id they had, and
+    # a second person at the ORCID would leave the crate only one of them.
+    existing = (
+        state.get_entity(orcid_url)
+        or state.get_entity(bare)
+        or _existing_person(state, "", orcid_url, {})
+    )
     if existing is not None and existing.type == "Person":
         person = existing
     else:
