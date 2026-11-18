@@ -532,6 +532,39 @@ class TestTheWriterLeavesTheRestOfAPathwayOut:
         assert not [n["@id"] for n in graph if _LINK_PROPERTIES & set(n)]
 
 
+class TestTheFindingsNameTheToolThatAnswersThem:
+    """A Study with no pathway and an Assay with no key event are told which tool to call.
+
+    Both shapes report the gap on ``schema:mentions``. A hint to set that
+    property sends the agent to write an AOP-Wiki address by hand, which gives the
+    crate a link and no entity behind it.
+    """
+
+    @staticmethod
+    def _fix_for(finding: str) -> str:
+        from builder.tools.composites import scaffold_isa_backbone
+
+        state = CrateState()
+        state.metadata.title = "No pathway yet"
+        scaffold_isa_backbone(
+            state, investigation={"name": "I"}, study={"name": "S"}, assay={"name": "A"}
+        )
+        issues = build_and_validate(state, severity="recommended", profile="tox")["issues"]
+        return next(i["fix"] for i in issues if i["message"].startswith(finding))
+
+    def test_the_study_is_pointed_at_the_pathway_tool(self):
+        fix = self._fix_for("Study SHOULD reference its Adverse Outcome Pathway")
+
+        assert "`materialize_aop_subgraph`" in fix
+        assert "`mentions`" not in fix
+
+    def test_the_assay_is_pointed_at_the_key_event_tool(self):
+        fix = self._fix_for("Assay SHOULD reference the Key Event")
+
+        assert "`link_assay_to_key_event`" in fix
+        assert "`mentions`" not in fix
+
+
 class TestLinkAssayToKeyEvent:
     """The Assay -> Key Event link (#382).
 
