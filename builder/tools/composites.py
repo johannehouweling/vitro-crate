@@ -2083,8 +2083,9 @@ def resolve_compound(
         hints: Optional extra descriptive field values for the MolecularEntity
             (e.g. ``{"description": ...}``). Looked-up identifier fields win over
             same-named hints so the verified source value is never overwritten.
-            A ``compoundwiki_id`` among them is dropped: that id is the wiki's
-            own answer or nothing.
+            A ``compoundwiki_id`` among them is recorded as the caller's, so it is
+            an identifier value and never the chemical's ``@id``, and the wiki is
+            then not asked.
         verify: When ``None``/``True`` (the default), verify the minted
             identifiers against source. Pass ``False`` to skip verification (the
             return then reports ``verified`` as ``None``); use only when you will
@@ -2155,10 +2156,10 @@ def resolve_compound(
     # Identifier/source fields win over caller hints so a verified value from the
     # source is never clobbered by a (possibly stale) hint.
     merged_hints: dict[str, Any] = dict(hints or {})
-    # The Compound Wiki id is the wiki's own answer, asked for below, or nothing:
-    # the build takes a looked-up one as the chemical's @id, so a caller's is
-    # dropped here rather than written beside the looked-up fields (D5).
-    merged_hints.pop("compoundwiki_id", None)
+    # A Compound Wiki id the caller hands in is theirs, never the wiki's answer,
+    # however the entity is chosen below: the build takes only a looked-up one as
+    # the chemical's @id (D5). It is written as theirs once the entity is chosen.
+    handed_in_wiki_id = merged_hints.pop("compoundwiki_id", None)
     # Tracked separately from the merged hints so the values the AUTHORITY
     # supplied can be recorded as such. Everything else in ``merged_hints`` is
     # the caller's (a plan value, a model-drafted hint) and keeps that origin.
@@ -2209,6 +2210,8 @@ def resolve_compound(
             # above, which already record these as ``"lookup"`` (#424).
             if looked_up:
                 entity.set_fields_from_dict(looked_up, source="lookup")
+    if handed_in_wiki_id is not None:
+        entity.set_fields_from_dict({"compoundwiki_id": handed_in_wiki_id}, source="llm")
 
     # Best-effort EPA DTXSID enrichment (#179). DTXSID is a first-class ISA-Tox
     # chemical identifier that the deterministic pipeline otherwise never
