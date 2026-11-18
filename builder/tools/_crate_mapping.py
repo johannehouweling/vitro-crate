@@ -3774,6 +3774,32 @@ def _prepared_samples(cultures: list[Any]) -> list[Any]:
     ]
 
 
+def _drafted_exposed_samples(cells: list[Any], drafted: list[Any], named: list[Any]) -> list[Any]:
+    """The drafted exposed Sample of each consumed Sample in *cells*, else ``None``.
+
+    A drafted exposed Sample is the exposed sample of the consumed Sample it
+    derives from. One deriving from none of them goes to what the step's draft
+    *named* as consumed, then to the rest in order. Where it stands in the draft
+    says nothing: a split culture's drafted Sample is held by the part growing its
+    line (#678), which need not be the first, so pairing by position put the
+    drafter's exposed cells on another line's culture.
+    """
+    mine: list[Any] = [None] * len(cells)
+    loose: list[Any] = []
+    for sample in drafted:
+        lineage = _child_ids(sample, "derivesFrom")
+        at = next((i for i, c in enumerate(cells) if mine[i] is None and c.id in lineage), None)
+        if at is None:
+            loose.append(sample)
+        else:
+            mine[at] = sample
+    stated = {n.id for n in named}
+    for at in sorted(range(len(cells)), key=lambda i: cells[i].id not in stated):
+        if mine[at] is None and loose:
+            mine[at] = loose.pop(0)
+    return mine
+
+
 def _chain_processes(built: list[tuple[Any, str, Any]]) -> None:
     """Make each step consume what the step before it produced (#650).
 
@@ -4467,26 +4493,26 @@ def _build_process(
         # two lines go in and one material come out.
         drafted = [r for r in result if _is_sample_node(r)]
         rest = [r for r in result if not _is_sample_node(r)]
+        mine = _drafted_exposed_samples(cells, drafted, named)
         exposed_samples: list[Any] = []
-        for index, cell in enumerate(cells or [None]):
-            if index < len(drafted):
+        for index, cell in enumerate(cells):
+            if (sample := mine[index]) is not None:
                 # A drafter-supplied Sample is the exposed sample and is kept;
                 # its lineage is filled only where it arrived empty.
-                sample = drafted[index]
-                if cell is not None and not _child_ids(sample, "derivesFrom"):
+                if not _child_ids(sample, "derivesFrom"):
                     _append_unique(sample, "derivesFrom", cell)
                 exposed_samples.append(sample)
                 continue
             label = (
                 f"Exposed ({name})"
-                if len(cells or [None]) == 1
+                if len(cells) == 1
                 else f"Exposed ({_cultured_line_label(crate, cell)})"
             )
             sid = pid + "_exposed" if index == 0 else f"{pid}_exposed_{index}"
             exposed_samples.append(
                 _synth_sample(crate, sid, label, cell, sample_type=_cell_culture_term(crate))
             )
-        out = rest + exposed_samples + drafted[len(exposed_samples) :]
+        out = rest + exposed_samples + [s for s in drafted if all(s is not m for m in mine)]
         # The table is the registry of the exposed units, so it is about them, and
         # it is its assay's data (#532: nested there, and kept in the root's hasPart).
         for sample in filter(_is_sample_node, out):

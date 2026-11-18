@@ -10,8 +10,10 @@ culture yielded H4 cells, name the exposed sample after the wrong line, and come
 out different for one deposit in two processes.
 
 The drafted Sample derives from the first line as stated, and the part growing
-the line it derives from takes it. A hash seed belongs to a process, so what
-must hold across processes is checked in subprocesses.
+the line it derives from takes it. That part need not be the first, so the
+Exposure gives a drafted exposed Sample to the cultured Sample it was drafted
+for rather than to the first. A hash seed belongs to a process, so what must
+hold across processes is checked in subprocesses.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from builder.state import CrateState, Entity, EntityProvenance, EntityType
 from builder.tools.assessment_graph import with_kinds
 from builder.tools.builder import assemble_crate
 from builder.tools.composites import draft_process_chain
+from builder.tools.drafters import draft_sample
 
 # Every S-VHPS22 process runs the whole pipeline, SHACL passes included.
 pytestmark = pytest.mark.timeout(240)
@@ -103,6 +106,31 @@ def _cultures(state: CrateState) -> list[dict[str, Any]]:
         if node.get("additionalType") == "TestSystemPreparation"
     ]
     return sorted(cultures, key=lambda culture: culture["step"])
+
+
+def _exposed(state: CrateState) -> list[dict[str, Any]]:
+    """Each Sample the Exposure of the crate built from *state* yields, with the lines
+    of the cultured Samples it derives from, by name."""
+    crate = assemble_crate(state, output_dir=None, materialize_payload=False)
+    graph = crate.metadata.generate()["@graph"]
+    by_id = {node["@id"]: node for node in graph}
+
+    def parents(ref: str) -> list[str]:
+        return _ids(by_id.get(ref, {}).get("derivesFrom"))
+
+    (exposure,) = (node for node in with_kinds(graph) if node.get("additionalType") == "Exposure")
+    return [
+        {
+            "name": by_id[ref].get("name"),
+            "lines": sorted(
+                str(by_id.get(line, {}).get("name") or line)
+                for cultured in parents(ref)
+                for line in parents(cultured)
+            ),
+        }
+        for ref in _ids(exposure.get("output"))
+        if "Sample" in _ids(by_id.get(ref, {}).get("@type"))
+    ]
 
 
 def _two_line_culture() -> list[dict[str, Any]]:
@@ -255,3 +283,32 @@ class TestThePartGrowingItsLineTakesTheDraftedSample:
         assert yields[taker] == ["Cultured cells"], yields
         assert sum(names == ["Cultured cells"] for names in yields.values()) == 1, yields
         _assert_each_part_yields_its_own_line(cultures)
+
+class TestTheExposedSampleStaysWithItsLine:
+    """The drafted cultured Sample derives from H4, so the second part takes it. An
+    Exposure pairing its drafted exposed Sample by position gave that Sample to the
+    SK-N-AS culture, or exposed H4 cells twice and SK-N-AS cells never."""
+
+    @pytest.mark.parametrize("states_its_lineage", [True, False], ids=["stated", "unstated"])
+    def test_the_drafted_exposed_sample_is_of_the_cells_it_was_drafted_for(
+        self, states_its_lineage: bool
+    ) -> None:
+        state = _two_lines()
+        cultured = draft_sample(state, {"name": "Cultured H4 cells", "derives_from": "cell_h4"})
+        hints = {"name": "H4 cells exposed to T3"}
+        if states_its_lineage:
+            hints["derives_from"] = cultured.entity_id
+        exposed = draft_sample(state, hints)
+        exposure = {"process_type": "Exposure", "hints": {"name": "T3 exposure"}}
+        draft_process_chain(
+            state,
+            "assay_1",
+            [
+                {**_culture(LINES), "result": [cultured.entity_id]},
+                {**exposure, "result": [exposed.entity_id]},
+            ],
+        )
+        samples = _exposed(state)
+        assert sorted(sample["lines"] for sample in samples) == [["H4"], ["SK-N-AS"]], samples
+        (drafted,) = (sample for sample in samples if sample["name"] == "H4 cells exposed to T3")
+        assert drafted["lines"] == ["H4"], samples
