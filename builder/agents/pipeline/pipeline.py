@@ -68,7 +68,7 @@ from builder.agents.llm import ModelOverrides, UsageSink, _as_int
 from builder.agents.llm import make_usage_logger as _make_usage_logger
 from builder.config import get_provider
 from builder.state import DEFAULT_PROFILE, PROFILE_LAYERS
-from builder.tools.composites import prefetch_compound_lookups
+from builder.tools.composites import prefetch_compound_lookups, registered_organization
 from builder.tools.document_discovery import (
     DocumentationCandidate,
     _fair_shares,
@@ -829,32 +829,56 @@ def _first_entity_id(engine: AgentEngine, entity_type: str) -> str | None:
 def _find_or_draft_organization(engine: AgentEngine, name: str) -> str | None:
     """Return the entity_id of an Organization named *name*, minting one if absent.
 
-    De-dup by name: an existing in-state Organization with the same (stripped)
-    ``name`` is reused so two affiliations sharing a name yield ONE Organization
-    rather than duplicates. Otherwise a new one is minted via the ``draft_organization``
-    tool (never hand-rolled JSON-LD). D5-safe: only the plan's affiliation *name* is
-    used — no ROR / IRI is fabricated here. Returns ``None`` on an empty name or if
+    A name ROR registers for one record (``registered_organization``) is that
+    organization: it takes ROR's id and the name ROR displays, so the
+    Organization's @id resolves to the ROR IRI. De-dup by that id and by name: an
+    existing in-state Organization holding the id, or with the same (stripped)
+    ``name``, is reused so two affiliations naming one organization yield ONE
+    Organization rather than duplicates. Otherwise a new one is minted via the
+    ``draft_organization`` tool (never hand-rolled JSON-LD). D5-safe: a ROR is set
+    only when ROR registers the name — never fabricated; a name no record or several
+    register keeps its own name and no ROR. Returns ``None`` on an empty name or if
     drafting fails (logged), so a failure never breaks the spine.
     """
     name = name.strip()
     if not name:
         return None
+    registered = registered_organization(name)
+    ror = str(registered.get("@id") or "")
+    if ror:
+        name = str(registered.get("name") or name)
     existing = next(
         (
-            e.entity_id
+            e
             for e in engine.state.list_entities()
-            if e.type == "Organization" and str(e.fields.get("name") or "").strip() == name
+            if e.type == "Organization"
+            and (
+                (ror and str(e.fields.get("ror") or "") == ror)
+                or str(e.fields.get("name") or "").strip() == name
+            )
         ),
         None,
     )
     if existing is not None:
-        return existing
+        if ror and not existing.fields.get("ror"):
+            existing.set_fields_from_dict({"ror": ror}, source="lookup")
+            existing.set_field_status("ror", "verified", "lookup")
+        return existing.entity_id
+    hints: dict[str, Any] = {}
+    if ror:
+        facts = ("url", "addressCountry", "countryName")
+        hints = {"ror": ror, **{k: registered[k] for k in facts if registered.get(k)}}
     try:
-        org = engine.run_tool("draft_organization", name=name, hints={})
+        org = engine.run_tool("draft_organization", name=name, hints=hints)
     except Exception as exc:  # noqa: BLE001 - a drafting failure must not break the spine
         logger.warning("draft_organization failed for %r: %s", name, exc)
         return None
-    return getattr(org, "entity_id", None)
+    org_id = getattr(org, "entity_id", None)
+    drafted = engine.state.get_entity(org_id) if ror and org_id else None
+    if drafted is not None:
+        # ROR's record named this id for the name: looked up, not drafted.
+        drafted.set_field_status("ror", "verified", "lookup")
+    return org_id
 
 
 def _lines_cells_were_made_from(cell_lines: list[Any]) -> dict[str, str]:

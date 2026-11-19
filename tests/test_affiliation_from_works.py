@@ -161,18 +161,18 @@ class TestTheRorMatchIsCheckedNotTrusted:
     """A search is a guess; a guess that renames an employer is not readable back."""
 
     def test_a_registered_name_differing_by_a_connective_is_accepted(self):
-        from builder.tools.composites import _same_institution
+        from lookups.ror import same_name as _same_institution
 
         assert _same_institution("Brunel University of London", "Brunel University London")
 
     def test_a_real_but_different_institution_is_refused(self):
         """ "University of London" is not "Brunel University London"."""
-        from builder.tools.composites import _same_institution
+        from lookups.ror import same_name as _same_institution
 
         assert not _same_institution("University of London", "Brunel University London")
 
     def test_an_unrelated_match_is_refused(self):
-        from builder.tools.composites import _same_institution
+        from lookups.ror import same_name as _same_institution
 
         assert not _same_institution("Utrecht University", "Brunel University London")
 
@@ -180,9 +180,7 @@ class TestTheRorMatchIsCheckedNotTrusted:
         """Better the paper's own words than a confidently wrong registry id."""
         import builder.tools.composites as composites
 
-        monkeypatch.setattr(
-            composites, "search_ror", lambda name: {"name": "Somewhere Else", "@id": "x"}
-        )
+        monkeypatch.setattr(composites, "find_registered", lambda name: {})
         name, ror = composites._registered_institution(BRUNEL_A)
         assert name == "Brunel University London"
         assert ror is None
@@ -193,7 +191,7 @@ class TestTheRorMatchIsCheckedNotTrusted:
         def boom(name):
             raise RuntimeError("ROR is down")
 
-        monkeypatch.setattr(composites, "search_ror", boom)
+        monkeypatch.setattr(composites, "find_registered", boom)
         name, ror = composites._registered_institution(BRUNEL_A)
         assert name == "Brunel University London"
         assert ror is None
