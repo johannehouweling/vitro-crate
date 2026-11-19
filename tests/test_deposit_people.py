@@ -600,12 +600,15 @@ class TestNoTwoPeopleTakeOneOrcid:
         assert [n["@id"] for n in _typed(_graph(state), "Person")] == [HAMERS_ADDRESS]
 
 
-# What the S-VHPS21 record states for Martin Scholze, and the article it states.
+# What the S-VHPS21 record states for Martin Scholze and Fabian Wagenaars, and the article
+# it states.
 SVHPS21 = FIXTURES / "svhps21_real_input" / "S-VHPS21.json"
 SCHOLZE = {"name": "Martin Scholze", "orcid": "0000-0002-9569-7562"}
 SCHOLZE_RECORD = {SCHOLZE["orcid"]: ("Martin", "Scholze")}
 SCHOLZE_ADDRESS = "https://orcid.org/0000-0002-9569-7562"
 SCHOLZE_AUTHOR = {"givenName": "Martin", "familyName": "Scholze"}
+WAGENAARS = {"name": "Fabian Wagenaars", "orcid": "0000-0003-4766-7358"}
+WAGENAARS_ADDRESS = "https://orcid.org/0000-0003-4766-7358"
 MCT8_ARTICLE = "10.1016/j.tiv.2023.105770"
 
 
@@ -617,7 +620,8 @@ def _svhps21() -> CrateState:
 
 
 def _publishing(monkeypatch: pytest.MonkeyPatch, orcid: _Orcid, *authors: dict[str, str]) -> None:
-    """Crossref answers for the article S-VHPS21 states with *authors*, none with an ORCID.
+    """Crossref answers for the article S-VHPS21 states with *authors*, each with an ORCID only
+    where one is given.
 
     The author cascade searches ORCID and resolves an iD through names of its own, and
     those ask *orcid* too, so ``orcid.asked`` holds every question ORCID is asked.
@@ -742,6 +746,92 @@ class TestACitationAuthorTakesTheOrcidTheDepositStates:
         status = held.get_field_status("orcid")
         assert status is not None and (status.status, status.source) == ("verified", "lookup")
         assert [n["@id"] for n in _typed(_graph(state), "Person")] == [SCHOLZE_ADDRESS]
+
+    def test_an_orcid_crossref_gives_comes_before_the_one_the_record_states(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ORCID Crossref gives the author is theirs once ORCID confirms it, and the cascade
+        stops there: the ORCID the record states is not asked, and nobody is drafted at it."""
+        from builder.tools import composites
+
+        crossref = "0000-0001-5000-0007"
+        orcid = _orcid(monkeypatch, {**SCHOLZE_RECORD, crossref: ("Martin", "Scholze")})
+        _publishing(monkeypatch, orcid, {**SCHOLZE_AUTHOR, "identifier": crossref})
+        state = _svhps21()
+        result = composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        address = f"https://orcid.org/{crossref}"
+        assert [(a["person_id"], a["resolution"]) for a in result["authors"]] == [
+            (address, "crossref_orcid")
+        ]
+        assert orcid.asked == [crossref]
+        assert [p.entity_id for p in state.list_entities("Person")] == [address]
+
+    def test_a_person_the_crate_holds_with_a_verified_orcid_comes_first(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Citation 'Fabian Wagenaars' is root 'F.M.A. Wagenaars', whose ORCID the crate holds
+        verified, before the ORCID S-VHPS21 states for 'Fabian Wagenaars' is asked: the root is
+        the author and keeps the name the crate gives him."""
+        from builder.tools import composites
+
+        orcid = _orcid(monkeypatch, {WAGENAARS["orcid"]: ("Fabian", "Wagenaars")})
+        _publishing(monkeypatch, orcid, {"givenName": "Fabian", "familyName": "Wagenaars"})
+        state = _svhps21()
+        assert WAGENAARS in state.metadata.people
+        root = Entity(entity_id=WAGENAARS_ADDRESS, type="Person")
+        root.set_fields_from_dict(
+            {
+                "name": "F.M.A. Wagenaars",
+                "givenName": "F.M.A.",
+                "familyName": "Wagenaars",
+                "orcid": WAGENAARS["orcid"],
+            },
+            source="lookup",
+        )
+        root.set_field_status("orcid", "verified", "lookup")
+        state.add_entity(root)
+        result = composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        assert [(a["person_id"], a["resolution"]) for a in result["authors"]] == [
+            (WAGENAARS_ADDRESS, "in_crate")
+        ]
+        assert orcid.asked == []
+        assert (root.fields["name"], root.fields["givenName"]) == ("F.M.A. Wagenaars", "F.M.A.")
+
+    def test_the_author_is_attached_as_for_an_orcid_crossref_gives(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The person is named, and has the role and the employer the confirmed ORCID record
+        states, as an author whose ORCID Crossref gives has them."""
+        from builder.tools import composites
+
+        record = {
+            "givenName": "Martin",
+            "familyName": "Scholze",
+            "name": "Martin Scholze",
+            "job_title": "Senior Lecturer",
+            "affiliation_name": "Brunel University London",
+            "affiliation_ror": "",
+        }
+
+        def lookup(orcid_id: str) -> dict[str, str]:
+            return record if orcid_id == SCHOLZE["orcid"] else {}
+
+        orcid = _orcid(monkeypatch, {})
+        _publishing(monkeypatch, orcid, SCHOLZE_AUTHOR)
+        monkeypatch.setattr(drafters, "lookup_orcid", lookup)
+        state = _svhps21()
+        composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        (person,) = state.list_entities("Person")
+        carried = ("name", "givenName", "familyName", "jobTitle")
+        assert {key: person.fields.get(key) for key in carried} == {
+            "name": "Martin Scholze",
+            "givenName": "Martin",
+            "familyName": "Scholze",
+            "jobTitle": "Senior Lecturer",
+        }
+        (employer,) = state.list_entities("Organization")
+        assert employer.fields["name"] == "Brunel University London"
+        assert person.fields.get("affiliation") == {"@id": employer.entity_id}
 
 
 # What ``fetch_ror_by_id`` returned for the ROR id S-VHPS21 states, asked live.
