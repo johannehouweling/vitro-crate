@@ -7,6 +7,8 @@ Searches for an organization by name and returns enriched metadata.
 from __future__ import annotations
 
 import functools
+import re
+import unicodedata
 
 from lookups._http import NOT_FOUND, TransientLookupError, http_get_json
 
@@ -108,6 +110,91 @@ def search_ror(name: str) -> dict:
             return {}
 
         return _extract(items[0], fallback_name=name)
+    except TransientLookupError:
+        raise
+    except Exception:
+        return {}
+
+
+# Connectives that differ between an organization's registered name and the way it
+# is written elsewhere, and carry no identifying weight either way.
+_NAME_NOISE = frozenset({"of", "the", "and", "at", "for", "de", "der", "van", "di", "du"})
+
+
+def _words(name: str) -> set[str]:
+    """The words of *name* that identify an organization: without case, accents or connectives."""
+    folded = "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c))
+    return {w for w in re.split(r"[^\w]+", folded.casefold()) if w and w not in _NAME_NOISE}
+
+
+def same_name(registered: str, written: str) -> bool:
+    """Whether a name ROR registers and a name written elsewhere are the same name.
+
+    Checked BOTH ways, because each direction catches a different mistake.
+
+    ROR's registered name rarely matches the written one character for character —
+    it registers "Brunel University of London" where a paper prints "Brunel
+    University London", and "Charité – Universitätsmedizin Berlin" where an ORCID
+    record has "Charite-Universitätsmedizin Berlin" — so requiring containment
+    rejects correct matches over a connective, an accent or a dash. Requiring only
+    that ROR's words appear in the written name accepts a wrong one: "University of
+    London" is a real and different institution whose words all appear inside
+    "Brunel University London".
+
+    Demanding the significant words agree in both directions keeps the first and
+    refuses the second, because "Brunel" is missing from one side.
+    """
+    left, right = _words(registered), _words(written)
+    return bool(left) and bool(right) and left == right
+
+
+def _registered_names(record: dict) -> list[str]:
+    """The names ROR registers for one organization: the one it displays, its labels and aliases.
+
+    Not its acronyms: "VU" stands for several institutions, so an acronym names none
+    of them. The second API generation lists every name in ``names[]`` with its
+    types; the first gave ``name``, ``labels`` and ``aliases`` apart.
+    """
+    names = [
+        n.get("value") or ""
+        for n in record.get("names") or []
+        if isinstance(n, dict) and "acronym" not in (n.get("types") or [])
+    ]
+    names.append(record.get("name") or "")
+    labels = record.get("labels") or []
+    names += [label.get("label") or "" for label in labels if isinstance(label, dict)]
+    names += [alias for alias in record.get("aliases") or [] if isinstance(alias, str)]
+    return [n for n in names if n]
+
+
+@functools.lru_cache(maxsize=256)
+def find_registered(name: str) -> dict:
+    """The organization ROR registers under *name*, or ``{}``.
+
+    Unlike :func:`search_ror`, which takes the search's first result, this answers
+    only when the name IS one of the names a record registers (:func:`same_name`)
+    and exactly one record among the results does: that is the organization, not a
+    guess. A name no record registers, or several do, is no answer. The record
+    comes in the shape :func:`search_ror` gives, with the name ROR displays.
+
+    Raises TransientLookupError on a transient API failure (timeout / connection /
+    429 / 5xx), so a caller can tell "ROR could not be asked" from "no record".
+    """
+    name = (name or "").strip()
+    if not name:
+        return {}
+    try:
+        data = http_get_json(_BASE, params={"query": name})
+        if data is NOT_FOUND:
+            return {}
+        matches = {
+            record.get("id"): record
+            for record in data.get("items") or []
+            if any(same_name(registered, name) for registered in _registered_names(record))
+        }
+        if len(matches) != 1:
+            return {}
+        return _extract(next(iter(matches.values())), fallback_name=name)
     except TransientLookupError:
         raise
     except Exception:

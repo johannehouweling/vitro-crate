@@ -80,7 +80,7 @@ from lookups.affiliation_from_works import cached_affiliation_from_works, instit
 from lookups.compoundwiki import compound_wiki_id
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
-from lookups.ror import fetch_ror_by_id, search_ror
+from lookups.ror import fetch_ror_by_id, find_registered
 
 logger = logging.getLogger(__name__)
 
@@ -1438,6 +1438,24 @@ def _affiliation_from_papers(orcid: str, family: str) -> str:
         return ""
 
 
+def registered_organization(name: str) -> dict[str, Any]:
+    """The organization ROR registers under exactly *name*, or ``{}`` — never raises.
+
+    ROR registers an organization under more than one name: the one it displays,
+    its names in other languages and its aliases. A name that is one of them, and
+    of one record only, is that record (:func:`lookups.ror.find_registered`): not a
+    guess from a search, so D5 holds. The organization then takes ROR's id and the
+    name ROR displays, and two spellings of one employer become one Organization.
+    A name no record or several register, or a registry that cannot be reached, is
+    no answer: the organization keeps its own name and no ROR.
+    """
+    try:
+        return find_registered(name) or {}
+    except Exception:
+        logger.debug("ROR search failed for %r", name, exc_info=True)
+        return {}
+
+
 def _registered_institution(affiliation: str) -> tuple[str, str | None]:
     """A Crossref affiliation string resolved to a registered institution.
 
@@ -1449,51 +1467,18 @@ def _registered_institution(affiliation: str) -> tuple[str, str | None]:
 
     So the employer is picked out of the string and looked up in ROR, which is
     the registry built for exactly this. The match is CHECKED rather than
-    trusted: ROR's name must actually appear in the affiliation the paper
-    printed. A search is a guess, and a guess that quietly renames someone's
-    employer is the kind of error nobody reads twice. Unverified, the extracted
-    institution is kept as a plain name with no ROR attached — still better than
-    the postcode, and still only what the paper said.
+    trusted: the institution the paper printed must be a name ROR registers for
+    the record (:func:`registered_organization`). A search is a guess, and a guess
+    that quietly renames someone's employer is the kind of error nobody reads
+    twice. Unverified, the extracted institution is kept as a plain name with no
+    ROR attached — still better than the postcode, and still only what the paper
+    said.
     """
     institution = institution_of(affiliation) or affiliation
-    try:
-        match = search_ror(institution) or {}
-    except Exception:
-        logger.debug("ROR search failed for %r", institution, exc_info=True)
-        return institution, None
-    name = str(match.get("name") or "").strip()
-    if name and _same_institution(name, institution):
-        return name, str(match.get("@id") or "") or None
+    match = registered_organization(institution)
+    if match.get("@id"):
+        return str(match.get("name") or institution), str(match["@id"])
     return institution, None
-
-
-# Connectives that differ between an institution's registered name and the way a
-# paper prints it, and carry no identifying weight either way.
-_NAME_NOISE = frozenset({"of", "the", "and", "at", "for", "de", "der", "van", "di", "du"})
-
-
-def _significant(name: str) -> set[str]:
-    return {w for w in re.split(r"[^\w]+", name.casefold()) if w and w not in _NAME_NOISE}
-
-
-def _same_institution(ror_name: str, printed: str) -> bool:
-    """Whether a ROR match and a printed affiliation name the same employer.
-
-    Checked BOTH ways, because each direction catches a different mistake.
-
-    ROR's registered name rarely matches the printed one character for
-    character — it registers "Brunel University of London" where the paper
-    prints "Brunel University London" — so requiring containment rejects correct
-    matches over a connective. Requiring only that ROR's words appear in the
-    printed name accepts a wrong one: "University of London" is a real and
-    different institution whose words all appear inside "Brunel University
-    London".
-
-    Demanding the significant words agree in both directions keeps the first and
-    refuses the second, because "Brunel" is missing from one side.
-    """
-    left, right = _significant(ror_name), _significant(printed)
-    return bool(left) and bool(right) and left == right
 
 
 def _ror_facts(ror_id: str) -> dict[str, str]:
@@ -1556,6 +1541,13 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
     affiliation_ror = data.get("affiliation_ror")
     if not affiliation_name and (from_papers := _affiliation_from_papers(bare, str(family or ""))):
         affiliation_name, affiliation_ror = _registered_institution(from_papers)
+    elif affiliation_name and not affiliation_ror:
+        # An employer ORCID names without its ROR id: the record ROR registers
+        # under that name, if exactly one does.
+        registered = registered_organization(affiliation_name)
+        if registered.get("@id"):
+            affiliation_name = str(registered.get("name") or affiliation_name)
+            affiliation_ror = str(registered["@id"])
     if affiliation_name:
         org_id = _find_or_draft_organization(state, affiliation_name, affiliation_ror)
         if org_id is not None:

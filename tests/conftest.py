@@ -42,6 +42,21 @@ def _stub_composites_compound_wiki(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stub_composites_registered_organization(monkeypatch):
+    """Keep the composites' ROR name match offline.
+
+    An affiliation without a ROR id, on an ORCID record, a paper's author line or
+    the pipeline's plan, is asked of ROR, so every test drafting one would reach
+    api.ror.org. A miss by default, scoped to the name bound in ``composites`` like
+    the stubs around it; a test that needs a match re-patches
+    ``composites.find_registered``.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(composites, "find_registered", lambda name: {}, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _stub_composites_cellosaurus(monkeypatch):
     """Keep ``resolve_cell_line``'s Cellosaurus calls offline (#372).
 
