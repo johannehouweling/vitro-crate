@@ -1170,8 +1170,10 @@ def _author_at_stated_orcid(state: CrateState, given: str, family: str) -> Entit
     and spacing aside (:func:`_stated`), and the ORCID record resolves and states this
     family name (:func:`_confirmed_orcid`). The Person is then attached as for a
     verified Crossref ORCID (:func:`_ensure_person_for_orcid`), so whoever already
-    holds the ORCID is the author. ``None`` when the record states none for this name,
-    or ORCID does not confirm it or cannot be reached: the cascade goes on.
+    holds the ORCID is the author, and keeps the name as the deposit and the article
+    spell it, as a person drafted by that name does: ORCID's record may spell it
+    otherwise. ``None`` when the record states none for this name, or ORCID does not
+    confirm it or cannot be reached: the cascade goes on.
     """
     stated = _stated(state.metadata.people, "orcid", f"{given} {family}") if family else ""
     if not stated:
@@ -1181,7 +1183,11 @@ def _author_at_stated_orcid(state: CrateState, given: str, family: str) -> Entit
     except TransientLookupError:
         logger.info("ORCID could not be reached to confirm the ORCID of %s %s.", given, family)
         return None
-    return _ensure_person_for_orcid(state, stated, record) if record else None
+    if not record:
+        return None
+    given, family = " ".join(given.split()), " ".join(family.split())
+    spelled = {**record, "givenName": given, "familyName": family, "name": f"{given} {family}"}
+    return _ensure_person_for_orcid(state, stated, spelled)
 
 
 def _pick_from_human(
