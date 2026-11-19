@@ -1,0 +1,609 @@
+{
+ "number_of_results": 62,
+ "time_taken": 7,
+ "items": [
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-07-20",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "best-research.eu"
+   ],
+   "established": 2003,
+   "external_ids": [
+    {
+     "all": [
+      "501100013670"
+     ],
+     "preferred": "501100013670",
+     "type": "fundref"
+    },
+    {
+     "all": [
+      "grid.424131.1"
+     ],
+     "preferred": "grid.424131.1",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0004 7744 2026"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q30284716"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/0254y9b08",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.best-research.eu/"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "AT",
+      "country_name": "Austria",
+      "country_subdivision_code": "6",
+      "country_subdivision_name": "Styria",
+      "lat": 47.06733,
+      "lng": 15.44197,
+      "name": "Graz"
+     },
+     "geonames_id": 2778067
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "BEST"
+    },
+    {
+     "lang": null,
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "BEST - Bioenergy and Sustainable Technologies (Austria)"
+    },
+    {
+     "lang": null,
+     "types": [
+      "alias"
+     ],
+     "value": "BIOENERGY 2020+"
+    }
+   ],
+   "relationships": [],
+   "status": "active",
+   "types": [
+    "company",
+    "funder"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2026-08-24",
+     "schema_version": "2.1"
+    },
+    "last_modified": {
+     "date": "2026-08-25",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": 2020,
+   "external_ids": [],
+   "id": "https://ror.org/01wcfdt81",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://cesam-carto.univ-amu.fr/laboratoire/centre-dexploration-fonctionnelle-scientifique-cefos/"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "FR",
+      "country_name": "France",
+      "country_subdivision_code": "PAC",
+      "country_subdivision_name": "Provence-Alpes-Côte d'Azur",
+      "lat": 43.29695,
+      "lng": 5.38107,
+      "name": "Marseille"
+     },
+     "geonames_id": 2995469
+    }
+   ],
+   "names": [
+    {
+     "lang": "fr",
+     "types": [
+      "acronym"
+     ],
+     "value": "CEFOS"
+    },
+    {
+     "lang": "fr",
+     "types": [
+      "label",
+      "ror_display"
+     ],
+     "value": "Centre d'exploration fonctionnelle scientifique"
+    },
+    {
+     "lang": "fr",
+     "types": [
+      "alias"
+     ],
+     "value": "UAR 2020"
+    },
+    {
+     "lang": "fr",
+     "types": [
+      "alias"
+     ],
+     "value": "UAR2020"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Aix-Marseille Université",
+     "type": "parent",
+     "id": "https://ror.org/035xkbk20"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "facility"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2025-03-26",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "horizondiscovery.com"
+   ],
+   "established": 2005,
+   "external_ids": [
+    {
+     "all": [
+      "grid.450827.c"
+     ],
+     "preferred": "grid.450827.c",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0004 4651 3231"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q16984856"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/00q2y5s03",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://horizondiscovery.com"
+    },
+    {
+     "type": "wikipedia",
+     "value": "https://en.wikipedia.org/wiki/Horizon_Discovery"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "GB",
+      "country_name": "United Kingdom",
+      "country_subdivision_code": "ENG",
+      "country_subdivision_name": "England",
+      "lat": 52.2,
+      "lng": 0.11667,
+      "name": "Cambridge"
+     },
+     "geonames_id": 2653941
+    }
+   ],
+   "names": [
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Horizon"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "label"
+     ],
+     "value": "Horizon Discovery"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "label",
+      "ror_display"
+     ],
+     "value": "Horizon Discovery (United Kingdom)"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Horizon Discovery Group"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "label"
+     ],
+     "value": "Revvity Discovery Limited"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Horizon Discovery Group (United States)",
+     "type": "child",
+     "id": "https://ror.org/0496m6d18"
+    },
+    {
+     "label": "Revvity (United States)",
+     "type": "parent",
+     "id": "https://ror.org/02sbvqb41"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "company"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2024-12-11",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": 2003,
+   "external_ids": [
+    {
+     "all": [
+      "grid.442998.a"
+     ],
+     "preferred": "grid.442998.a",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0001 0029 692X"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q5330551"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/05e2ncr14",
+   "links": [
+    {
+     "type": "website",
+     "value": "http://www.easternuni.edu.bd"
+    },
+    {
+     "type": "wikipedia",
+     "value": "https://en.wikipedia.org/wiki/Eastern_University_(Bangladesh)"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "AS",
+      "continent_name": "Asia",
+      "country_code": "BD",
+      "country_name": "Bangladesh",
+      "country_subdivision_code": "C",
+      "country_subdivision_name": "Dhaka Division",
+      "lat": 23.7104,
+      "lng": 90.40744,
+      "name": "Dhaka"
+     },
+     "geonames_id": 1185241
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "EU"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Eastern University"
+    },
+    {
+     "lang": "bn",
+     "types": [
+      "label"
+     ],
+     "value": "ইস্টার্ন ইউনিভার্সিটি"
+    }
+   ],
+   "relationships": [],
+   "status": "active",
+   "types": [
+    "education"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2024-12-11",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": 1999,
+   "external_ids": [
+    {
+     "all": [
+      "grid.444972.8"
+     ],
+     "preferred": "grid.444972.8",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0004 0528 5279"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q5417138"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/00s18am05",
+   "links": [
+    {
+     "type": "website",
+     "value": "http://www.evergladesuniversity.edu/"
+    },
+    {
+     "type": "wikipedia",
+     "value": "https://en.wikipedia.org/wiki/Everglades_University"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "NA",
+      "continent_name": "North America",
+      "country_code": "US",
+      "country_name": "United States",
+      "country_subdivision_code": "FL",
+      "country_subdivision_name": "Florida",
+      "lat": 26.35869,
+      "lng": -80.0831,
+      "name": "Boca Raton"
+     },
+     "geonames_id": 4148411
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "EU"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Everglades University"
+    }
+   ],
+   "relationships": [],
+   "status": "active",
+   "types": [
+    "education"
+   ]
+  }
+ ],
+ "meta": {
+  "types": [
+   {
+    "id": "education",
+    "title": "education",
+    "count": 20
+   },
+   {
+    "id": "funder",
+    "title": "funder",
+    "count": 13
+   },
+   {
+    "id": "company",
+    "title": "company",
+    "count": 10
+   },
+   {
+    "id": "nonprofit",
+    "title": "nonprofit",
+    "count": 9
+   },
+   {
+    "id": "government",
+    "title": "government",
+    "count": 7
+   },
+   {
+    "id": "other",
+    "title": "other",
+    "count": 7
+   },
+   {
+    "id": "facility",
+    "title": "facility",
+    "count": 5
+   },
+   {
+    "id": "healthcare",
+    "title": "healthcare",
+    "count": 4
+   }
+  ],
+  "countries": [
+   {
+    "id": "us",
+    "title": "United States",
+    "count": 17
+   },
+   {
+    "id": "be",
+    "title": "Belgium",
+    "count": 6
+   },
+   {
+    "id": "de",
+    "title": "Germany",
+    "count": 5
+   },
+   {
+    "id": "es",
+    "title": "Spain",
+    "count": 3
+   },
+   {
+    "id": "ca",
+    "title": "Canada",
+    "count": 2
+   },
+   {
+    "id": "cn",
+    "title": "China",
+    "count": 2
+   },
+   {
+    "id": "cz",
+    "title": "Czech Republic",
+    "count": 2
+   },
+   {
+    "id": "fr",
+    "title": "France",
+    "count": 2
+   },
+   {
+    "id": "gb",
+    "title": "United Kingdom",
+    "count": 2
+   },
+   {
+    "id": "jp",
+    "title": "Japan",
+    "count": 2
+   }
+  ],
+  "continents": [
+   {
+    "id": "eu",
+    "title": "Europe",
+    "count": 28
+   },
+   {
+    "id": "na",
+    "title": "North America",
+    "count": 19
+   },
+   {
+    "id": "as",
+    "title": "Asia",
+    "count": 10
+   },
+   {
+    "id": "af",
+    "title": "Africa",
+    "count": 5
+   }
+  ],
+  "statuses": [
+   {
+    "id": "active",
+    "title": "active",
+    "count": 62
+   }
+  ]
+ }
+}

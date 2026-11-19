@@ -1,0 +1,771 @@
+{
+ "number_of_results": 115,
+ "time_taken": 8,
+ "items": [
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-10-20",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "charite.de"
+   ],
+   "established": 1710,
+   "external_ids": [
+    {
+     "all": [
+      "501100002839"
+     ],
+     "preferred": null,
+     "type": "fundref"
+    },
+    {
+     "all": [
+      "grid.6363.0"
+     ],
+     "preferred": "grid.6363.0",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0001 2218 4662"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q162684"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/001w7jn25",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.charite.de"
+    },
+    {
+     "type": "wikipedia",
+     "value": "http://en.wikipedia.org/wiki/Charit%C3%A9"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "DE",
+      "country_name": "Germany",
+      "country_subdivision_code": "BE",
+      "country_subdivision_name": "State of Berlin",
+      "lat": 52.52437,
+      "lng": 13.41053,
+      "name": "Berlin"
+     },
+     "geonames_id": 2950159
+    }
+   ],
+   "names": [
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Charité"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "alias"
+     ],
+     "value": "Charité - Universitätsmedizin Berlin"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "alias"
+     ],
+     "value": "Charité Universitätsmedizin Berlin"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "label",
+      "ror_display"
+     ],
+     "value": "Charité – Universitätsmedizin Berlin"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Berlin Institute of Health at Charité - Universitätsmedizin Berlin",
+     "type": "child",
+     "id": "https://ror.org/0493xsw21"
+    },
+    {
+     "label": "Einstein Center Digital Future",
+     "type": "child",
+     "id": "https://ror.org/0086bb350"
+    },
+    {
+     "label": "Deutsches Herzzentrum der Charité",
+     "type": "child",
+     "id": "https://ror.org/01mmady97"
+    },
+    {
+     "label": "Stiftung Charité",
+     "type": "child",
+     "id": "https://ror.org/016rf0n60"
+    },
+    {
+     "label": "Berlin Institute for the Foundations of Learning and Data",
+     "type": "child",
+     "id": "https://ror.org/05dsfb086"
+    },
+    {
+     "label": "Bernstein Center for Computational Neuroscience Berlin",
+     "type": "child",
+     "id": "https://ror.org/05ewdps05"
+    },
+    {
+     "label": "Medizinische Universität Lausitz - Carl Thiem",
+     "type": "related",
+     "id": "https://ror.org/044fhy270"
+    },
+    {
+     "label": "Freie Universität Berlin",
+     "type": "related",
+     "id": "https://ror.org/046ak2485"
+    },
+    {
+     "label": "Humboldt-Universität zu Berlin",
+     "type": "related",
+     "id": "https://ror.org/01hcx6992"
+    },
+    {
+     "label": "Waldkrankenhaus Protestant Hospital",
+     "type": "related",
+     "id": "https://ror.org/03afbx254"
+    },
+    {
+     "label": "Wyss Institute for Biologically Inspired Engineering",
+     "type": "related",
+     "id": "https://ror.org/008cfmj78"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "funder",
+    "healthcare"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-10-20",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "bih-charite.de"
+   ],
+   "established": 2013,
+   "external_ids": [
+    {
+     "all": [
+      "501100017268"
+     ],
+     "preferred": "501100017268",
+     "type": "fundref"
+    },
+    {
+     "all": [
+      "grid.484013.a"
+     ],
+     "preferred": "grid.484013.a",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "Q19835368"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/0493xsw21",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.bihealth.org/"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "DE",
+      "country_name": "Germany",
+      "country_subdivision_code": "BE",
+      "country_subdivision_name": "State of Berlin",
+      "lat": 52.52437,
+      "lng": 13.41053,
+      "name": "Berlin"
+     },
+     "geonames_id": 2950159
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "BIH"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Berlin Institute for Health Research"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Berlin Institute of Health at Charité - Universitätsmedizin Berlin"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "label"
+     ],
+     "value": "Berliner Institut für Gesundheitsforschung"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Charité – Universitätsmedizin Berlin",
+     "type": "parent",
+     "id": "https://ror.org/001w7jn25"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "facility",
+    "funder"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-09-22",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": 1456,
+   "external_ids": [
+    {
+     "all": [
+      "grid.412469.c"
+     ],
+     "preferred": "grid.412469.c",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0000 9116 8976"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q2496421"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/025vngs54",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.medizin.uni-greifswald.de"
+    },
+    {
+     "type": "wikipedia",
+     "value": "http://en.wikipedia.org/wiki/Greifswald_University_Hospital"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "DE",
+      "country_name": "Germany",
+      "country_subdivision_code": "MV",
+      "country_subdivision_name": "Mecklenburg-Vorpommern",
+      "lat": 54.08905,
+      "lng": 13.40244,
+      "name": "Greifswald"
+     },
+     "geonames_id": 2917788
+    }
+   ],
+   "names": [
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Greifswald University Hospital"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Greifswald University Medicine"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "acronym"
+     ],
+     "value": "UMG"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "alias"
+     ],
+     "value": "Universitaetsmedizin Greifswald"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Hospital Greifswald"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medical Center Greifswald"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medical Centre Greifswald"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "label"
+     ],
+     "value": "University Medicine Greifswald"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medicine of Greifswald"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Universitätsmedizin Greifswald"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Universität Greifswald",
+     "type": "related",
+     "id": "https://ror.org/00r1edq15"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "education",
+    "healthcare"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-09-22",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": null,
+   "external_ids": [
+    {
+     "all": [
+      "grid.413108.f"
+     ],
+     "preferred": "grid.413108.f",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0000 9737 0454"
+     ],
+     "preferred": null,
+     "type": "isni"
+    }
+   ],
+   "id": "https://ror.org/04dm1cm79",
+   "links": [
+    {
+     "type": "website",
+     "value": "http://www.med.uni-rostock.de/"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "DE",
+      "country_name": "Germany",
+      "country_subdivision_code": "MV",
+      "country_subdivision_name": "Mecklenburg-Vorpommern",
+      "lat": 54.0887,
+      "lng": 12.14049,
+      "name": "Rostock"
+     },
+     "geonames_id": 2844588
+    }
+   ],
+   "names": [
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Rostock University Medical Center"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "alias"
+     ],
+     "value": "Universitaetsmedizin Rostock"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medical Center Rostock"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medical Centre Rostock"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medicine Rostock"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Universitätsmedizin Rostock"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "University of Rostock",
+     "type": "related",
+     "id": "https://ror.org/03zdwsf69"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "healthcare"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-09-22",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": 1732,
+   "external_ids": [
+    {
+     "all": [
+      "100019147"
+     ],
+     "preferred": "100019147",
+     "type": "fundref"
+    },
+    {
+     "all": [
+      "grid.411984.1"
+     ],
+     "preferred": "grid.411984.1",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0001 0482 5331"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q2496408"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/021ft0n22",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.umg.eu/"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "DE",
+      "country_name": "Germany",
+      "country_subdivision_code": "NI",
+      "country_subdivision_name": "Lower Saxony",
+      "lat": 51.53443,
+      "lng": 9.93228,
+      "name": "Göttingen"
+     },
+     "geonames_id": 2918632
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "UMG"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "alias"
+     ],
+     "value": "Universitaetsmedizin Goettingen"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medical Center Goettingen"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "label"
+     ],
+     "value": "University Medical Center Göttingen"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medical Centre Göttingen"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "University Medicine Göttingen"
+    },
+    {
+     "lang": "de",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Universitätsmedizin Göttingen"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Else Kröner Fresenius Center for Optogenetic Therapies",
+     "type": "child",
+     "id": "https://ror.org/03vwt8p73"
+    },
+    {
+     "label": "European Neuroscience Institute Göttingen",
+     "type": "child",
+     "id": "https://ror.org/029w5ya68"
+    },
+    {
+     "label": "Klinikum Bremen-Mitte",
+     "type": "related",
+     "id": "https://ror.org/05j1w2b44"
+    },
+    {
+     "label": "University of Göttingen",
+     "type": "related",
+     "id": "https://ror.org/01y9bpm73"
+    },
+    {
+     "label": "CAIMed - Niedersächsisches Zentrum für KI und Kausale Methoden in der Medizin",
+     "type": "related",
+     "id": "https://ror.org/04n901n71"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "funder",
+    "healthcare"
+   ]
+  }
+ ],
+ "meta": {
+  "types": [
+   {
+    "id": "education",
+    "title": "education",
+    "count": 34
+   },
+   {
+    "id": "funder",
+    "title": "funder",
+    "count": 25
+   },
+   {
+    "id": "facility",
+    "title": "facility",
+    "count": 18
+   },
+   {
+    "id": "healthcare",
+    "title": "healthcare",
+    "count": 14
+   },
+   {
+    "id": "nonprofit",
+    "title": "nonprofit",
+    "count": 14
+   },
+   {
+    "id": "other",
+    "title": "other",
+    "count": 14
+   },
+   {
+    "id": "archive",
+    "title": "archive",
+    "count": 9
+   },
+   {
+    "id": "company",
+    "title": "company",
+    "count": 7
+   },
+   {
+    "id": "government",
+    "title": "government",
+    "count": 5
+   }
+  ],
+  "countries": [
+   {
+    "id": "de",
+    "title": "Germany",
+    "count": 113
+   },
+   {
+    "id": "ca",
+    "title": "Canada",
+    "count": 1
+   },
+   {
+    "id": "fr",
+    "title": "France",
+    "count": 1
+   }
+  ],
+  "continents": [
+   {
+    "id": "eu",
+    "title": "Europe",
+    "count": 114
+   },
+   {
+    "id": "na",
+    "title": "North America",
+    "count": 1
+   }
+  ],
+  "statuses": [
+   {
+    "id": "active",
+    "title": "active",
+    "count": 115
+   }
+  ]
+ }
+}
