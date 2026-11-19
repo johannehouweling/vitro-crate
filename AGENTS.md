@@ -1233,7 +1233,14 @@ string** (Issue #179 — the ISA shape flags a literal-string affiliation as a
 Violation): the ORCID record's `affiliation_name` (+ `affiliation_ror`) is
 find-or-drafted into an Organization (preferring the ROR so its `@id` resolves to
 the ROR IRI; D5 — a ROR is set only when the lookup returns one, never fabricated)
-and the Person's `affiliation` is wired to that Organization's `@id`. Authors
+and the Person's `affiliation` is wired to that Organization's `@id`. An
+affiliation that comes without a ROR id — on the ORCID record, on a paper's author
+line, or in the pipeline's plan — takes the id and the displayed name of the ROR
+record that registers exactly that name (`registered_organization`, over
+`lookups.ror.find_registered`): its displayed name, a label or an alias, compared
+without case, accents, punctuation or connectives, never an acronym, and only when
+one record of the search does. That is the organization, not a guess; a name no
+record or several register keeps its own name and no ROR. Authors
 sharing an affiliation reuse ONE Organization (deduped by name), so the build's
 `_wire_reference` resolves each `Person.affiliation` to the shared node.
 A Person's **`jobTitle` is likewise a `DefinedTerm` reference, never a string**
@@ -3715,11 +3722,13 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   field is empty or still the generic placeholder), and each `people[]` is split
   into `givenName`/`familyName` so the Person is ISA-conformant (#232). When a
   `people[].affiliation_name` is present, an `Organization` is minted via
-  `draft_organization` (or an existing one of the same name is **reused**, so a
-  shared affiliation yields ONE Organization, not duplicates) and the Person's
-  `affiliation` reference is wired onto it via `set_fields` — the build resolves it
-  to the Organization's `@id` (`_crate_mapping._wire_reference`). D5-safe: only the
-  plan's affiliation *name* is used — no ROR/IRI is fabricated (#179 Lane 1).
+  `draft_organization` (or an existing one of the same name or ROR id is
+  **reused**, so a shared affiliation yields ONE Organization, not duplicates) and
+  the Person's `affiliation` reference is wired onto it via `set_fields` — the build
+  resolves it to the Organization's `@id` (`_crate_mapping._wire_reference`).
+  D5-safe: the plan gives the affiliation's *name* only, and the Organization takes a
+  ROR id only when ROR registers that name for one record (`registered_organization`),
+  with the name ROR displays — no ROR/IRI is fabricated (#179 Lane 1).
   **Entity→provenance wiring (#273).** Resolving a compound / cell line MINTS the
   entity but leaves it a graph orphan unless something references it, so after the
   `compounds[]` / `cell_lines[]` sections run, `_materialize_plan` wires the
