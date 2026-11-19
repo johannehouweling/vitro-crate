@@ -1,0 +1,645 @@
+{
+ "number_of_results": 46,
+ "time_taken": 6,
+ "items": [
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-03-12",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "uu.nl"
+   ],
+   "established": 1636,
+   "external_ids": [
+    {
+     "all": [
+      "501100001829",
+      "501100002989"
+     ],
+     "preferred": "501100001829",
+     "type": "fundref"
+    },
+    {
+     "all": [
+      "grid.5477.1"
+     ],
+     "preferred": "grid.5477.1",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0001 2034 6234",
+      "0000 0000 9637 0671"
+     ],
+     "preferred": "0000 0000 9637 0671",
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q221653"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/04pp8hn57",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.uu.nl"
+    },
+    {
+     "type": "wikipedia",
+     "value": "http://en.wikipedia.org/wiki/Utrecht_University"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "NL",
+      "country_name": "The Netherlands",
+      "country_subdivision_code": "UT",
+      "country_subdivision_name": "Utrecht",
+      "lat": 52.09083,
+      "lng": 5.12222,
+      "name": "Utrecht"
+     },
+     "geonames_id": 2745912
+    }
+   ],
+   "names": [
+    {
+     "lang": "nl",
+     "types": [
+      "alias"
+     ],
+     "value": "Rijksuniversiteit Utrecht"
+    },
+    {
+     "lang": "nl",
+     "types": [
+      "label"
+     ],
+     "value": "Universiteit Utrecht"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "Utrecht University"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Delta Institute for Theoretical Physics",
+     "type": "child",
+     "id": "https://ror.org/01yx4wq53"
+    },
+    {
+     "label": "University Museum Utrecht",
+     "type": "child",
+     "id": "https://ror.org/058kzes98"
+    },
+    {
+     "label": "Royal Netherlands Institute for Sea Research",
+     "type": "related",
+     "id": "https://ror.org/01gntjh03"
+    },
+    {
+     "label": "University Medical Center Utrecht",
+     "type": "related",
+     "id": "https://ror.org/0575yy874"
+    },
+    {
+     "label": "Netherlands Proteomics Centre",
+     "type": "related",
+     "id": "https://ror.org/02z3zn824"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "education",
+    "funder"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2024-12-11",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "tuu.nl"
+   ],
+   "established": 1854,
+   "external_ids": [
+    {
+     "all": [
+      "grid.449552.b"
+     ],
+     "preferred": "grid.449552.b",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0001 2113 5404"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q2347687"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/02x435584",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://tuu.nl"
+    },
+    {
+     "type": "wikipedia",
+     "value": "https://en.wikipedia.org/wiki/Theological_University_of_the_Reformed_Churches"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "NL",
+      "country_name": "The Netherlands",
+      "country_subdivision_code": "UT",
+      "country_subdivision_name": "Utrecht",
+      "lat": 52.09083,
+      "lng": 5.12222,
+      "name": "Utrecht"
+     },
+     "geonames_id": 2745912
+    }
+   ],
+   "names": [
+    {
+     "lang": "en",
+     "types": [
+      "alias"
+     ],
+     "value": "Theological University"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "label",
+      "ror_display"
+     ],
+     "value": "Theological University Utrecht"
+    },
+    {
+     "lang": "nl",
+     "types": [
+      "label"
+     ],
+     "value": "Theologische Universiteit Utrecht"
+    }
+   ],
+   "relationships": [],
+   "status": "active",
+   "types": [
+    "education"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2022-06-16",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2024-12-11",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [],
+   "established": 1928,
+   "external_ids": [
+    {
+     "all": [
+      "0000 0001 2110 5571"
+     ],
+     "preferred": "0000 0001 2110 5571",
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q14510918"
+     ],
+     "preferred": "Q14510918",
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/058kzes98",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://umu.nl"
+    },
+    {
+     "type": "wikipedia",
+     "value": "https://nl.wikipedia.org/wiki/Universiteitsmuseum_%28Utrecht%29"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "NL",
+      "country_name": "The Netherlands",
+      "country_subdivision_code": "UT",
+      "country_subdivision_name": "Utrecht",
+      "lat": 52.09083,
+      "lng": 5.12222,
+      "name": "Utrecht"
+     },
+     "geonames_id": 2745912
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "UMU"
+    },
+    {
+     "lang": "nl",
+     "types": [
+      "label"
+     ],
+     "value": "Universiteitsmuseum Utrecht"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "University Museum Utrecht"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Utrecht University",
+     "type": "parent",
+     "id": "https://ror.org/04pp8hn57"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "archive"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-02-24",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "umcutrecht.nl"
+   ],
+   "established": 1999,
+   "external_ids": [
+    {
+     "all": [
+      "501100003761"
+     ],
+     "preferred": null,
+     "type": "fundref"
+    },
+    {
+     "all": [
+      "grid.7692.a"
+     ],
+     "preferred": "grid.7692.a",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0000 9012 6352"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q2456800"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/0575yy874",
+   "links": [
+    {
+     "type": "website",
+     "value": "https://www.umcutrecht.nl"
+    },
+    {
+     "type": "wikipedia",
+     "value": "http://en.wikipedia.org/wiki/University_Medical_Center_Utrecht"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "NL",
+      "country_name": "The Netherlands",
+      "country_subdivision_code": "UT",
+      "country_subdivision_name": "Utrecht",
+      "lat": 52.09083,
+      "lng": 5.12222,
+      "name": "Utrecht"
+     },
+     "geonames_id": 2745912
+    }
+   ],
+   "names": [
+    {
+     "lang": "nl",
+     "types": [
+      "alias"
+     ],
+     "value": "UMC Utrecht"
+    },
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "UMCU"
+    },
+    {
+     "lang": "nl",
+     "types": [
+      "label"
+     ],
+     "value": "Universitair Medisch Centrum Utrecht"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "University Medical Center Utrecht"
+    }
+   ],
+   "relationships": [
+    {
+     "label": "Wilhelmina Children's Hospital",
+     "type": "child",
+     "id": "https://ror.org/05fqypv61"
+    },
+    {
+     "label": "Hubrecht Institute for Developmental Biology and Stem Cell Research",
+     "type": "related",
+     "id": "https://ror.org/023qc4a07"
+    },
+    {
+     "label": "Princess Máxima Center",
+     "type": "related",
+     "id": "https://ror.org/02aj7yc53"
+    },
+    {
+     "label": "Utrecht University",
+     "type": "related",
+     "id": "https://ror.org/04pp8hn57"
+    },
+    {
+     "label": "ERN RITA",
+     "type": "related",
+     "id": "https://ror.org/0208ges23"
+    }
+   ],
+   "status": "active",
+   "types": [
+    "funder",
+    "healthcare"
+   ]
+  },
+  {
+   "admin": {
+    "created": {
+     "date": "2018-11-14",
+     "schema_version": "1.0"
+    },
+    "last_modified": {
+     "date": "2026-09-22",
+     "schema_version": "2.1"
+    }
+   },
+   "domains": [
+    "hu.nl"
+   ],
+   "established": 1993,
+   "external_ids": [
+    {
+     "all": [
+      "grid.438049.2"
+     ],
+     "preferred": "grid.438049.2",
+     "type": "grid"
+    },
+    {
+     "all": [
+      "0000 0001 0824 9343"
+     ],
+     "preferred": null,
+     "type": "isni"
+    },
+    {
+     "all": [
+      "Q4372693"
+     ],
+     "preferred": null,
+     "type": "wikidata"
+    }
+   ],
+   "id": "https://ror.org/028z9kw20",
+   "links": [
+    {
+     "type": "website",
+     "value": "http://www.english.hu.nl/"
+    },
+    {
+     "type": "wikipedia",
+     "value": "http://en.wikipedia.org/wiki/HU_University_of_Applied_Sciences_Utrecht"
+    }
+   ],
+   "locations": [
+    {
+     "geonames_details": {
+      "continent_code": "EU",
+      "continent_name": "Europe",
+      "country_code": "NL",
+      "country_name": "The Netherlands",
+      "country_subdivision_code": "UT",
+      "country_subdivision_name": "Utrecht",
+      "lat": 52.09083,
+      "lng": 5.12222,
+      "name": "Utrecht"
+     },
+     "geonames_id": 2745912
+    }
+   ],
+   "names": [
+    {
+     "lang": null,
+     "types": [
+      "acronym"
+     ],
+     "value": "HU"
+    },
+    {
+     "lang": "nl",
+     "types": [
+      "label"
+     ],
+     "value": "Hogeschool Utrecht"
+    },
+    {
+     "lang": "en",
+     "types": [
+      "ror_display",
+      "label"
+     ],
+     "value": "University of Applied Sciences Utrecht"
+    }
+   ],
+   "relationships": [],
+   "status": "active",
+   "types": [
+    "education"
+   ]
+  }
+ ],
+ "meta": {
+  "types": [
+   {
+    "id": "education",
+    "title": "education",
+    "count": 43
+   },
+   {
+    "id": "funder",
+    "title": "funder",
+    "count": 30
+   },
+   {
+    "id": "healthcare",
+    "title": "healthcare",
+    "count": 2
+   },
+   {
+    "id": "archive",
+    "title": "archive",
+    "count": 1
+   }
+  ],
+  "countries": [
+   {
+    "id": "nl",
+    "title": "Netherlands",
+    "count": 26
+   },
+   {
+    "id": "za",
+    "title": "South Africa",
+    "count": 10
+   },
+   {
+    "id": "be",
+    "title": "Belgium",
+    "count": 6
+   },
+   {
+    "id": "al",
+    "title": "Albania",
+    "count": 1
+   },
+   {
+    "id": "aw",
+    "title": "Aruba",
+    "count": 1
+   },
+   {
+    "id": "cw",
+    "title": "Curacao",
+    "count": 1
+   },
+   {
+    "id": "sr",
+    "title": "Suriname",
+    "count": 1
+   }
+  ],
+  "continents": [
+   {
+    "id": "eu",
+    "title": "Europe",
+    "count": 33
+   },
+   {
+    "id": "af",
+    "title": "Africa",
+    "count": 10
+   },
+   {
+    "id": "na",
+    "title": "North America",
+    "count": 2
+   },
+   {
+    "id": "sa",
+    "title": "South America",
+    "count": 1
+   }
+  ],
+  "statuses": [
+   {
+    "id": "active",
+    "title": "active",
+    "count": 46
+   }
+  ]
+ }
+}
