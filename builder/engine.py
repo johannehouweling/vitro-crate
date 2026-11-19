@@ -514,6 +514,29 @@ def _read_declared_funding(engine: AgentEngine) -> None:
         metadata.funding = declared or []
 
 
+def _people_text(declared: tuple[list[dict[str, str]], list[dict[str, str]]]) -> str:
+    """Declared identifiers counted: ``the identifiers of its people (8 ORCID, 2 ROR)``."""
+    people, organizations = declared
+    return f"the identifiers of its people ({len(people)} ORCID, {len(organizations)} ROR)"
+
+
+def _read_declared_people(engine: AgentEngine) -> None:
+    """Read the ORCID and the ROR id the deposit states for its people, as its funding is read.
+
+    Nothing read them, so a person or an organisation the deposit identifies was named
+    in the crate by a local id made from their name. Only the name and the identifier
+    are kept. Nobody is drafted and no registry is asked here: drafting a person or an
+    organisation of that name is what takes the identifier, once its registry confirms
+    it. What a resumed session already holds is left alone.
+    """
+    from builder.tools.file_readers import extract_deposit_people
+
+    metadata = engine.state.metadata
+    if not (metadata.people or metadata.organizations):
+        declared = _shallowest_declaration(engine, extract_deposit_people, _people_text)
+        metadata.people, metadata.organizations = declared or ([], [])
+
+
 class AgentEngine:
     """Orchestrator for the LLM agent toolbox loop.
 
@@ -629,6 +652,10 @@ class AgentEngine:
                         _read_declared_funding(self)
                     except Exception as exc:  # noqa: BLE001 — best-effort, like the DOI
                         logger.warning("Reading the declared funding failed: %s", exc)
+                    try:
+                        _read_declared_people(self)
+                    except Exception as exc:  # noqa: BLE001 — best-effort, like the funding
+                        logger.warning("Reading the declared people failed: %s", exc)
             else:
                 logger.warning(
                     "Refusing to initialize scan on forbidden input path: %s", input_path

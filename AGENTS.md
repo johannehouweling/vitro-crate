@@ -105,9 +105,9 @@ The orchestration is **emergent** — the agent dynamically routes itself based 
 Fixed initialization runs before the agent loop, in order:
 1. `scan_files` — builds a raw file inventory (path, size, mime type, first rows). The scanner itself does **no role classification** — just a list of what's in the input directory.
 2. Document discovery — stamps **every** scanned file with one classification (`metadata` / `protocol` / `raw_data_file` / `processed_data_file`), decided from content, and ranks the readable scientific documentation into `state.documents`. Classification reads content, so it stays a step beside the scanner and is never folded back into `scan_files`.
-3. The declared-metadata read — the licence, DOI, title, accession and funding the deposit itself states are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
+3. The declared-metadata read — the licence, DOI, title, accession and funding the deposit itself states, and the ORCID and ROR id it states for its people and organisations, are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
 
-Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title, accession and funding — it never has to bootstrap those itself. Before either arm starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§14.4, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
+Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title, accession, funding, ORCID and ROR id — it never has to bootstrap those itself. Before either arm starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§14.4, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
 
 ### Guard Rails: Approved Scan Roots
 The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. The guard **fails closed** (#197): with no approved roots, *nothing* is scannable. When the agent calls `scan_files(path)`:
@@ -197,6 +197,9 @@ CrateState {
         license_from_deposit: bool,
         # the funding the deposit declares, as it states it; either key may be absent
         funding: [{ funder, identifier }],
+        # the people and organisations the deposit identifies, as it states them, and
+        # nothing else of them
+        people: [{ name, orcid }], organizations: [{ name, ror }],
         input_path: str | None, output_path: str | None,
         exported_at: str | None,  # None until the crate has been written
         # the export writes no payload file (a deposit whose data is not public yet);
@@ -543,10 +546,12 @@ Generate metadata entities from files, conversation, or existing metadata.
 Each drafter is a **pure state mutation** over hints its caller supplies — the
 model's contribution is recorded as provenance (`created_by="llm"`,
 `source="llm"`) rather than made from inside the drafter — and **identifiers come
-from lookups, never fabricated**: `_resolve_person_orcid` verifies a single
-full-name ORCID search hit through the record endpoint before using its URL as an
-entity id, and leaves the deterministic local id in place for anything ambiguous,
-unavailable or weak.
+from lookups, never fabricated**: `_resolve_person_orcid` verifies the ORCID the
+deposit states for a person of that name, and failing it a single full-name ORCID
+search hit, through the record endpoint before using its URL as an entity id, and
+leaves the deterministic local id in place for anything ambiguous, unavailable,
+unconfirmed or weak. `draft_organization` takes the ROR id the deposit states for
+an organisation of that name once ROR returns that record, and none for a name alone.
 
 **Entity types:** Investigation, Study, Assay, MolecularEntity, CellLineSample
 (CellLine/PrimaryCell), LabProcess (TestSystemPreparation/Exposure/EndpointReadout/DataAnalysis), Person,
@@ -984,8 +989,8 @@ draft_cell_line_sample(name: str, hints: dict) → Entity
 draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
 draft_protocol(hints: dict) → Entity                     # LabProtocol a step's protocol record can be based on
-draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). ORCID stays empty (D5)
-draft_organization(name: str, hints: dict) → Entity
+draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). Without an orcid hint it takes the ORCID the deposit states for exactly that name, else a single strong name-search hit, once ORCID confirms it (D5)
+draft_organization(name: str, hints: dict) → Entity      # without a ror hint it takes the ROR id the deposit states for exactly that name, once ROR returns that record (D5)
 draft_publication(doi: str, hints: dict) → Entity
 draft_defined_term(name: str, hints: dict) → Entity
 draft_property_value(name: str, hints: dict) → Entity
@@ -1181,12 +1186,16 @@ via a verify-first cascade (stop at first success): **(a)** the Crossref ORCID o
 the author; **(b)** an in-crate `Person` with a *verified* ORCID matching the
 author's family name + given/initial (affiliation-preferred) — this resolves the
 gold case where citation `Fabian Wagenaars` reuses root `F.M.A. Wagenaars`'s ORCID
-`0000-0003-4766-7358`; **(c)** a public ORCID search
+`0000-0003-4766-7358`; **(c)** the ORCID the deposit's own record states for a
+person of exactly the author's name, by the name rule and the confirmation
+`draft_person` applies (case and spacing aside; the ORCID record resolves and
+states the same family name), the author then attached as for (a), and failing
+it a public ORCID search
 (`lookups.orcid.lookup_orcid_by_name`, the `/v3.0/expanded-search` endpoint via the
 shared rate-limited HTTP layer; a search that cannot be reached is no answer, so
 the author falls through to (d)); **(d)** fallback to a synthesized
 `#CitationAuthor_<Given>_<Family>` Person (the legacy behavior). **Confidence rule
-for (c):** auto-accept **only** a *single* candidate that is a STRONG match (family
+for the search in (c):** auto-accept **only** a *single* candidate that is a STRONG match (family
 + full — not initial-only — given name) and that passes name verification;
 *anything else* — multiple candidates, a weak / initial-only match, or a sole
 strong match that fails verification — **escalates to HITL** (`present` the ranked
@@ -1194,7 +1203,9 @@ candidates plus a none/skip option, then optionally `request_input` for a pasted
 ORCID). **D5:** an ORCID from (a) or (c), and an HITL-chosen one, is attached only
 after `lookup_orcid` resolves it and the family name matches; (b) is already
 verified; an ORCID-resolved Person also carries its ORCID `identifier`
-PropertyValue at build via the shared `_identifier_pv` path. HITL fires **only** on
+PropertyValue at build via the shared `_identifier_pv` path. A Person the crate already
+holds under that ORCID is the author, whatever id it was drafted under, so no two
+people take one address. HITL fires **only** on
 genuine ambiguity — never when an author is confidently resolved or confidently
 absent — and when no `human_interface` is available an ambiguous author falls back
 to a synthesized id rather than guessing. An ORCID-resolved author's
@@ -2307,6 +2318,28 @@ and nothing more. A grant number is no property of an organization, so it is a `
 `funding` references, named after its funder and number, which names that funder. This is also what
 fills the checklist's `Investigation:funder` slot. A funder known only by name is reported by the base
 profile's recommendations for an Organization (a ROR `@id`, a URL), and no MUST asks more.
+
+**The people and organisations a deposit identifies are read the same way, for their identifiers
+alone.** `extract_deposit_people` reads the name and the ORCID of each person a record names and the
+name and the ROR id of each organisation, from the same two conventions: the BioStudies `author` and
+`organisation` sections (`Name`, `ORCID`, `RORID`), and the `nameIdentifiers` and `affiliation` of
+DataCite's `creators` and `contributors`. Nothing else is kept, though the same sections state an
+e-mail address, a role and a country. The reader drafts nobody and asks no registry: it is only the
+source of an identifier for an entity someone drafts. `draft_person` tries the ORCID stated for a
+person of exactly its name, case and spacing aside, before the name search, and uses it only once
+the ORCID record resolves and states the same family name; only the iD is taken, and the name stays
+as the deposit spells it. A publication's author whose name the record states takes that ORCID the
+same way, after a person the crate holds and before the name search, and keeps that spelling too.
+A name the record gives two ORCIDs is given neither, though an ORCID or a
+ROR id written bare in one place and as its address in another is one identifier. A person the crate
+already holds under that ORCID is amended before any namesake is, so no two people take one address,
+and a namesake who holds another ORCID than the one confirmed is another person, at the confirmed
+ORCID's address. `draft_organization` takes the ROR id stated for an organisation of exactly its
+name once `fetch_ror_by_id` returns that record, with the website and country the record states, and
+an Organization the crate already holds under that ROR id is amended instead; a name the record
+gives two ROR ids is given neither. An author whose ORCID record gives that ROR id is affiliated to
+the Organization that holds it, whatever name the record uses for it. No ROR id is taken for a name
+alone, and a declared funder is still written as it is declared.
 
 `_add_structural` (`builder/tools/_crate_mapping.py`) therefore:
 

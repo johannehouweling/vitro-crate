@@ -7,7 +7,8 @@ success) is:
 
     (a) Crossref ORCID on the author       -> verify -> https://orcid.org/<id>
     (b) in-crate Person with a verified ORCID matching family + given/initial
-    (c) public ORCID search:
+    (c) the ORCID the deposit states for exactly the author's name -> confirm -> as (a)
+        (tests/test_deposit_people.py); else the public ORCID search:
           - exactly ONE strong match       -> verify -> use it
           - multiple / weak / initial-only -> escalate to HITL
     (d) fallback: synthesized #CitationAuthor_<Given>_<Family> Person

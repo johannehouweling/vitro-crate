@@ -1985,7 +1985,7 @@ def _materialize_plan(
     * each ``people[]`` → ``draft_person`` with the name plus a deterministic
       ``givenName`` / ``familyName`` split of that name (ISA REQUIRES a non-empty
       given name; splitting a name is descriptive parsing, not identifier
-      fabrication, so it is D5-safe). ORCID stays empty for a later lookup.
+      fabrication, so it is D5-safe). An ORCID comes from ``draft_person``, never the plan.
     * each ``publications[]`` → :func:`resolve_publication` /
       :func:`draft_publication_with_authors` (#219/#224/#245). A plan carries a
       title ONLY (D5 — no DOI), but when the source was a PDF that "title" is
@@ -2417,9 +2417,10 @@ def _materialize_plan(
     # --- people: a Person from the name + a deterministic given/family split,
     # plus an Organization minted (or reused) from `affiliation_name` and wired
     # onto the Person's `affiliation` reference (#179 Lane 1). The plan carries a
-    # name only — no ROR/IRI — so the Organization is identifier-free (D5); the
-    # build's `_wire_reference` resolves the affiliation to the Organization's
-    # `@id`. Organizations are de-duplicated by name so two people sharing an
+    # name only — no ROR/IRI — so the Organization's only identifier is the ROR id
+    # the deposit states for that name, once ROR confirms it (D5); the build's
+    # `_wire_reference` resolves the affiliation to the Organization's `@id`.
+    # Organizations are de-duplicated by name so two people sharing an
     # affiliation reference ONE Organization. ---
     for person in plan.get("people") or []:
         name = str((person or {}).get("name") or "").strip()
@@ -2427,7 +2428,7 @@ def _materialize_plan(
             continue
         given, family = _split_person_name(name)
         # ISA REQUIRES a non-empty given name; the split is descriptive parsing of
-        # the plan's name, not identifier fabrication (D5-safe). ORCID stays empty.
+        # the plan's name, not identifier fabrication (D5-safe). The plan gives no ORCID.
         person_hints = {"givenName": given}
         if family:
             person_hints["familyName"] = family

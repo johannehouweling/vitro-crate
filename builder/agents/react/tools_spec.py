@@ -246,7 +246,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_publication_with_authors",
-        "description": "Create a publication (from a DOI) AND wire every author as a Person in ONE call, harmonizing each author's @id to their ORCID when it can be determined. Resolution cascade per author (first hit wins): (1) the Crossref ORCID on the author (verified before use); (2) an in-crate Person with a verified ORCID matching the author's family + given/initial (e.g. citation 'Fabian Wagenaars' -> root 'F.M.A. Wagenaars'); (3) a public ORCID search — a single strong (family + full given) match is auto-used, anything ambiguous (multiple candidates or an initial-only match) asks YOU via present_to_human/request_input; (4) fallback to a synthesized #CitationAuthor_<Given>_<Family> Person. NEVER attaches an unverified or guessed ORCID (D5). Prefer this over draft_publication when you want the authors resolved too. Example: draft_publication_with_authors(doi='10.1234/example').",
+        "description": "Create a publication (from a DOI) AND wire every author as a Person in ONE call, harmonizing each author's @id to their ORCID when it can be determined. Resolution cascade per author (first hit wins): (1) the Crossref ORCID on the author (verified before use); (2) an in-crate Person with a verified ORCID matching the author's family + given/initial (e.g. citation 'Fabian Wagenaars' -> root 'F.M.A. Wagenaars'); (3) the ORCID the deposit's own record states for exactly the author's name, once ORCID confirms it, else a public ORCID search — a single strong (family + full given) match is auto-used, anything ambiguous (multiple candidates or an initial-only match) asks YOU via present_to_human/request_input; (4) fallback to a synthesized #CitationAuthor_<Given>_<Family> Person. NEVER attaches an unverified or guessed ORCID (D5). Prefer this over draft_publication when you want the authors resolved too. Example: draft_publication_with_authors(doi='10.1234/example').",
         "parameters": {
             "type": "object",
             "properties": {
@@ -400,7 +400,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_person",
-        "description": "Create a Person entity. Pass an orcid only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
+        "description": "Create a Person entity. Without an orcid it takes the one the deposit's own record states for exactly this name, once ORCID confirms it. Pass an orcid only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -412,7 +412,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_organization",
-        "description": "Create an Organization entity. Look it up first (lookup_ror) to pass a verified ror. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
+        "description": "Create an Organization entity. Without a ror it takes the ROR id the deposit's own record states for exactly this name, once ROR returns that record; otherwise look it up first (lookup_ror) to pass a verified ror. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
         "parameters": {
             "type": "object",
             "properties": {

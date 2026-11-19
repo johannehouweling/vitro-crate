@@ -43,7 +43,11 @@ from builder.tools.document_discovery import (
 from builder.tools.drafters import (
     _ORCID_RE,
     VALID_PROCESS_TYPES,
+    _confirmed_orcid,
+    _existing_organization,
+    _existing_person,
     _make_entity_id,
+    _stated,
     draft_assay,
     draft_cell_line_sample,
     draft_investigation,
@@ -1157,6 +1161,35 @@ def _find_in_crate_person(
     return candidates[0][1]
 
 
+def _author_at_stated_orcid(state: CrateState, given: str, family: str) -> Entity | None:
+    """The Person at the ORCID the deposit states for this author, once ORCID confirms it.
+
+    By the name rule and the confirmation :func:`draft_person` applies to a stated
+    ORCID: the deposit's own record (``state.metadata.people``) gives it to a person
+    of exactly this name, the given and family name joined as it writes a name, case
+    and spacing aside (:func:`_stated`), and the ORCID record resolves and states this
+    family name (:func:`_confirmed_orcid`). The Person is then attached as for a
+    verified Crossref ORCID (:func:`_ensure_person_for_orcid`), so whoever already
+    holds the ORCID is the author, and keeps the name as the deposit and the article
+    spell it, as a person drafted by that name does: ORCID's record may spell it
+    otherwise. ``None`` when the record states none for this name, or ORCID does not
+    confirm it or cannot be reached: the cascade goes on.
+    """
+    stated = _stated(state.metadata.people, "orcid", f"{given} {family}") if family else ""
+    if not stated:
+        return None
+    try:
+        record = _confirmed_orcid(stated, family)
+    except TransientLookupError:
+        logger.info("ORCID could not be reached to confirm the ORCID of %s %s.", given, family)
+        return None
+    if not record:
+        return None
+    given, family = " ".join(given.split()), " ".join(family.split())
+    spelled = {**record, "givenName": given, "familyName": family, "name": f"{given} {family}"}
+    return _ensure_person_for_orcid(state, stated, spelled)
+
+
 def _pick_from_human(
     response: Mapping[str, Any] | None, candidates: list[dict], options: list[str]
 ) -> str | None:
@@ -1273,19 +1306,24 @@ def _find_or_draft_organization(state: CrateState, name: str, ror: str | None = 
 
     De-dup by name: an existing in-state Organization with the same (stripped)
     ``name`` is reused so two authors sharing an affiliation yield ONE Organization
-    (its ``ror`` is back-filled if this call carries one and it was missing).
+    (its ``ror`` is back-filled if this call carries one and it was missing), unless
+    another Organization already holds that ``ror``: that one is meant, whatever its
+    name, since two entities at one address would leave the crate only one of them.
     Otherwise a new one is minted via the pure :func:`draft_organization` drafter
     (never hand-rolled JSON-LD). D5-safe: a ``ror`` is set ONLY when supplied by
-    the lookup — never fabricated — so the build resolves the Organization's @id to
-    the ROR IRI when known, else a name-derived id. Returns ``None`` on an empty
-    name (a name-less affiliation cannot become an Organization reference).
+    the lookup, or stated by the deposit for that name and confirmed by ROR
+    (:func:`draft_organization`) — never fabricated — so the build resolves the
+    Organization's @id to the ROR IRI when known, else a name-derived id. Returns
+    ``None`` on an empty name (a name-less affiliation cannot become an
+    Organization reference).
     """
     name = (name or "").strip()
     if not name:
         return None
     ror_value = (ror or "").strip()
+    holder = _existing_organization(state, ror_value)
     for org in state.list_entities("Organization"):
-        if str(org.fields.get("name") or "").strip() == name:
+        if str(org.fields.get("name") or "").strip() == name and holder in (None, org):
             patch: dict[str, Any] = {}
             if ror_value and not org.fields.get("ror"):
                 patch["ror"] = ror_value
@@ -1409,7 +1447,13 @@ def _ensure_person_for_orcid(state: CrateState, orcid: str, data: dict) -> Entit
     """Find-or-create a Person whose @id is the ORCID URL, with a verified ORCID."""
     bare = _bare_orcid(orcid)
     orcid_url = f"https://orcid.org/{bare}"
-    existing = state.get_entity(orcid_url) or state.get_entity(bare)
+    # A person given this ORCID after they were drafted keeps the id they had, and
+    # a second person at the ORCID would leave the crate only one of them.
+    existing = (
+        state.get_entity(orcid_url)
+        or state.get_entity(bare)
+        or _existing_person(state, "", orcid_url, {})
+    )
     if existing is not None and existing.type == "Person":
         person = existing
     else:
@@ -1533,7 +1577,10 @@ def draft_publication_with_authors(
     2. **In-crate Person** with a verified ORCID matching the author's family +
        given/initial (affiliation-preferred) — reused (e.g. citation
        'Fabian Wagenaars' → root 'F.M.A. Wagenaars').
-    3. **Public ORCID search** (:func:`lookups.orcid.lookup_orcid_by_name`): a
+    3. **The ORCID the deposit states** for a person of exactly the author's
+       name, confirmed as :func:`draft_person` confirms it and then attached as
+       in (1) (:func:`_author_at_stated_orcid`); failing it, the **public ORCID
+       search** (:func:`lookups.orcid.lookup_orcid_by_name`): a
        single STRONG (family + full given) match is verified and used; anything
        ambiguous (multiple candidates, or a weak/initial-only match) is escalated
        to HITL via ``human_interface`` (pick a candidate / paste an ORCID / skip).
@@ -1592,6 +1639,13 @@ def draft_publication_with_authors(
             if match is not None:
                 person = match
                 resolution = "in_crate"
+
+        # (c) First the ORCID the deposit's own record states for exactly this
+        # name, confirmed as draft_person confirms it.
+        if person is None:
+            person = _author_at_stated_orcid(state, given, family)
+            if person is not None:
+                resolution = "deposit_orcid"
 
         # (c) Public ORCID search (auto-accept ONE strong match; else HITL).
         if person is None:

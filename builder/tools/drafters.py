@@ -10,28 +10,55 @@ import logging
 import re
 from typing import Any
 
-from builder.state import CrateState, Entity, EntityProvenance
+from builder.state import _RESERVED_INTERNAL_KEYS, CrateState, Entity, EntityProvenance
+from lookups.orcid import lookup_orcid, lookup_orcid_by_name
+from lookups.ror import fetch_ror_by_id
 from profiles.ontology_iris import iri
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str, str]]:
+def _stated(declared: list[dict[str, str]], key: str, name: str) -> str:
+    """The bare ORCID or ROR id (*key*) the deposit states for exactly *name*, or ``""``.
+
+    Two names are one whatever their case and their surrounding or repeated spaces,
+    and an identifier is one however it is written, bare or as its address. A name
+    the deposit gives two different identifiers is given neither: which one is meant
+    would be a guess.
+    """
+    wanted = " ".join(str(name or "").split()).casefold()
+    bare = _bare_orcid if key == "orcid" else _bare_ror
+    found = {
+        bare(each.get(key))
+        for each in declared
+        if " ".join(str(each.get("name") or "").split()).casefold() == wanted
+    } - {""}
+    return found.pop() if len(found) == 1 else ""
+
+
+def _resolve_person_orcid(
+    name: str, hints: dict, stated: str
+) -> tuple[str | None, dict[str, str]]:
     """Resolve one unambiguous ORCID for a drafted person, best-effort.
 
-    Name-only drafting must never fabricate an identifier. A single full-name
-    ORCID search result is verified through the record endpoint before its URL is
-    used as the entity id; ambiguous, unavailable, or weak results leave the
-    deterministic local id path intact.
+    Name-only drafting must never fabricate an identifier. The bare ORCID the
+    deposit states for a person of this name (*stated*) is tried first, then a
+    single full-name ORCID search result; either is verified through the record
+    endpoint before its URL is used as the entity id. The stated ORCID gives the
+    iD alone, since the name stands as the deposit spells it; a search hit also
+    gives the names its record states. Ambiguous, unavailable, unconfirmed or weak
+    results leave the deterministic local id path intact.
     """
     explicit = hints.get("orcid") or hints.get("identifier")
     if explicit:
         return None, {}
     try:
-        from lookups.orcid import lookup_orcid, lookup_orcid_by_name
-
         given, family = split_person_name(name)
-        if not given or not family:
+        if not family:
+            return None, {}
+        if stated and _confirmed_orcid(stated, family):
+            return f"https://orcid.org/{stated}", {"orcid": stated}
+        if not given:
             return None, {}
         candidates = lookup_orcid_by_name(given, family, hints.get("affiliation"))
         strong = [
@@ -43,9 +70,8 @@ def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str,
         if len(strong) != 1:
             return None, {}
         bare = str(strong[0].get("orcid", "")).rsplit("/", 1)[-1]
-        record = lookup_orcid(bare)
-        record_family = record.get("familyName", "").casefold().strip()
-        if not record or record_family != family.casefold().strip():
+        record = _confirmed_orcid(bare, family)
+        if not record:
             return None, {}
         fields = {"orcid": bare}
         for key in ("givenName", "familyName", "name"):
@@ -54,6 +80,15 @@ def _resolve_person_orcid(name: str, hints: dict) -> tuple[str | None, dict[str,
         return f"https://orcid.org/{bare}", fields
     except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
         return None, {}
+
+
+def _confirmed_orcid(bare: str, family: str) -> dict[str, Any]:
+    """The record of the ORCID *bare*, or ``{}`` unless it resolves and states *family*."""
+    record = lookup_orcid(bare)
+    record_family = record.get("familyName", "").casefold().strip()
+    if not record or record_family != family.casefold().strip():
+        return {}
+    return record
 
 
 # The four ISA-Tox LabProcess discriminators, in the order the derivation chain
@@ -99,18 +134,26 @@ def _existing_person(
     """The Person already in state that *name*/ORCID refers to, if any.
 
     ORCID decides when present — it is the identifier, and two people can share a
-    name. Otherwise an exact match on the normalised name, which is deliberately
-    strict: merging two different people would be worse than the duplicate this
-    prevents, so nothing fuzzy happens here.
+    name, so a namesake who holds another ORCID than the one ORCID confirmed
+    (*orcid_id*) is another person, drafted at that ORCID's address. Otherwise an
+    exact match on the normalised name, which is deliberately strict: merging two
+    different people would be worse than the duplicate this prevents, so nothing
+    fuzzy happens here.
     """
     wanted_orcid = _bare_orcid(orcid_id or hints.get("orcid"))
+    confirmed = _bare_orcid(orcid_id)
     wanted_name = _person_key(name)
-    for person in state.list_entities("Person"):
-        if wanted_orcid:
-            held = _bare_orcid(person.fields.get("orcid") or person.entity_id)
-            if held and held == wanted_orcid:
-                return person
-        if wanted_name and _person_key(person.fields.get("name")) == wanted_name:
+    people = state.list_entities("Person")
+    # Every person is asked for the ORCID before any is asked for the name: a
+    # namesake given an ORCID another person holds would put two people at one id.
+    for person in people if wanted_orcid else []:
+        held = _bare_orcid(person.fields.get("orcid") or person.entity_id)
+        if held and held == wanted_orcid:
+            return person
+    for person in people if wanted_name else []:
+        if _person_key(person.fields.get("name")) == wanted_name and (
+            not confirmed or _real_orcid(person) in ("", confirmed)
+        ):
             return person
     return None
 
@@ -197,10 +240,10 @@ def _fill_empty_fields(entity: Entity, hints: dict) -> None:
 
     An amend must not overwrite verified data with a later guess: an ORCID-backed
     record beats a hand-typed one, and ``"Dierichs (dataset contact)"`` must not
-    replace ``"Dierichs"``.
+    replace ``"Dierichs"``. The reserved handles are dropped, as a draft drops them.
     """
     for key, value in hints.items():
-        if value in (None, "", [], {}):
+        if value in (None, "", [], {}) or key in _RESERVED_INTERNAL_KEYS:
             continue
         current = entity.fields.get(key)
         if current in (None, "", [], {}):
@@ -574,8 +617,12 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     ``draft_person`` path (materialize / ReAct / guidance / direct) produces an
     ISA-shaped Person — the ISA profile REQUIRES a non-empty ``schema:givenName``.
     Splitting a name is descriptive parsing, not identifier fabrication, so it is
-    D5-safe; ORCID stays empty for a later lookup. An explicit ``givenName`` /
-    ``familyName`` the caller passes is preserved (never overwritten by the split).
+    D5-safe. An explicit ``givenName`` / ``familyName`` the caller passes is
+    preserved (never overwritten by the split).
+
+    Without an ORCID in *hints*, the person takes the one the deposit states for
+    exactly this name, else a single strong name-search hit, and either only once
+    ORCID's record confirms it (:func:`_resolve_person_orcid`).
 
     Args:
         state: The crate state to add the entity to.
@@ -595,7 +642,9 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
             merged_hints["givenName"] = given
         if family:
             merged_hints["familyName"] = family
-    orcid_id, orcid_fields = _resolve_person_orcid(name, merged_hints)
+    orcid_id, orcid_fields = _resolve_person_orcid(
+        name, merged_hints, _stated(state.metadata.people, "orcid", name)
+    )
     if orcid_id:
         merged_hints.update(orcid_fields)
 
@@ -607,7 +656,7 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
     existing = _existing_person(state, name, orcid_id, merged_hints)
     if existing is not None:
         _fill_empty_fields(existing, merged_hints)
-        if orcid_id:
+        if orcid_id and _bare_orcid(existing.fields.get("orcid")) == _bare_orcid(orcid_id):
             existing.set_field_status("orcid", "verified", "lookup")
         logger.info(
             "Amended existing Person %s instead of drafting a duplicate", existing.entity_id
@@ -717,8 +766,47 @@ def draft_sample(state: CrateState, hints: dict) -> Entity:
     return entity
 
 
+def _bare_ror(value: Any) -> str:
+    """The id of a ROR id, however it was written (URL or bare)."""
+    return str(value or "").strip().rstrip("/").rsplit("/", 1)[-1].casefold()
+
+
+def _stated_ror(state: CrateState, name: str) -> dict[str, str]:
+    """The ROR id the deposit states for exactly *name*, once ROR returns its record.
+
+    The website and country the record states come with it. A ROR id ROR does not
+    return, a record of another id and an unreachable registry all give nothing:
+    a stated id is not taken unconfirmed, and no id is ever taken for a name alone.
+    """
+    stated = _stated(state.metadata.organizations, "ror", name)
+    if not stated:
+        return {}
+    try:
+        record = fetch_ror_by_id(f"https://ror.org/{stated}") or {}
+    except Exception:  # noqa: BLE001 — identifier lookup must not block drafting
+        return {}
+    ror = str(record.get("@id") or "")
+    if not ror or _bare_ror(ror) != stated:
+        return {}
+    facts = ("url", "addressCountry", "countryName")
+    return {"ror": ror, **{key: str(record[key]) for key in facts if record.get(key)}}
+
+
+def _existing_organization(state: CrateState, ror: Any) -> Entity | None:
+    """The Organization already in state under the ROR id *ror*, if any."""
+    wanted = _bare_ror(ror)
+    organizations = state.list_entities("Organization") if wanted else []
+    return next((o for o in organizations if _bare_ror(o.fields.get("ror")) == wanted), None)
+
+
 def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
     """Create an Organization entity.
+
+    Without a ``ror`` in *hints*, the organisation takes the ROR id the deposit
+    states for exactly this name, with the website and country ROR states for it,
+    once ROR returns that record (:func:`_stated_ror`). An Organization the crate
+    already holds under the ROR id is amended instead of drafted again: two
+    entities at one address would leave the crate only one of them.
 
     Args:
         state: The crate state to add the entity to.
@@ -726,18 +814,32 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
         hints: Dictionary of additional field values.
 
     Returns:
-        The newly created Organization Entity.
+        The newly created Organization Entity, or the one amended.
     """
     merged_hints = dict(hints)
     merged_hints["name"] = name
-    entity_id = _make_entity_id("org", name, hints)
-    entity = Entity(
-        entity_id=entity_id,
-        type="Organization",
-        _provenance=EntityProvenance(created_by="llm"),
-    )
-    entity.set_fields_from_dict(merged_hints, source="llm")
-    state.add_entity(entity)
+    stated = {} if merged_hints.get("ror") else _stated_ror(state, name)
+    merged_hints.update(stated)
+    entity = _existing_organization(state, merged_hints.get("ror"))
+    if entity is not None:
+        _fill_empty_fields(entity, merged_hints)
+        logger.info(
+            "Amended existing Organization %s instead of drafting a duplicate", entity.entity_id
+        )
+    else:
+        entity = Entity(
+            entity_id=_make_entity_id("org", name, hints),
+            type="Organization",
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        entity.set_fields_from_dict(merged_hints, source="llm")
+        state.add_entity(entity)
+    # What the entity now holds from ROR's record was looked up, not drafted.
+    for key, value in stated.items():
+        if entity.fields.get(key) == value:
+            entity.set_field_status(key, "filled", "lookup")
+    if stated:
+        entity.set_field_status("ror", "verified", "lookup")
     return entity
 
 
