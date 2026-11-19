@@ -797,6 +797,30 @@ class TestACitationAuthorTakesTheOrcidTheDepositStates:
         assert orcid.asked == []
         assert (root.fields["name"], root.fields["givenName"]) == ("F.M.A. Wagenaars", "F.M.A.")
 
+    @pytest.mark.parametrize("person_first", [False, True], ids=["article first", "person first"])
+    def test_the_author_keeps_the_spelling_the_deposit_gives_the_name(
+        self, monkeypatch: pytest.MonkeyPatch, person_first: bool
+    ) -> None:
+        """ORCID's record may spell a name otherwise ('Danielle' for 'Daniëlle'). The author
+        keeps the spelling the deposit and the article give the name, as a person drafted by
+        that name does, whichever of the two is drafted first."""
+        from builder.tools import composites
+
+        stated = {"name": "Daniëlle Westerbeek", "orcid": "0000-0001-6004-8653"}
+        orcid = _orcid(monkeypatch, {stated["orcid"]: ("Danielle", "Westerbeek")})
+        _publishing(monkeypatch, orcid, {"givenName": "Daniëlle", "familyName": "Westerbeek"})
+        state = _stating(stated)
+        if person_first:
+            draft_person(state, "Daniëlle Westerbeek", {})
+        composites.draft_publication_with_authors(state, MCT8_ARTICLE)
+        (person,) = state.list_entities("Person")
+        assert person.entity_id == "https://orcid.org/0000-0001-6004-8653"
+        assert (
+            person.fields["name"],
+            person.fields["givenName"],
+            person.fields["familyName"],
+        ) == ("Daniëlle Westerbeek", "Daniëlle", "Westerbeek")
+
     def test_the_author_is_attached_as_for_an_orcid_crossref_gives(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

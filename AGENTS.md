@@ -2371,7 +2371,9 @@ e-mail address, a role and a country. The reader drafts nobody and asks no regis
 source of an identifier for an entity someone drafts. `draft_person` tries the ORCID stated for a
 person of exactly its name, case and spacing aside, before the name search, and uses it only once
 the ORCID record resolves and states the same family name; only the iD is taken, and the name stays
-as the deposit spells it. A name the record gives two ORCIDs is given neither, though an ORCID or a
+as the deposit spells it. A publication's author whose name the record states takes that ORCID the
+same way, after a person the crate holds and before the name search, and keeps that spelling too.
+A name the record gives two ORCIDs is given neither, though an ORCID or a
 ROR id written bare in one place and as its address in another is one identifier. A person the crate
 already holds under that ORCID is amended before any namesake is, so no two people take one address,
 and a namesake who holds another ORCID than the one confirmed is another person, at the confirmed
