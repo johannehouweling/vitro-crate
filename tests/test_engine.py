@@ -504,9 +504,9 @@ class TestScanRootApproval:
 
 
 class TestOnToolEvent:
-    """The optional ``on_tool_event`` callback lets the pipeline spinner show the
-    currently-running tool (#266). The deterministic pipeline runs tools via
-    ``engine.run_tool`` (not LangChain), so without this hook there is no
+    """The optional ``on_tool_event`` callback lets the spinner show the
+    currently-running tool (#266). The finish backstop runs tools via
+    ``engine.run_tool`` directly (not LangChain), so without this hook there is no
     per-tool signal. It must default to ``None`` (no behavior change when unset)
     and must never let a callback exception break ``run_tool``.
     """

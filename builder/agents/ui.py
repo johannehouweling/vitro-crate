@@ -1,10 +1,9 @@
-"""Shared interactive terminal UI for both build arms (pipeline + ReAct).
+"""Shared interactive terminal UI for the build.
 
 Single source of truth for the interactive chrome — the shared Rich
 ``Console``, the one-line status bar, agent-reply rendering, the resume
-summary and goodbye panels, and the boxed ``❯`` prompt — so the
-deterministic pipeline and the ReAct arm render *identically*.
-Both arms import from here; neither keeps a private copy (harmonization,
+summary and goodbye panels, and the boxed ``❯`` prompt. The ReAct loop and
+``main.py`` import from here; neither keeps a private copy (harmonization,
 GitHub #344).
 
 Design contract:
@@ -15,7 +14,7 @@ Design contract:
 * :func:`snapshot_from_engine` is the single impure adapter: it reads engine
   state and, best-effort, ``profile.ndjson`` for cumulative token/cost totals.
 * This module imports ``rich`` / ``prompt_toolkit`` / ``builder.pricing`` /
-  ``builder.config`` and **neither build arm** — depending on an arm here
+  ``builder.config`` and **never the ReAct loop** — depending on the loop here
   would create an ``agents → agents`` import cycle. ``engine`` is duck-typed
   through :func:`snapshot_from_engine`'s parameter, never imported.
 """
@@ -68,7 +67,7 @@ _console: Console | None = None
 def get_console() -> Console:
     """Return the process-wide shared Rich :class:`Console` (memoized).
 
-    Both arms render through one console so styling, width, and the
+    The build renders through one console so styling, width, and the
     console-animation registry stay consistent.
     """
     global _console
@@ -203,12 +202,10 @@ class UiSnapshot:
     """A flat, render-ready view of session state.
 
     Decoupling the renderers from the live engine keeps them pure and
-    unit-testable. Token/cost comes from ONE source in both arms:
+    unit-testable. Token/cost comes from ONE source:
     :func:`snapshot_from_engine` reads the session's ``profile.ndjson`` and
-    nothing else. (It never reads the pipeline's returned ``usage`` dict — an
-    earlier version of this docstring claimed it did, which is what made it easy
-    to believe the pipeline's guidance tail was accounted when its calls simply
-    never reached the profile, #384.)
+    nothing else, so a model call that never reaches the profile is not counted
+    (#384).
     """
 
     session_id: str
@@ -722,7 +719,7 @@ def render_reply(content: Any) -> RenderableType:
     Accepts raw message ``content`` (str or content-block list) and flattens
     it first, so structured replies never leak (#341). Lighter than a
     full-width panel; continuation lines align under the marker. Includes the
-    surrounding blank lines so both arms space replies identically.
+    surrounding blank lines so every reply is spaced identically.
     """
     text = flatten_message_content(content)
     try:
@@ -1259,7 +1256,7 @@ class TransientReplies:
 
 
 def make_status_footer(engine: AgentEngine, console: Console | None = None) -> PinnedFooter:
-    """A :class:`PinnedFooter` showing *engine*'s live status line (both arms).
+    """A :class:`PinnedFooter` showing *engine*'s live status line.
 
     The provider re-snapshots the engine on every repaint, so entity counts,
     validation dots, tokens and cost track the run without any call site having
@@ -1280,19 +1277,18 @@ def make_status_footer(engine: AgentEngine, console: Console | None = None) -> P
 
 # ---------------------------------------------------------------------------
 # Print-for-engine helpers — the ONE place "snapshot → render → print to the
-# shared console" lives, so both build arms call the same code instead of each
-# inlining its own copy (#344). The pure render_* above stay unit-testable; these
-# thin impure wrappers are what the ReAct loop and the pipeline both invoke.
+# shared console" lives, so no call site inlines its own copy (#344). The pure
+# render_* above stay unit-testable; these thin impure wrappers are what the
+# ReAct loop invokes.
 # ---------------------------------------------------------------------------
 
 
 def print_status_bar(engine: AgentEngine, footer: PinnedFooter | None = None) -> None:
-    """Print the one-line status bar for *engine*'s current state (both arms).
+    """Print the one-line status bar for *engine*'s current state.
 
-    The per-prompt status line the ReAct loop shows before every input and the
-    pipeline shows before every guidance question. ``engine.state.validation`` is
-    authoritative by the time either arm calls this (the pipeline's final
-    ``build_and_validate`` runs via ``engine.run_tool``, whose #153 write-back
+    The per-prompt status line the ReAct loop shows before every input.
+    ``engine.state.validation`` is authoritative by the time the loop calls this
+    (``build_and_validate`` runs via ``engine.run_tool``, whose #153 write-back
     folds conformance into state), so the base/ISA/Tox dots read real values.
 
     When an active *footer* is passed, the same information is already pinned to
@@ -1306,7 +1302,7 @@ def print_status_bar(engine: AgentEngine, footer: PinnedFooter | None = None) ->
 
 
 def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
-    """Print the session summary panel when there is anything to show (both arms).
+    """Print the session summary panel when there is anything to show.
 
     On an empty session (no entities, no scanned files) there is no panel to draw,
     so it degrades to a one-line ``session <id> · model <model>`` header — the
@@ -1335,12 +1331,12 @@ def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
 
 
 def print_goodbye(engine: AgentEngine, *, resumable: bool | None = None) -> None:
-    """Print the goodbye panel for *engine*'s session, with breathing room (both arms).
+    """Print the goodbye panel for *engine*'s session, with breathing room.
 
     Args:
         engine: The engine whose ``state`` (session id + entity breakdown) is shown.
         resumable: Whether to include the ``--resume`` hint. Defaults to *None* →
-            shown when a ``sessions/`` directory exists (the check both arms used);
+            shown when a ``sessions/`` directory exists;
             pass an explicit bool to override.
     """
     if resumable is None:

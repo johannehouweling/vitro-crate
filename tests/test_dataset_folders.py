@@ -45,7 +45,7 @@ def _place_files(state: CrateState, entity: Entity, *files: str) -> None:
 
 
 def _place_everything(state: CrateState, entity: Entity) -> None:
-    """Attach every scanned file to *entity*, as the pipeline does."""
+    """Attach every scanned file to *entity*, as a build may."""
     attach_files(state, to=entity.entity_id, paths=[fc.path for fc in state.scanned_files])
 
 
@@ -100,7 +100,7 @@ class TestAnAssayTakesTheFolderOfItsFiles:
         assert _folders(state) == {}
 
     def test_an_assay_holding_every_file_of_the_deposit_takes_none(self) -> None:
-        """The pipeline places every scanned file on its one Assay. That says what
+        """A build may place every scanned file on its one Assay. That says what
         the deposit holds, not which folder is the assay's, and the folder that
         holds every file is here the study's."""
         state = deposit_state(
@@ -144,7 +144,7 @@ class TestTheAcceptedLabellingIsReadFirst:
         assert _key(study) not in _folders(state), "the study is the deposit root"
 
     def test_an_assay_holding_several_assay_folders_takes_none_of_them(self) -> None:
-        """The pipeline places every file on one Assay. That Assay is none of the
+        """A build may place every file on one Assay. That Assay is none of the
         deposit's assays, and it does not take the study's folder either."""
         state = deposit_state("study_01/assay_01/a.csv", "study_01/assay_02/b.csv")
         study, (assay,) = backbone(state, "Everything")

@@ -171,8 +171,8 @@ def _validation_input_hash(state: CrateState) -> str:
     """Hash the inputs ``build_and_validate`` consumes: entities + crate metadata.
 
     Thin delegation to :meth:`builder.state.CrateState.validation_fingerprint`,
-    which is where the definition lives so both build arms can reach it without
-    importing the engine (#380). Kept as a module-level name because the debounce
+    which is where the definition lives so a caller holding only the state can
+    reach it without importing the engine (#380). Kept as a module-level name because the debounce
     key below and ``tests/test_validation_debounce.py`` both import it.
     """
     return state.validation_fingerprint()
@@ -365,7 +365,8 @@ def _read_declared_licence(engine: AgentEngine) -> None:
     one direction that suppresses reuse of openly-licensed data.
 
     Runs beside document discovery, for the same reason: it is deterministic,
-    bounded, and independent of which arm is driving, so both get the fact. Only
+    bounded, and independent of the model, so the build has the fact whatever
+    the agent does. Only
     a licence nobody has set yet is filled — a resumed session that already
     carries one is left alone — and the value is marked as read from the deposit
     so a later draft cannot overwrite it.

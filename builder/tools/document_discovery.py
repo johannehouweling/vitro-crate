@@ -349,8 +349,8 @@ def looks_like_publication(filename: str) -> bool:
     """Whether *filename* reads as a journal article.
 
     Publications classify as ``metadata`` — they describe the study rather than
-    measure it — so the class alone cannot tell the ReAct gap engine that an
-    article was deposited and never recorded. This names that signal once,
+    measure it — so the class alone cannot tell the ReAct loop's ``open_items``
+    that an article was deposited and never recorded. This names that signal once,
     beside the classification that consumes it.
 
     The NAME only, deliberately. Contents mention these words without being an

@@ -913,7 +913,7 @@ def export_crate(
 
         # Wire domain entities that nothing references onto the process that used
         # them (#438/#273). A compound reaches the experiment only through the
-        # Exposure's `chemicals` field, and neither build arm guarantees that is
+        # Exposure's `chemicals` field, and the build does not guarantee that is
         # set — a real 22-compound crate exported with `chemicals=None` on every
         # process, leaving all 22 orphaned. One Exposure and N unreferenced
         # compounds have exactly one sensible wiring, so it is done rather than

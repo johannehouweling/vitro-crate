@@ -114,7 +114,7 @@ class TestDeclaredLicenceWins:
 
 
 class TestBothArmsGetTheDeclaredLicence:
-    """Wired where discovery is, so neither arm has to remember to ask."""
+    """Wired where discovery is, so the agent does not have to remember to ask."""
 
     def test_initializing_over_a_deposit_reads_its_licence(self, tmp_path: Path) -> None:
         from builder.engine import AgentEngine

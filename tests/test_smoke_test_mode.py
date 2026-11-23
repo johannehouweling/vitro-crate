@@ -1,12 +1,13 @@
 """Tests for ``--smoke-test`` — driving the interactive build with nobody there.
 
-The mode exists to exercise the HITL path (the guidance tail included) unattended:
+The mode exists to exercise the HITL path unattended:
 every choice prompt confirms its PRE-SELECTED option and every open field is
 answered with the literal ``"yes, continue"``. Three of its properties are
 load-bearing and are pinned here rather than left to inspection:
 
-1. ``is_interactive`` is True — the tail is gated on that single signal, so the
-   headless ``SimulatedHumanInterface`` cannot be used to exercise it;
+1. ``is_interactive`` is True — the loop's questions are gated on that single
+   signal, so the headless ``SimulatedHumanInterface`` cannot be used to exercise
+   them;
 2. a scan-root escalation is still DENIED. That is *accidental* correctness (the
    pre-selection for a ``scan_root`` purpose happens to be the refusal, #197), so
    these tests fail loudly if the pre-selection rule ever changes — an unattended
@@ -69,10 +70,10 @@ class TestConfirmsThePreSelection:
         assert resp["action"] == "approved"
 
     def test_draft_confirmation_approves(self):
-        """The guidance tail's draft-confirm prompt offers a yes and a no sentence.
+        """A draft-confirm prompt (a guidance question) offers a yes and a no sentence.
 
-        Confirming its pre-selection is what lets a drafted value commit and the
-        loop advance to the next gap — the path the mode exists to walk.
+        Confirming its pre-selection is what lets a drafted value commit — the
+        path the mode exists to walk.
         """
         from builder.tools.hitl import GUIDANCE_PURPOSE
 
@@ -199,8 +200,8 @@ class TestOpenFieldsAndOptionalCapabilities:
         assert resp == {"value": SMOKE_TEST_ANSWER, "skipped": False}
 
     def test_answer_is_a_commit_not_a_skip(self):
-        """A skip would leave guidance nothing to commit, so no gap would resolve
-        and the commit -> re-assess -> next-gap path would never run."""
+        """A skip would give the asker nothing to act on, so the path an answered
+        question drives would never run."""
         assert SmokeTestHumanInterface().request_input("Describe the assay")["skipped"] is False
 
     def test_select_many_skips(self):
@@ -224,8 +225,9 @@ class TestOpenFieldsAndOptionalCapabilities:
         assert select_many(human, "Which apply?", ["A", "B"]) == {"values": [], "skipped": True}
 
     def test_is_done_is_always_false(self):
-        """The mode never ends guidance early — saying "done" would exercise
-        nothing. Termination is left to run_guidance's own bounds."""
+        """Without a budget the mode never reports done — its honest answer to
+        "does the user want to stop?" is no. Termination is left to the turn count
+        and the loop's own guards."""
         human = SmokeTestHumanInterface()
         assert human.is_done() is False
         assert human.is_done() is False  # and it never flips, however much is asked
@@ -281,11 +283,11 @@ class TestTheRunSaysTheAnswersAreSynthetic:
         assert "SMOKE TEST" in SYNTHETIC_ANSWER_NOTICE
 
 class TestTheConversationTerminates:
-    """The bound that makes ``--smoke-test --react`` finite.
+    """The bound that makes ``--smoke-test`` finite.
 
-    Every OTHER channel this mode drives stops on its own: guidance runs out of
-    gaps, the report runs out of findings, ``max_rounds`` bounds the rest. A
-    conversational loop has no such bound — it ends when the person says so. And
+    Every OTHER channel this mode drives is a question asked inside a turn, and
+    the loop's own guards bound the turn. A conversational loop has no such
+    bound — it ends when the person says so. And
     :data:`SMOKE_TEST_ANSWER` is not a stop word, so an unbounded synthetic
     interface does not hang (the old failure mode) but something worse: it drives
     turns forever, one model call each. These tests exist for that.
@@ -314,7 +316,7 @@ class TestTheConversationTerminates:
     def test_the_budget_does_not_bleed_into_metadata_fields(self):
         """The two channels are separate. A field is a field however long the
         conversation ran — bounding open fields would silently stop answering
-        guidance questions, which is the path the mode exists to exercise."""
+        the build's questions, which is the path the mode exists to exercise."""
         from builder.tools.hitl import (
             CONVERSATION_FIELD_TYPE,
             SMOKE_TEST_ANSWER,
@@ -384,19 +386,19 @@ class TestTheWallClockBudget:
         }
 
     def test_a_spent_clock_ends_guidance(self):
-        """run_guidance consults is_done() at the top of every round, so this is
-        what stops the DEFAULT arm — the conversational skip only reaches ReAct."""
+        """A spent clock is the one case the mode reports done: the user said up
+        front, in minutes, when to stop."""
         assert self._expired().is_done() is True
 
     def test_without_a_budget_guidance_is_never_cut_short(self):
-        """The control, and the pre-existing contract: an unbudgeted smoke test
-        must exercise the tail to exhaustion, not return before asking anything."""
+        """The control: an unbudgeted smoke test never reports done, however much
+        is asked."""
         assert SmokeTestHumanInterface().is_done() is False
         assert SmokeTestHumanInterface(minutes=self.LIVE).is_done() is False
 
     def test_a_question_in_flight_is_still_answered(self):
-        """"Winds down at the next question", not "stops mid-question". The loops
-        read the deadline BETWEEN gaps/turns; a field asked as it lapses is still
+        """"Winds down at the next question", not "stops mid-question". The loop
+        reads the deadline BETWEEN turns; a field asked as it lapses is still
         answered, so nothing lands half-applied."""
         assert self._expired().request_input("describe the study") == {
             "value": SMOKE_TEST_ANSWER,
@@ -469,7 +471,7 @@ class TestTheLoopReadsTheInterfaceNotStdin:
 
 
 class TestCli:
-    """``--smoke-test`` implies --interactive and wires the mode on both arms."""
+    """``--smoke-test`` implies --interactive and wires the mode into the build."""
 
     def _stub_config(self, monkeypatch):
         """Make the interactive path proceed without a real LLM config check."""

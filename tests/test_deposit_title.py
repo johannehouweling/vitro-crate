@@ -1,8 +1,8 @@
 """The deposit's declared title and accession are read, not left unset (#722).
 
-The pipeline never wrote ``state.metadata.title``, so DSM-1-R0 (an identifiable dataset
-descriptor) held every pipeline crate at level 0, and the root kept the scaffold's
-placeholder name "Investigation". The descriptor states both, beside the DOI:
+A build that never wrote ``state.metadata.title`` left DSM-1-R0 (an identifiable dataset
+descriptor) at level 0, and the root kept the scaffold's placeholder name
+"Investigation". The descriptor states both, beside the DOI:
 
     {"accno": "S-VHPS22", "attributes": [{"name": "Title", "value": "Neural cell ..."}]}
 """

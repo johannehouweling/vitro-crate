@@ -149,7 +149,7 @@ class TestResolveAopState:
 
     def test_result_lists_the_events_of_the_pathway_without_storing_them(self):
         # (#382) The composite used to report COUNTS only, so a caller had
-        # nothing to pick the measured event WITH — the reason neither arm ever
+        # nothing to pick the measured event WITH — the reason no build ever
         # linked an Assay to the event it measures.
         state = CrateState()
         result = resolve_aop(state, "610")
@@ -650,7 +650,7 @@ class TestLinkAssayToKeyEvent:
 
     ``keyEvent`` is a fully declared Assay reference field — in the draft schema,
     mapped by ``_ASSAY_MENTION_FIELDS``, consumed by the build — and it had ZERO
-    writers anywhere in ``builder/``. No crate either arm produced had ever
+    writers anywhere in ``builder/``. No crate the build produced had ever
     recorded which Key Event an assay measures, so the biological meaning of the
     measurement was absent from every crate while the field looked supported.
     """

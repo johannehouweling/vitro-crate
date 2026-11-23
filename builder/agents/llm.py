@@ -44,7 +44,7 @@ __all__ = [
     "effective_sampling_settings",
 ]
 
-# A usage sink receives one bounded-leaf call's token usage as
+# A usage sink receives one bounded call's token usage as
 # ``(input_tokens, output_tokens, model_name, system_fingerprint)``; any element
 # may be ``None`` when the provider (or an offline fake) reported no usage, and
 # ``system_fingerprint`` is ``None`` for every provider that does not publish one
@@ -84,8 +84,8 @@ class ModelOverrides:
     calls cannot quietly resolve their model from the environment instead.
 
     Carried as one value rather than three loose arguments because it crosses
-    several layers (CLI -> build -> leaf, and the eval factory in parallel), and a
-    bare triple invites one of the three being dropped at a hop.
+    several layers (CLI -> build -> drafter call, and the eval factory in
+    parallel), and a bare triple invites one of the three being dropped at a hop.
 
     Every field is optional: an empty instance means "resolve from the
     environment", which is exactly the pre-existing behaviour, so threading this
@@ -188,8 +188,8 @@ def _resolve_temperature() -> float:
 
     It lived inline on the OpenAI branch while the Anthropic branch hard-coded
     ``temperature: 0``, so a temperature experiment on Anthropic silently did
-    nothing — and the two build arms this repo A/B-compares were not actually
-    running the same configuration (#402).
+    nothing — and an A/B of two runs was not actually comparing the same
+    configuration (#402).
 
     Blank/whitespace reads as unset rather than raising, matching the convention
     ``VITRO_OPENAI_REASONING_EFFORT`` already uses. A non-numeric value still
@@ -255,9 +255,9 @@ def effective_sampling_settings(model: str | None = None) -> dict[str, str]:
 
     ``temperature`` appears only when it is genuinely applied, and only when
     BOTH model tiers apply it. The OpenAI branch omits it for a Responses-API
-    reasoning model, and the tiers can disagree: a bounded leaf is built with
-    ``role="drafter"``, so ``VITRO_OPENAI_DRAFTER_MODEL`` can put a reasoning
-    model behind the leaves while the orchestrator stays on a standard one (or
+    reasoning model, and the tiers can disagree: a bounded drafter call is built
+    with ``role="drafter"``, so ``VITRO_OPENAI_DRAFTER_MODEL`` can put a reasoning
+    model behind it while the orchestrator stays on a standard one (or
     the reverse). When the two disagree no single temperature
     was in effect, and that is recorded as absence — the same way
     :func:`_apply_temperature` expresses "no opinion" — rather than as a number
@@ -335,7 +335,7 @@ def _build_chat_model(
             ``on_llm_new_token`` callback can show the reply as it is written
             (the interactive footer's live tail). ``invoke`` still returns one
             aggregated message, so callers are unaffected. Set only by the
-            interactive ReAct loop; the bounded leaves have nothing to display
+            interactive ReAct loop; a bounded drafter call has nothing to display
             and stay non-streaming. Off by default, and
             ``VITRO_NO_STREAM=1`` forces it off everywhere — a provider that
             mishandles streamed tool calls must be recoverable without a code
@@ -479,7 +479,7 @@ def _extract_token_usage(message: Any) -> tuple[int | None, int | None]:
     """Extract ``(input_tokens, output_tokens)`` from a LangChain ``AIMessage``.
 
     Provider-agnostic and the SINGLE source of truth for usage mining across the
-    ReAct model node (:func:`_wrap_model_node`) and the bounded leaves
+    ReAct model node (:func:`_wrap_model_node`) and the bounded drafter call
     (:mod:`builder.agents.structure`), so every call records token counts with
     identical semantics:
 
@@ -542,21 +542,21 @@ def _as_int(value: Any) -> int:
 
 
 def make_usage_logger(engine: UsageEngine, totals: dict[str, int]) -> UsageSink:
-    """Build a :data:`UsageSink` that records one leaf call's token usage (#221).
+    """Build a :data:`UsageSink` that records one bounded call's token usage (#221).
 
-    For each leaf call it (1) accumulates ``input``/``output`` tokens into
+    For each such call it (1) accumulates ``input``/``output`` tokens into
     *totals* (the running per-run sum the caller surfaces in its result dict) and
     (2) logs a ``node_end``/``node="model"`` event to the engine profiler — the
     SAME profile-event shape the ReAct model node emits — so
     :func:`eval.metrics.mine_profile_metrics`, :func:`builder.agents.ui._read_token_totals`
-    and the dashboard's token table all see leaf calls identically to ReAct hops
+    and the dashboard's token table all see bounded calls identically to ReAct hops
     with no changes of their own. When no profiler is active (e.g. an engine that
     was never initialized) the accumulation still happens; only the profile write
     is skipped.
 
-    One implementation means a leaf call and a ReAct hop cannot drift into logging
-    two different event shapes, which is how a leaf's spend once went missing from
-    the status bar (#384).
+    One implementation means a bounded call and a ReAct hop cannot drift into
+    logging two different event shapes, which is how a bounded call's spend once
+    went missing from the status bar (#384).
     """
 
     def _sink(
@@ -574,7 +574,7 @@ def make_usage_logger(engine: UsageEngine, totals: dict[str, int]) -> UsageSink:
         # accounting must not depend on instrumentation being enabled.
         try:
             engine.state.record_llm_usage({"input_tokens": in_t, "output_tokens": out_t})
-        except Exception:  # noqa: BLE001 — accounting never breaks a leaf call
+        except Exception:  # noqa: BLE001 — accounting never breaks a bounded call
             logger.debug("Could not record leaf LLM usage", exc_info=True)
         profiler = getattr(engine, "profiler", None)
         if profiler is not None:

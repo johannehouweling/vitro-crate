@@ -586,7 +586,7 @@ def split_person_name(name: str) -> tuple[str, str]:
     * **Lone token** — a single bare token is treated as a *family-name
       candidate*, NOT silently mapped into the given name (the surname must never
       masquerade as a first name): ``"Wagenaars" -> ("", "Wagenaars")``. The
-      empty given name is a genuine gap surfaced for a later lookup/guidance step
+      empty given name is a genuine gap left for a later lookup or the user
       rather than a fabricated first name.
 
     Returns ``("", "")`` for an empty/whitespace-only name.
@@ -614,7 +614,7 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
 
     When the caller supplies neither ``givenName`` nor ``familyName`` in *hints*,
     a deterministic :func:`split_person_name` split of *name* is applied so EVERY
-    ``draft_person`` path (materialize / ReAct / guidance / direct) produces an
+    ``draft_person`` path (a ReAct tool call or a direct call) produces an
     ISA-shaped Person — the ISA profile REQUIRES a non-empty ``schema:givenName``.
     Splitting a name is descriptive parsing, not identifier fabrication, so it is
     D5-safe. An explicit ``givenName`` / ``familyName`` the caller passes is

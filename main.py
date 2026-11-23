@@ -83,7 +83,7 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
 
     The interactive INFO bump is for *our* progress lines only. Promoting the
     root logger to INFO would otherwise unleash the noisy third-party libraries
-    (notably ``httpx``, which logs every request at INFO), drowning each guidance
+    (notably ``httpx``, which logs every request at INFO), drowning each
     question under per-request spam. So when the bump -- and only the bump --
     raises the level to INFO, the noisy third-party loggers are pinned to WARNING
     while ``builder.*`` / ``__main__`` stay at INFO. A user who explicitly asked
@@ -107,7 +107,7 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
     # The interactive bump promotes the root logger to INFO; keep that for our
     # own loggers but silence the per-request chatter from third-party HTTP/SDK
     # libraries (httpx logs every "HTTP Request: POST .../chat/completions" at
-    # INFO, burying each guidance question). Only do this for the bump -- never
+    # INFO, burying each question). Only do this for the bump -- never
     # when the user explicitly requested verbosity via -v / -vv.
     if interactive_bump:
         for noisy in ("httpx", "httpcore", "openai"):
@@ -520,13 +520,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.smoke_test:
         from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE
 
-        # NOTE: this used to refuse the ReAct arm outright, because the ReAct
-        # loop read its conversation straight off stdin
+        # NOTE: this used to refuse the ReAct loop outright, because the loop
+        # read its conversation straight off stdin
         # (builder.agents.ui.boxed_input) with no HumanInterface in the path, so a
         # synthetic interface had nothing to answer and the run sat on an empty
         # terminal. That read now goes through the interface when the answers are
         # synthetic (agent_loop, CONVERSATION_FIELD_TYPE), and a spent budget ends
-        # the session the way Ctrl+D does — so the arm this mode most needs to
+        # the session the way Ctrl+D does — so the build this mode exists to
         # exercise unattended is reachable rather than refused.
         # Say it FIRST, before the build spends a token: if this mode was engaged
         # by accident, the very first thing on screen must be that nobody is
@@ -535,8 +535,8 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(args.smoke_test, float):
             # Said in minutes because that is what was asked for, and said as
             # "winds down at its next question" because that is what happens: the
-            # deadline is read between gaps / between turns, never mid-question,
-            # so a long turn overruns it rather than being cut in half.
+            # deadline is read between turns, never mid-question, so a long turn
+            # overruns it rather than being cut in half.
             print(
                 f"Running for about {args.smoke_test:g} minute(s), then winding "
                 "down at the next question and exporting."

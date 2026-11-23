@@ -301,7 +301,7 @@ class TestCriterion6dReadsTheFileClassification:
         )
 
     def test_a_session_saved_before_the_classification_still_counts(self) -> None:
-        """The spine used to stamp ``raw_data``/``processed_data`` on every File.
+        """Older builds stamped ``raw_data``/``processed_data`` on every File.
 
         Those sessions resume without re-running discovery, so their crates carry
         the retired spelling forever. Read as a class it matches neither tier and

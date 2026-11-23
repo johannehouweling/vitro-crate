@@ -116,7 +116,7 @@ class TestScanFiles:
         Pre-fix this FAILS: ``.xlsx`` is a zip/OLE2 container, so the scanner's
         ``read_file_sample(already_text=False)`` path hits the NUL-byte binary
         guard and returns ``None``, leaving ``first_rows`` unset — which forces
-        every .xlsx down the budget-consuming body-read path in ``_gather_context``.
+        every .xlsx down a budget-consuming body read.
         The fix routes genuinely tabular office formats through the proper Excel
         reader so the cheap preview is captured.
         """

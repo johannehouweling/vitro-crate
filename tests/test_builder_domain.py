@@ -757,9 +757,9 @@ class TestOntologyAnnotations:
 
         ``_wire_mention`` emits a mention only for a resolvable entity, an inline
         ``{"@id": …}`` or a bare IRI, so a depositor's words ("Mitochondrial
-        dysfunction") are dropped without a trace. This is why the guidance tail
-        resolves such an answer through ``link_assay_to_key_event`` instead of
-        committing it: a literal commit would report success and lose the answer.
+        dysfunction") are dropped without a trace. This is why such an answer is
+        resolved through ``link_assay_to_key_event`` instead of committed: a
+        literal commit would report success and lose the answer.
         Keep the absence asserted — "fixing" this by keeping literals would put an
         unresolvable string into the exported crate.
         """
