@@ -2049,8 +2049,8 @@ nothing is reconstructed from a crate's `ro-crate-metadata.json`.
 HITL requests go through a `HumanInterface` protocol (`builder/tools/hitl.py`)
 injected into the engine via `AgentEngine(human_interface=...)`. It defines
 `present(context, options) → HumanResponse` and `request_input(prompt,
-field_type) → InputResponse`. The default `SimulatedHumanInterface`
-auto-approves and skips input for headless/batch runs; a frontend (Streamlit,
+field_type) → InputResponse`. The default `SimulatedHumanInterface` answers
+nothing for headless runs; a frontend (Streamlit,
 FastAPI, CLI) supplies its own adapter without monkeypatching the tool
 functions. The module-level `present_to_human` / `request_input` functions
 remain as thin wrappers over a shared default simulator.
@@ -2059,7 +2059,7 @@ Three implementations ship in `builder/tools/hitl.py`:
 
 | Interface | `is_interactive` | Wired by | Answers with |
 | --- | --- | --- | --- |
-| `SimulatedHumanInterface` | `False` | the headless default (batch, eval, tests) | auto-approve; skip every input; **deny** scan roots |
+| `SimulatedHumanInterface` | `False` | the headless default (`--unattended`, eval, tests) | nothing: every question is left unanswered; **deny** scan roots |
 | `ConsoleHumanInterface` | `True` | `main.py --interactive` | a real person, on stdin |
 | `SmokeTestHumanInterface` | `True` | `main.py --smoke-test` | itself — see below |
 
@@ -2088,8 +2088,6 @@ exercise them. Four rules bind the harness; the mechanism lives in the docstring
   not declare `synthesizes_answers` is assumed to be relaying a real person).
   Nothing is written **into** the crate — a "this was a smoke test" marker in the
   metadata would be fabricating metadata, which D5 forbids.
-- **`select_many` skips rather than picking a subset.** A multi-select has no
-  pre-selection to confirm, so choosing one would be inventing an answer.
 - **The conversation is bounded.** The ReAct loop's conversational "what next?"
   read goes through the `HumanInterface` (`CONVERSATION_FIELD_TYPE`) when the
   answers are synthetic, so the harness answers it for a bounded number of turns
@@ -2098,6 +2096,21 @@ exercise them. Four rules bind the harness; the mechanism lives in the docstring
   never mid-question — and the crate it has is exported.
 
 `--smoke-test` implies `--interactive` (normalised once, in `parse_args`).
+
+**`--unattended` builds with nobody at the keyboard.** It runs the same loop
+behind the headless `SimulatedHumanInterface`, with `interactive=False` and the
+`UNATTENDED_INSTRUCTION` (`builder/agents/build.py`), which tells the agent that
+nobody answers. A question it asks anyway comes back unanswered: nothing is
+approved, chosen or typed on a person's behalf (D5), so what the deposit and the
+lookups do not state stays empty and remains a finding in the maturity report.
+The engine keeps each such question on `CrateState.unanswered_questions`, saved
+with the session; the brief of a later session lists them, and a person's answer
+closes each one (`record_user_answer`). A person who skips a question at the
+keyboard has answered it, so nothing is kept then. The run ends with the export
+(the finish backstop), says how many questions went unanswered and how to answer
+them (`--resume <id> --interactive`), and exits 1 when no crate was written. It
+needs `--input` or `--resume`, and is not combined with `--interactive` or
+`--smoke-test`.
 
 ## 9. Input & Output Formats
 
@@ -2314,7 +2327,7 @@ The `scan_files` tool is restricted to directories the user has explicitly appro
 - The engine always passes a concrete allowlist (an empty `set()`, never `None`); the scanner refuses (returns `[]` without walking) whenever `approved_roots` is `None` or empty. `None` must never be reintroduced as the "no roots" value — a nullable allowlist is what a reader treats as "no guard".
 - The agent's own `scan_files` call can **never** add a root, and no path is auto-approved by being the first one scanned. Roots enter the allowlist only from a user-provided input path or a real approval.
 - A hard denylist (`scanner._is_forbidden_root`) refuses `/`, the user's home directory itself, `/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, and `/Volumes` even if explicitly present in `approved_roots`; it is also enforced in `engine._directory_to_approve` so a forbidden directory can never *become* an approved root. Legitimate subdirectories are unaffected.
-- `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (benign checkpoints still auto-approve).
+- `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (every other question it leaves unanswered).
 - `SmokeTestHumanInterface` (`--smoke-test`) is `is_interactive = True`, so unlike the simulator it *does* reach the `present` escalation — and **refuses a `scan_root` purpose outright, before any choice is consulted**. That refusal is stated in the class itself and deliberately *not* inherited from the console frontend's `deny_by_default` pre-selection: `_default_choice_index` falls back to the LAST option when no choice reads as a refusal, so a caller offering `["Show me the folder first", "Yes, allow this folder"]` turned the inherited rule into an approval. **An unattended mode must never be the approver for filesystem access**, so it is stated directly rather than inherited from a rule written for a human at a keyboard; `tests/test_smoke_test_mode.py` pins it, including the case where no option reads as a refusal.
 - The eval is **no** exception: the measured build meets the corpus behind the production `SimulatedHumanInterface`, and `eval/tests/test_headless_engine.py` asserts that its interface does not report `is_interactive`. An eval-only interface must never claim `is_interactive = True`: beyond letting a scan-root escalation be approved, that signal also un-gates the ReAct loop's RECOMMENDED/OPTIONAL validation escalation, so a measured build would silently pay for extra full SHACL sweeps.
 
