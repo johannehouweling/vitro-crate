@@ -36,9 +36,10 @@ class TestSimulatedHumanInterface:
     def test_satisfies_human_interface_protocol(self):
         assert isinstance(SimulatedHumanInterface(), HumanInterface)
 
-    def test_present_returns_approved_human_response(self):
+    def test_present_leaves_a_checkpoint_unanswered(self):
+        """Nobody is there, so nothing is approved on anyone's behalf (D5)."""
         resp = SimulatedHumanInterface().present("Review investigation")
-        assert resp == {"action": "approved", "comments": None, "edits": None}
+        assert resp == {"action": "skipped", "comments": None, "edits": None}
 
     def test_request_input_returns_skipped_input_response(self):
         resp = SimulatedHumanInterface().request_input("DOI?", "identifier")
@@ -52,10 +53,9 @@ class TestSimulatedHumanInterface:
         )
         assert resp["action"] == "rejected"
 
-    def test_present_still_approves_benign_checkpoints(self):
-        """Non-scan-root checkpoints keep the convenient auto-approve behaviour."""
-        resp = SimulatedHumanInterface().present("Review investigation", purpose="entity_review")
-        assert resp["action"] == "approved"
+    def test_present_chooses_none_of_the_options(self):
+        resp = SimulatedHumanInterface().present("Which line?", ["H4", "H-4"], purpose="entity_review")
+        assert resp["action"] == "skipped"
 
 
 class TestConsoleHumanInterface:
@@ -188,7 +188,7 @@ class TestBackwardCompatibleFunctions:
 
     def test_present_to_human_delegates_to_default_simulator(self):
         assert present_to_human("ctx", ["Approve"]) == {
-            "action": "approved",
+            "action": "skipped",
             "comments": None,
             "edits": None,
         }
@@ -235,7 +235,7 @@ class TestEngineHumanInterfaceInjection:
     def test_run_tool_present_defaults_to_simulated_when_not_injected(self):
         engine = AgentEngine()
         result = engine.run_tool("present_to_human", context="Review")
-        assert result == {"action": "approved", "comments": None, "edits": None}
+        assert result == {"action": "skipped", "comments": None, "edits": None}
 
 
 class TestConsoleAnimationSuspension:
@@ -426,7 +426,7 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
         )
         assert human.present("Proceed?") == {"action": "skipped", "comments": None, "edits": None}
 
-    def test_eof_in_the_box_is_a_skip_that_ends_guidance(self):
+    def test_eof_in_the_box_is_a_skip(self):
         def _raise(_ft: str) -> str:
             raise EOFError
 
@@ -434,55 +434,17 @@ class TestPresentLetsTheUserTypeTheirOwnAnswer:
             select_func=lambda choices, _default, _keys: len(choices) - 1, prompt_func=_raise
         )
         assert human.present("Proceed?")["action"] == "skipped"
-        assert human.is_done()
 
-    def test_a_typed_stop_word_ends_guidance(self):
+    def test_a_typed_stop_word_is_a_skip(self):
         human = ConsoleHumanInterface(
             select_func=lambda choices, _default, _keys: len(choices) - 1,
             prompt_func=lambda _ft: "build",
         )
         assert human.present("Proceed?")["action"] == "skipped"
-        assert human.is_done()
 
-    def test_ctrl_d_in_a_guidance_box_ends_guidance(self):
-        """#813: Ctrl+D takes the place of a stop row; the box raises EOFError, as input() does."""
-        from builder.tools.hitl import GUIDANCE_PURPOSE
-
-        def _ctrl_d(_choices: list[str], _default: int, _keys: str | None) -> int:
-            raise EOFError
-
-        human = ConsoleHumanInterface(select_func=_ctrl_d)
-        resp = human.present("Duration?", ["2 h  (from SOP.docx)"], GUIDANCE_PURPOSE)
-        assert resp["action"] == "skipped"
-        assert human.is_done()
-
-    def test_esc_in_a_guidance_box_skips_and_elsewhere_still_declines(self):
-        """#813: Esc takes the place of a skip row."""
-        from builder.tools.hitl import GUIDANCE_PURPOSE
-
+    def test_esc_declines(self):
         human = ConsoleHumanInterface(select_func=lambda _choices, _default, _keys: None)
-        resp = human.present("Duration?", ["2 h  (from SOP.docx)"], GUIDANCE_PURPOSE)
-        assert resp["action"] == "skipped"
-        assert not human.is_done()
         assert human.present("Proceed?")["action"] == "rejected"
-
-    def test_a_guidance_box_names_its_keys_and_other_boxes_keep_their_own(self):
-        from builder.tools.hitl import GUIDANCE_PURPOSE
-
-        shown: list[str | None] = []
-
-        def fake_select(_choices: list[str], default: int, keys: str | None) -> int:
-            shown.append(keys)
-            return default
-
-        human = ConsoleHumanInterface(select_func=fake_select)
-        human.present("Duration?", ["2 h  (from SOP.docx)"], GUIDANCE_PURPOSE)
-        human.present("Proceed?")
-
-        guidance_keys, other_keys = shown
-        assert guidance_keys is not None
-        assert "esc skip" in guidance_keys and "ctrl+d build now" in guidance_keys
-        assert other_keys is None
 
     def test_a_scan_root_escalation_stays_a_plain_allow_or_deny(self):
         """Widening filesystem access is one fail-closed decision, never prose (#197)."""
@@ -579,7 +541,11 @@ class TestPresentToHumanAsksSeveralQuestionsInTurn:
         assert engine.state.user_answers == []
 
     def test_a_yes_no_question_with_no_comment_reports_the_decision(self):
-        engine = AgentEngine()  # the simulated interface approves every choice
+        class _Yes(SimulatedHumanInterface):
+            def present(self, context, options=None, purpose=None):
+                return {"action": "approved", "comments": None, "edits": None}
+
+        engine = AgentEngine(human_interface=_Yes())
 
         result = engine.run_tool(
             "present_to_human",

@@ -102,36 +102,10 @@ class InputResponse(TypedDict):
     skipped: bool
 
 
-class MultiChoiceResponse(TypedDict):
-    """Response from asking a human to pick ANY NUMBER of options.
-
-    Distinct from :class:`HumanResponse` because the answer is a set, not a
-    decision: "which of these entities should reference this organization?" can
-    truthfully be answered with three of them, and a single-choice prompt forces
-    the asker to either pick one wrongly or invent a link. ``values`` is empty
-    when the user selected nothing.
-
-    Attributes:
-        values: The options the user selected, in the order they were offered.
-        skipped: True if the user declined to answer at all (distinct from
-            selecting nothing, which is a deliberate "none of these").
-    """
-
-    values: list[str]
-    skipped: bool
-
-
 # Sentinel ``purpose`` value marking a request to approve a NEW filesystem
 # scan root. The default/simulated interface must DENY these — it can never be
 # the approver for filesystem access (fail-closed, #197).
 SCAN_ROOT_PURPOSE = "scan_root"
-
-# ``purpose`` of a guidance question (#813). Its rows are answers only: the
-# console skips the question on Esc or Ctrl+D (Ctrl+D also sets
-# ``ConsoleHumanInterface.is_done``), and names both keys on the box's help line
-# (:data:`_GUIDANCE_KEYS`).
-GUIDANCE_PURPOSE = "guidance"
-_GUIDANCE_KEYS = "esc skip · ctrl+d build now"
 
 
 @runtime_checkable
@@ -169,20 +143,14 @@ class HumanInterface(Protocol):
         """Request a specific input value from the human."""
         ...
 
-    # `select_many` is deliberately NOT declared here. Like `is_interactive`, it
-    # is an OPTIONAL capability: requiring it would break every existing adapter
-    # and test double the moment it was added. Callers must go through
-    # :func:`select_many`, which detects support and degrades to a single-choice
-    # prompt on frontends that do not offer one.
-
 
 class SimulatedHumanInterface:
-    """Default non-interactive interface: auto-approves and skips input.
+    """The interface of a run nobody answers: it decides nothing.
 
-    Reproduces the previous stub behaviour so headless/batch runs proceed
-    without blocking on a real user — EXCEPT for scan-root escalations, which
-    it denies: the simulator can never be the approver for filesystem access
-    (fail-closed, #197).
+    Every question comes back unanswered — no approval, no choice, no value — so
+    a headless or unattended run never acts on an answer nobody gave (D5). A
+    scan-root escalation is refused: the simulator can never be the approver for
+    filesystem access (fail-closed, #197).
 
     ``is_interactive`` is ``False`` — this is the headless default, so behind it
     the build (AGENTS.md §4.4.6) never waits on an answer nobody can give: a
@@ -198,10 +166,9 @@ class SimulatedHumanInterface:
         options: list[str] | None = None,
         purpose: str | None = None,
     ) -> HumanResponse:
-        """Log the presentation and return a simulated decision.
+        """Log the presentation and leave it unanswered.
 
-        Benign checkpoints (entity review, etc.) auto-approve as before. A
-        scan-root escalation (``purpose == "scan_root"``) is DENIED — the
+        A scan-root escalation (``purpose == "scan_root"``) is refused — the
         non-interactive default must not silently widen filesystem access.
         """
         logger.info("HITL presentation: %s", context)
@@ -213,28 +180,12 @@ class SimulatedHumanInterface:
                 context,
             )
             return {"action": "rejected", "comments": None, "edits": None}
-        return {"action": "approved", "comments": None, "edits": None}
+        return {"action": "skipped", "comments": None, "edits": None}
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Log the request and return a skip response."""
         logger.info("HITL input request: %s (type=%s)", prompt, field_type)
         return {"value": None, "skipped": True}
-
-    def select_many(
-        self,
-        context: str,
-        options: list[str],
-        purpose: str | None = None,
-    ) -> MultiChoiceResponse:
-        """Log the request and skip — the simulator never picks on a user's behalf.
-
-        Declared (rather than left to the degrade path) so a headless run does
-        not fall through to :meth:`present`, whose auto-approval would look like
-        the user having chosen the first option.
-        """
-        logger.info("HITL multi-choice request: %s (%d options)", context, len(options or []))
-        return {"values": [], "skipped": True}
-
 
 def _default_console_prompt(field_type: str) -> str:
     """Plain-terminal input reader — the default when no UI box is injected.
@@ -379,29 +330,6 @@ def _default_console_select(
     return match_choice(raw, choices, default)
 
 
-def _default_console_select_many(context: str, choices: list[str]) -> list[int] | None:
-    """Plain-terminal many-of-N chooser — the default when no UI box is injected.
-
-    Reads one line of numbers (comma- or space-separated); an empty line means
-    "none of these", which is a real answer rather than a cancel. The CLI injects
-    the checkbox box (:func:`builder.agents.ui.select_options`) instead.
-    """
-    print(context)
-    for index, choice in enumerate(choices, start=1):
-        print(f"   {index}. {choice}")
-    try:
-        raw = input(f"Select any [1-{len(choices)}, comma-separated; Enter = none]: ")
-    except EOFError:
-        return None
-    picked: list[int] = []
-    for token in raw.replace(",", " ").split():
-        if token.isdigit() and 1 <= int(token) <= len(choices):
-            position = int(token) - 1
-            if position not in picked:
-                picked.append(position)
-    return picked
-
-
 class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
@@ -436,7 +364,6 @@ class ConsoleHumanInterface:
         prompt_func: Callable[[str], str] | None = None,
         show_func: Callable[[str], None] | None = None,
         select_func: Callable[[list[str], int, str | None], int | None] | None = None,
-        select_many_func: Callable[[str, list[str]], list[int] | None] | None = None,
     ) -> None:
         """Build the interface, optionally injecting the prompt reader + display.
 
@@ -457,25 +384,12 @@ class ConsoleHumanInterface:
                 The CLI passes the arrow-navigable rounded box
                 (:func:`builder.agents.ui.select_option`), so a decision and a
                 free-text answer look like the same control.
-            select_many_func: A ``(hint, choices) -> indices | None`` chooser used
-                by :meth:`select_many` for questions with several right answers
-                at once. Defaults to :func:`_default_console_select_many`
-                (numbered lines, comma-separated reply). The CLI passes the
-                checkbox box (:func:`builder.agents.ui.select_options`).
         """
         self._read: Callable[[str], str] = prompt_func or _default_console_prompt
         self._show: Callable[[str], None] = show_func or _default_console_show
         self._select: Callable[[list[str], int, str | None], int | None] = (
             select_func or _default_console_select
         )
-        self._select_many: Callable[[str, list[str]], list[int] | None] = (
-            select_many_func or _default_console_select_many
-        )
-        self._done = False
-
-    def is_done(self) -> bool:
-        """Whether the user asked to stop answering: Ctrl+D, EOF, or a stop word."""
-        return self._done
 
     @staticmethod
     def _is_stop_command(value: str) -> bool:
@@ -512,9 +426,7 @@ class ConsoleHumanInterface:
         caller that only knows its offered rows sees neither an approval nor a
         rejection it was not given. An empty line there is a skip.
 
-        A :data:`GUIDANCE_PURPOSE` question offers answers only (#813): Esc or
-        Ctrl+D skips it, and the box's help line names both keys. Anywhere else
-        either declines. Ctrl+D also sets :meth:`is_done`, whatever the purpose.
+        Esc or Ctrl+D declines.
 
         Fail-closed is preserved for a scan-root escalation: its default lands on
         the denying choice, so an accidental Enter never widens filesystem
@@ -523,7 +435,6 @@ class ConsoleHumanInterface:
         because widening access is a decision, not prose (#197).
         """
         deny_by_default = purpose == SCAN_ROOT_PURPOSE
-        guidance = purpose == GUIDANCE_PURPOSE
         choices = list(options or [])
         if not choices:
             choices = _DENY_ALLOW_CHOICES if deny_by_default else _APPROVE_CHOICES
@@ -539,10 +450,9 @@ class ConsoleHumanInterface:
         with suspend_console_animation():
             self._show(context)
             try:
-                chosen = self._select(choices, default_index, _GUIDANCE_KEYS if guidance else None)
+                chosen = self._select(choices, default_index, None)
             except EOFError:
-                # Ctrl+D: the user is done answering, as EOF is in the text box.
-                self._done = True
+                # Ctrl+D: no answer, as EOF is in the text box.
                 chosen = None
             if own_answer and chosen == len(choices) - 1:
                 typed = self._read_answer("text")
@@ -551,43 +461,13 @@ class ConsoleHumanInterface:
                 return {"action": "edited", "comments": typed, "edits": {"value": typed}}
 
         if chosen is None:
-            # Esc or Ctrl+D: a guidance question is skipped; anything else
-            # declines, failing closed.
-            action = "skipped" if guidance else "rejected"
-            return {"action": action, "comments": None, "edits": None}
+            # Esc or Ctrl+D declines, failing closed.
+            return {"action": "rejected", "comments": None, "edits": None}
         answer = choices[chosen]
         if self._is_stop_command(answer):
-            self._done = True
             return {"action": "skipped", "comments": None, "edits": None}
 
         return _decision_from_choice(answer, deny_by_default=deny_by_default)
-
-    def select_many(
-        self,
-        context: str,
-        options: list[str],
-        purpose: str | None = None,
-    ) -> MultiChoiceResponse:
-        """Ask for any number of *options* at once (see :func:`select_many`).
-
-        Confirming with nothing ticked is a real answer — "none of these" — and
-        returns empty values with ``skipped`` False. Cancelling (Esc / EOF) is
-        the skip. A scan-root escalation never routes here: widening filesystem
-        access is a single fail-closed decision, not a pick-list.
-        """
-        if purpose == SCAN_ROOT_PURPOSE:
-            return {"values": [], "skipped": True}
-        choices = [c for c in (options or []) if c]
-        if not choices:
-            return {"values": [], "skipped": True}
-        with suspend_console_animation():
-            picked = self._select_many(context, choices)
-        if picked is None:
-            return {"values": [], "skipped": True}
-        return {
-            "values": [choices[i] for i in picked if 0 <= i < len(choices)],
-            "skipped": False,
-        }
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Prompt the user for a value; an empty answer (or EOF) is a skip.
@@ -605,18 +485,12 @@ class ConsoleHumanInterface:
         return {"value": value, "skipped": False}
 
     def _read_answer(self, field_type: str) -> str | None:
-        """One line from the box; ``None`` is a skip — empty, EOF, or a stop word.
-
-        EOF and a stop word also set :meth:`is_done`: a closed stdin will never
-        answer anything else, and "build" means build.
-        """
+        """One line from the box; ``None`` is a skip — empty, EOF, or a stop word."""
         try:
             value = self._read(field_type).strip()
         except EOFError:
-            self._done = True
             return None
         if self._is_stop_command(value):
-            self._done = True
             return None
         return value or None
 
@@ -692,8 +566,7 @@ class SmokeTestHumanInterface:
     taking the answer an Enter would give; picking row 1 of a list of candidate
     people is *inventing* one. The only such menu in the tree is the ambiguous
     -author escalation, where answering it would have this mode silently
-    asserting which human wrote a paper — the same line :meth:`select_many`
-    declines to cross.
+    asserting which human wrote a paper.
     """
 
     is_interactive: bool = True
@@ -777,9 +650,7 @@ class SmokeTestHumanInterface:
         affirmatively forever is an infinite run spending a model call per turn.
         After :data:`SMOKE_TEST_CONVERSATION_TURNS` the answer becomes a skip,
         which the loop reads as end-of-input and finalises on — the same ending
-        Ctrl+D gives, so the crate is still exported. Budget exhaustion is
-        deliberately NOT ``is_done()``: that answers a different question (does
-        the user want to stop answering?) whose honest answer here stays "no".
+        Ctrl+D gives, so the crate is still exported.
 
         The citation-author path's ORCID prompt is safe to answer this way: it
         re-verifies any pasted ORCID against a real lookup before use (D5).
@@ -812,46 +683,6 @@ class SmokeTestHumanInterface:
         )
         return {"value": SMOKE_TEST_ANSWER, "skipped": False}
 
-    def select_many(
-        self,
-        context: str,
-        options: list[str],
-        purpose: str | None = None,
-    ) -> MultiChoiceResponse:
-        """Skip — a multi-select has no pre-selection to confirm.
-
-        Nothing is pre-ticked in a many-of-N box, so there is no "the answer an
-        Enter would give" to stand in for; picking some subset would be this mode
-        inventing an answer rather than taking the offered one, which is the line
-        :class:`SimulatedHumanInterface` also declines to cross. Declared (not
-        left to the degrade path in :func:`select_many`) so the question does not
-        fall through to :meth:`present`, whose pre-selection would look like the
-        user having deliberately ticked the first box.
-        """
-        logger.info(
-            "smoke-test: skipping multi-choice request: %s (%d options)",
-            context,
-            len(options or []),
-        )
-        return {"values": [], "skipped": True}
-
-    def is_done(self) -> bool:
-        """Report done only once a wall-clock budget has been spent.
-
-        Without one this is always ``False``, and deliberately so: the honest
-        answer to the question this method asks — "does the user want to stop
-        now?" — is "no" for a harness that answers everything. An unbudgeted run
-        is bounded instead by the conversation turn count and the loop's own
-        guards.
-
-        A ``--smoke-test 20`` run is the exception, because the user said so up
-        front, in minutes. The session itself ends at the conversational prompt
-        (:meth:`request_input`), between turns, so the crate is exported with
-        whatever was answered, never mid-question.
-        """
-        return self._time_is_up()
-
-
 def answers_are_synthetic(human: HumanInterface | None) -> bool:
     """Whether *human* makes its answers up instead of asking a person.
 
@@ -862,58 +693,6 @@ def answers_are_synthetic(human: HumanInterface | None) -> bool:
     the exported crate path.
     """
     return bool(getattr(human, "synthesizes_answers", False))
-
-
-def supports_multi_choice(human: HumanInterface | None) -> bool:
-    """Whether *human* can take a many-of-N answer natively."""
-    return callable(getattr(human, "select_many", None))
-
-
-def select_many(
-    human: HumanInterface | None,
-    context: str,
-    options: list[str],
-    *,
-    purpose: str | None = None,
-) -> MultiChoiceResponse:
-    """Ask *human* to pick any number of *options* — none, one, or several.
-
-    Some questions genuinely have several right answers at once. Forcing them
-    through the single-choice prompt makes the asker choose between recording
-    one of the true answers or none, and an agent that needs "which of these
-    does this apply to?" has no way to say "these three".
-
-    Frontends that implement ``select_many`` answer natively. Anything else —
-    including every adapter written before this existed — degrades to the
-    single-choice :meth:`~HumanInterface.present` prompt, whose one answer is
-    returned as a one-element list. Degrading is why this is a function rather
-    than a Protocol method: the capability is optional, and callers should not
-    have to ask which frontend they are talking to.
-
-    A ``None`` interface (headless) skips, consistent with :func:`is_interactive`
-    being fail-closed.
-    """
-    choices = [c for c in (options or []) if c]
-    if human is None or not choices:
-        return {"values": [], "skipped": True}
-
-    native = getattr(human, "select_many", None)
-    if callable(native):
-        result = native(context, choices, purpose)
-        # Trust the frontend's answer but never its bookkeeping: an option the
-        # user did not have on offer must not enter the crate.
-        offered = set(choices)
-        values = [v for v in (result.get("values") or []) if v in offered]
-        return {"values": values, "skipped": bool(result.get("skipped")) and not values}
-
-    response = human.present(context, choices, purpose)
-    if response.get("action") not in ("approved", "edited"):
-        return {"values": [], "skipped": True}
-    answer = response.get("comments")
-    return {"values": [answer], "skipped": False} if answer in choices else {
-        "values": [],
-        "skipped": True,
-    }
 
 
 def is_interactive(human: HumanInterface | None) -> bool:
@@ -960,7 +739,6 @@ def request_input(
 
 __all__ = [
     "CONVERSATION_FIELD_TYPE",
-    "GUIDANCE_PURPOSE",
     "OWN_ANSWER_CHOICE",
     "SCAN_ROOT_PURPOSE",
     "SMOKE_TEST_ANSWER",
@@ -970,7 +748,6 @@ __all__ = [
     "HumanInterface",
     "HumanResponse",
     "InputResponse",
-    "MultiChoiceResponse",
     "SimulatedHumanInterface",
     "SmokeTestHumanInterface",
     "answers_are_synthetic",
@@ -978,6 +755,4 @@ __all__ = [
     "is_interactive",
     "present_to_human",
     "request_input",
-    "select_many",
-    "supports_multi_choice",
 ]

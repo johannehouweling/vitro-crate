@@ -61,6 +61,7 @@ class TestStateSerializerOutput:
             "checkpoint",
             "validation_preferences",
             "user_answers",
+            "unanswered_questions",
             "dsm_answers",
             "deposit_structure",
             "generator",

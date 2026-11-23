@@ -28,7 +28,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ARCHITECTURE", "DEFAULT_INSTRUCTION", "read_deposit_structure", "run_build"]
+__all__ = [
+    "ARCHITECTURE",
+    "DEFAULT_INSTRUCTION",
+    "UNATTENDED_INSTRUCTION",
+    "read_deposit_structure",
+    "run_build",
+]
 
 # Default no-op output channel: discard. The CLI passes ``print`` (or a console
 # writer); tests pass a list's ``append`` to capture the surfaced line.
@@ -38,6 +44,15 @@ OutputChannel = Callable[[str], Any]
 # What a run started on an input folder is told first, unless --prompt says
 # otherwise: a folder on the command line already says what to do (#846).
 DEFAULT_INSTRUCTION = "Build the crate and validate it."
+
+# What an unattended run (``--unattended``) is told: nobody answers, so the agent
+# builds from what the deposit and the lookups state and leaves the rest open.
+UNATTENDED_INSTRUCTION = (
+    "Build the crate and validate it. Nobody is at the keyboard in this run, so a "
+    "question to the user gets no answer: do not ask one. Use what the deposit and "
+    "the lookups state, leave anything else empty (it stays a finding in the "
+    "report), and finish by exporting the crate."
+)
 
 # The build named on the generator record (#772): the ReAct loop.
 ARCHITECTURE = "react"

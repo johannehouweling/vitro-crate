@@ -1398,6 +1398,9 @@ class CrateState:
     # asked who owns the dataset three times and was answered twice. State is
     # the durable half of the session, so answers belong here.
     user_answers: list[dict[str, str]] = field(default_factory=list)
+    # Questions the agent asked when nobody could answer (an unattended run),
+    # kept so a later interactive session can put them to a person.
+    unanswered_questions: list[str] = field(default_factory=list)
 
     # The DSM verdicts for the deposit AS RECEIVED — the published sheet's
     # The depositor's answers to the DSM indicators no crate can evidence — the twenty
@@ -1507,6 +1510,20 @@ class CrateState:
         self.user_answers = [item for item in self.user_answers if item.get("question") != q]
         self.user_answers.append({"question": q, "answer": a})
         del self.user_answers[:-limit]
+        self.unanswered_questions = [item for item in self.unanswered_questions if item != q]
+
+    def record_unanswered_question(self, question: str, *, limit: int = 20) -> None:
+        """Keep a question nobody could answer, for a person to answer later.
+
+        Asked again, it is kept once; bounded to the most recent *limit*, like
+        the answers. An answer given later (:meth:`record_user_answer`) closes it.
+        """
+        q = " ".join(str(question).split())[:300]
+        if not q:
+            return
+        self.unanswered_questions = [item for item in self.unanswered_questions if item != q]
+        self.unanswered_questions.append(q)
+        del self.unanswered_questions[:-limit]
 
     def stamp_generator(self) -> GeneratorInfo:
         """Finalise the generator record for export: identity, timing, cost.
@@ -1830,6 +1847,7 @@ class StateSerializer:
             "checkpoint": cls._encode(state.checkpoint),
             "validation_preferences": dict(state.validation_preferences),
             "user_answers": [dict(a) for a in state.user_answers],
+            "unanswered_questions": list(state.unanswered_questions),
             "dsm_answers": dict(state.dsm_answers),
             "deposit_structure": state.deposit_structure,
             "iteration_count": state.iteration_count,
@@ -1888,6 +1906,9 @@ class StateSerializer:
                 {"question": str(a.get("question", "")), "answer": str(a.get("answer", ""))}
                 for a in (data.get("user_answers") or [])
                 if isinstance(a, dict)
+            ],
+            unanswered_questions=[
+                str(q) for q in (data.get("unanswered_questions") or []) if str(q).strip()
             ],
             # bool only: a hand-edited session must not smuggle "yes" in as a pass.
             dsm_answers={

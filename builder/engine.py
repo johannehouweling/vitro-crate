@@ -1089,6 +1089,17 @@ class AgentEngine:
                 exc_info=True,
             )
 
+    def _keep_unanswered(self, question: str) -> None:
+        """Keep a question nobody could answer, for a later interactive session.
+
+        Only a run nobody answers keeps it: a person who skips a question has
+        answered it, by choosing not to.
+        """
+        from builder.tools.hitl import is_interactive
+
+        if not is_interactive(self.human_interface):
+            self.state.record_unanswered_question(question)
+
     def _ask_each(self, context: str, questions: list[Any]) -> dict[str, Any]:
         """Ask ``questions`` one at a time through the HITL door (#596).
 
@@ -1124,10 +1135,13 @@ class AgentEngine:
                 answer = str(decision.get("comments") or decision.get("action") or "")
                 if decision.get("action") != "skipped":
                     self.state.record_user_answer(question, answer)
+                else:
+                    self._keep_unanswered(question)
             else:
                 response = self.human_interface.request_input(shown, "text")
                 if response.get("skipped"):
                     answer = "skipped"
+                    self._keep_unanswered(question)
                 else:
                     answer = str(response.get("value") or "")
                     self.state.record_user_answer(question, answer)
@@ -1292,6 +1306,8 @@ class AgentEngine:
                 if isinstance(result, dict) and result.get("action") != "skipped":
                     spoken = result.get("comments") or result.get("action") or ""
                     self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
+                elif isinstance(result, dict):
+                    self._keep_unanswered(kwargs.get("context", ""))
         elif tool_name == "request_input":
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
@@ -1302,6 +1318,8 @@ class AgentEngine:
                 self.state.record_user_answer(
                     kwargs.get("prompt", ""), str(result.get("value") or "")
                 )
+            elif isinstance(result, dict):
+                self._keep_unanswered(kwargs.get("prompt", ""))
         elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
             # Prompt-once, children-only approval for a user-submitted folder

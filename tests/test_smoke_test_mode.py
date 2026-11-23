@@ -70,17 +70,11 @@ class TestConfirmsThePreSelection:
         assert resp["action"] == "approved"
 
     def test_draft_confirmation_approves(self):
-        """A draft-confirm prompt (a guidance question) offers a yes and a no sentence.
-
-        Confirming its pre-selection is what lets a drafted value commit — the
-        path the mode exists to walk.
-        """
-        from builder.tools.hitl import GUIDANCE_PURPOSE
-
+        """A draft-confirm prompt offers a yes and a no sentence; confirming its
+        pre-selection is what lets a drafted value commit."""
         resp = SmokeTestHumanInterface().present(
             "Drafted value: A study of uptake.",
             options=["Yes, use this value", "No, not this one"],
-            purpose=GUIDANCE_PURPOSE,
         )
         assert resp["action"] == "approved"
 
@@ -92,7 +86,7 @@ class TestConfirmsThePreSelection:
         row 1 would have this harness assert WHICH HUMAN wrote a paper, on the
         strength of candidate ordering. Confirming means taking the answer an
         Enter would give; there is no such answer in a list of people, so the mode
-        declines — the same line ``select_many`` refuses to cross.
+        declines.
         """
         options = ["Ada Lovelace — 0000-0001", "Ada Byron — 0000-0002", "None of these / skip"]
         resp = SmokeTestHumanInterface().present("Pick the correct one", options)
@@ -203,35 +197,6 @@ class TestOpenFieldsAndOptionalCapabilities:
         """A skip would give the asker nothing to act on, so the path an answered
         question drives would never run."""
         assert SmokeTestHumanInterface().request_input("Describe the assay")["skipped"] is False
-
-    def test_select_many_skips(self):
-        """Nothing is pre-ticked in a many-of-N box, so there is no pre-selection
-        to confirm; picking a subset would be inventing an answer."""
-        resp = SmokeTestHumanInterface().select_many(
-            "Which entities does this apply to?", ["Assay A", "Assay B"]
-        )
-        assert resp == {"values": [], "skipped": True}
-
-    def test_select_many_is_native_so_it_never_degrades_to_present(self):
-        """Routed through the shared helper, the answer must stay a skip.
-
-        Without a native ``select_many`` the helper degrades to ``present``, whose
-        pre-selection would come back looking like a deliberately ticked box.
-        """
-        from builder.tools.hitl import select_many, supports_multi_choice
-
-        human = SmokeTestHumanInterface()
-        assert supports_multi_choice(human) is True
-        assert select_many(human, "Which apply?", ["A", "B"]) == {"values": [], "skipped": True}
-
-    def test_is_done_is_always_false(self):
-        """Without a budget the mode never reports done — its honest answer to
-        "does the user want to stop?" is no. Termination is left to the turn count
-        and the loop's own guards."""
-        human = SmokeTestHumanInterface()
-        assert human.is_done() is False
-        assert human.is_done() is False  # and it never flips, however much is asked
-
 
 class TestIdentifiersAreNeverSynthesised:
     """D5: ``"yes, continue"`` must not be able to become a CAS or an ORCID."""
@@ -384,17 +349,6 @@ class TestTheWallClockBudget:
             "value": None,
             "skipped": True,
         }
-
-    def test_a_spent_clock_ends_guidance(self):
-        """A spent clock is the one case the mode reports done: the user said up
-        front, in minutes, when to stop."""
-        assert self._expired().is_done() is True
-
-    def test_without_a_budget_guidance_is_never_cut_short(self):
-        """The control: an unbudgeted smoke test never reports done, however much
-        is asked."""
-        assert SmokeTestHumanInterface().is_done() is False
-        assert SmokeTestHumanInterface(minutes=self.LIVE).is_done() is False
 
     def test_a_question_in_flight_is_still_answered(self):
         """"Winds down at the next question", not "stops mid-question". The loop
