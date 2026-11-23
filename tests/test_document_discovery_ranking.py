@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from builder.state import FileClassification
-from builder.tools.document_discovery import discover_documents, format_document_context
+from builder.tools.document_discovery import discover_documents
 
 FIXTURE = Path("tests/fixtures/svhps22_real_input")
 
@@ -128,14 +128,6 @@ class TestScoresDiscriminate:
         assert rich.score >= max(c.score for c in thin)
 
 
-class TestNothingIsDroppedSilently:
-    def test_the_context_says_how_much_it_left_out(self, ranked) -> None:
-        # A silent cap hid 34 of the fixture's files. Same rule the report follows:
-        # a cap that bites says how many it hid.
-        context = format_document_context(ranked, total_scanned=len(_scan()))
-        assert "not surfaced" in context or "not listed" in context, context[-400:]
-
-
 class TestItDoesNotKnowWhatBioStudiesIs:
     """The detector must not encode one repository's dialect (#587).
 
@@ -237,135 +229,6 @@ def _block_for(context: str, candidate, ranked) -> str:
     return context[start : min(later) if later else len(context)]
 
 
-class TestDataTablesContributeShapeNotRows:
-    """The model is told what a table IS, not what it contains (#587).
-
-    A language model deciding what the study is does not need measurement rows —
-    those are the deterministic readers' job. One CSV preview took 3080 of the
-    12 000-character budget to say what its header says in a line, and the
-    protocols describing how the experiment was run were cut for lack of room.
-    """
-
-    def test_a_data_table_contributes_its_shape_only(self, ranked) -> None:
-        context = format_document_context(ranked, total_scanned=99)
-        table = _by_path(ranked, MEASUREMENTS)
-        marker = f"[{table.kind}/{table.classification}] {table.relative_path}"
-        assert marker in context, "the table is not named in the context at all"
-
-        block = _block_for(context, table, ranked)
-        assert "data table" in block and "row(s)" in block
-        # Its header names the variables; its rows do not appear.
-        assert "test_substance_id" in block, block[:200]
-        assert "Amiodarone" not in block, "measurement rows reached the context"
-
-    def test_descriptive_files_still_contribute_their_text(self, ranked) -> None:
-        # The inverse must hold, or the fix is just a different kind of blindness.
-        context = format_document_context(ranked, total_scanned=99)
-        readme = _by_path(ranked, TOP_README)
-        block = _block_for(context, readme, ranked)
-        assert len(block) > 200, f"a README contributed almost nothing: {block!r}"
-
-    def test_the_budget_now_reaches_the_descriptive_files(self, ranked) -> None:
-        """The point of the change: prose is what was being starved."""
-        context = format_document_context(ranked, total_scanned=99)
-        present = [
-            c for c in ranked
-            if f"[{c.kind}/{c.classification}] {c.relative_path}" in context
-        ]
-        narrative = [c for c in present if c.kind == "narrative"]
-        assert len(narrative) >= 5, (
-            f"only {len(narrative)} descriptive files reached the context: "
-            f"{[c.relative_path for c in present]}"
-        )
-
-
-class TestNoOneFileCrowdsOutTheRest:
-    """Spending the budget in rank order let a long document delete cheap ones.
-
-    Every ``.docx`` protocol in this deposit previews as a paragraph count — a
-    couple of hundred characters — and they rank below the READMEs, which run to
-    ~2 500 each. Three READMEs exhausted the context and all five protocols
-    vanished from the listing: not shortened, never named, and the agent cannot
-    read a file it was not told exists. The share is max-min fair instead.
-    """
-
-    def test_every_ranked_candidate_is_named(self, ranked) -> None:
-        context = format_document_context(ranked, total_scanned=99)
-
-        missing = [
-            c.relative_path
-            for c in ranked
-            if f"[{c.kind}/{c.classification}] {c.relative_path}" not in context
-        ]
-
-        assert missing == [], f"{len(missing)} ranked file(s) never named: {missing}"
-
-    def test_the_cheap_entries_are_not_the_ones_cut(self, ranked) -> None:
-        """A protocol costs ~200 chars; it must never be dropped for a README."""
-        context = format_document_context(ranked, total_scanned=99)
-
-        protocols = [c for c in ranked if c.relative_path.lower().endswith(".docx")]
-
-        assert protocols, "the fixture must carry .docx protocols for this to mean anything"
-        for candidate in protocols:
-            block = _block_for(context, candidate, ranked)
-            assert block.strip(), f"{candidate.relative_path} was cut entirely"
-
-    def test_the_ceiling_still_holds(self, ranked) -> None:
-        """Fitting everything must not be achieved by spending without limit.
-
-        The ceiling moved from 12 000 to 18 000 with the slot cap (#595): at 40
-        slots the old budget squeezed the median entry from 433 characters to
-        302, and an entry that says less is the cost the issue warned about.
-        18 000 buys twice the files at their full size. What must not change is
-        that there IS a ceiling and the listing respects it.
-        """
-        from builder.tools.document_discovery import _MAX_CONTEXT_CHARS
-
-        context = format_document_context(ranked, total_scanned=99)
-
-        blocks = context.split("\n\n(")[0]
-
-        assert len(blocks) <= _MAX_CONTEXT_CHARS, len(blocks)
-
-    def test_a_block_too_small_to_name_its_file_is_not_written(self, ranked) -> None:
-        """Fairness cuts the other way at the bottom of the budget.
-
-        Split far enough, every share lands INSIDE the ``[kind/class] path``
-        header and the listing becomes a column of ``[nar […]`` — twenty entries
-        naming nothing, which is strictly worse than the rank-order spend this
-        replaced, since that at least bought one readable entry. The agent cannot
-        read a file it was not told exists, and half a header does not tell it.
-        No production caller passes a budget this small today; the guard is here
-        so none can.
-        """
-        for budget in (200, 600, 1_200, 2_000, 12_000):
-            context = format_document_context(ranked, max_chars=budget, total_scanned=99)
-            for candidate in ranked:
-                header = f"[{candidate.kind}/{candidate.classification}] {candidate.relative_path}"
-                truncated = [
-                    header[:n].rstrip() + " […]"
-                    for n in range(1, len(header))
-                    if header[:n].rstrip() + " […]" in context
-                ]
-
-                assert not truncated, (
-                    f"budget {budget}: emitted {truncated[0]!r}, which names no file"
-                )
-
-    def test_what_does_fit_is_still_emitted(self, ranked) -> None:
-        """Refusing the unnameable must not empty a budget that can afford some."""
-        context = format_document_context(ranked, max_chars=2_000, total_scanned=99)
-
-        named = sum(
-            1
-            for c in ranked
-            if f"[{c.kind}/{c.classification}] {c.relative_path}" in context
-        )
-
-        assert named, "a 2 000-char budget must still name somebody"
-
-
 class TestTheSlotsAreAllocatedByWhatTheFilesAre:
     """20 slots, four classes, and the ranking used to spend them on one axis (#595).
 
@@ -376,8 +239,7 @@ class TestTheSlotsAreAllocatedByWhatTheFilesAre:
     vanished: svhps26 named 14 interchangeable plate readouts and **zero** of
     its 8 GraphPad analysis files, each carrying a kilobyte of readable content.
 
-    Slots are now allocated the way `format_document_context` already allocates
-    its CHARACTERS — max-min fair, so no class can crowd out another — with two
+    Slots are allocated max-min fair, so no class can crowd out another, with two
     differences that measurement forced:
 
     - every class present takes a floor first, so a tier is never wholly absent;
