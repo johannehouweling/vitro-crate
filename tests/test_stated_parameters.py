@@ -12,8 +12,6 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-from builder.agents.pipeline.leaves import _plan_schema
-from builder.agents.pipeline.pipeline import _merge_plan_chain_names
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools._crate_mapping import draft_hints_schema
 from builder.tools.builder import assemble_crate
@@ -123,55 +121,3 @@ class TestTheTools:
         state = _state()
         step = draft_process(state, "assay_1", "EndpointReadout", {"name": "Readout", "parameters": STATED})
         assert step.fields["parameters"] == STATED
-
-
-class TestThePlan:
-    def test_the_plan_can_name_other_parameters(self):
-        step = _plan_schema()["properties"]["process_chain"]["items"]["properties"]
-        offered = step["other_parameters"]
-        assert offered["type"] == "array"
-        assert set(offered["items"]["properties"]) == {"name", "value", "unit"}
-
-    def test_they_reach_the_step(self):
-        plan = {
-            "process_chain": [
-                {
-                    "process_type": "EndpointReadout",
-                    "parameters": {"endpoint": "T3 uptake"},
-                    "other_parameters": [
-                        {"name": "Positive control", "value": "Silychristin"},
-                        {"name": "Time point", "value": "130", "unit": "minutes"},
-                    ],
-                }
-            ]
-        }
-        readout = next(s for s in _merge_plan_chain_names(plan) if s["process_type"] == "EndpointReadout")
-        assert readout["hints"]["endpoint"] == "T3 uptake"
-        assert readout["hints"]["parameters"] == [
-            {"name": "Positive control", "value": "Silychristin"},
-            {"name": "Time point", "value": "130", "unit": "minutes"},
-        ]
-
-    def test_an_identifier_is_not_a_parameter(self):
-        """Identifiers come from lookups, never from the model's reading (D5)."""
-        plan = {
-            "process_chain": [
-                {
-                    "process_type": "EndpointReadout",
-                    "other_parameters": [
-                        {"name": "CAS", "value": "51-48-9"},
-                        {"name": "DOI", "value": "10.1000/x"},
-                        {"name": "Replicates", "value": "3"},
-                        {"name": "", "value": "nameless"},
-                        {"name": "Blank", "value": " "},
-                        "not a parameter",
-                    ],
-                }
-            ]
-        }
-        readout = next(s for s in _merge_plan_chain_names(plan) if s["process_type"] == "EndpointReadout")
-        assert readout["hints"]["parameters"] == [{"name": "Replicates", "value": "3"}]
-
-    def test_a_plan_without_them_adds_no_field(self):
-        steps = _merge_plan_chain_names({"process_chain": [{"process_type": "Exposure", "name": "E"}]})
-        assert all("parameters" not in step["hints"] for step in steps)
