@@ -586,7 +586,7 @@ def condition_table_multivalued_columns_from_rows(
 
 # --- plate-map intake (#422) ------------------------------------------------
 # `populate_condition_table` accepted any string path and opened it as UTF-8
-# text. The pipeline picks the design table by its rows, not its extension, so
+# text. The design table was picked by its rows, not its extension, so
 # the real deposit's `.xlsx` plate map hit `csv.DictReader` and raised
 # UnicodeDecodeError on the first ZIP byte. Dispatch on the suffix so a
 # binary never reaches a text decode, and refuse formats there is no reader for
@@ -597,9 +597,9 @@ _TEXT_TABLE_SUFFIXES: dict[str, str] = {".csv": ",", ".tsv": "\t", ".tab": "\t"}
 # A workbook that opened fine and simply holds no per-condition sheet. Reported
 # through the same `error` channel as a genuine read failure because
 # `populate_condition_table`'s caller asked for ONE named file and either way got
-# nothing — but the two are not the same fact, and #594's search over every
-# scanned table has to tell them apart or it calls a deposit's whole workbook
-# collection unreadable (20 of svhps22's tables, every one of them fine).
+# nothing — but the two are not the same fact, and the message says which one
+# happened: reading one as the other calls a deposit's whole workbook collection
+# unreadable (20 of svhps22's tables, every one of them fine).
 _NO_QUALIFYING_SHEET = "no sheet has both a mapped condition-table column and a well_id"
 _EXCEL_SUFFIXES: frozenset[str] = frozenset({".xlsx", ".xlsm"})
 
@@ -642,7 +642,7 @@ def condition_table_fit(rows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
     # `well_id` among them, so any table carrying a well-ish header qualified: on
     # S-VHPS22 a qPCR protocol sheet keyed on `Well Position` and a gamma-counter
     # export keyed on `Run ID` both did, giving three candidates where there is
-    # one design table — and the spine refuses when several qualify, so the crate
+    # one design table — so the build refused to choose, and the crate
     # shipped four header-only tables while 1048 rows of real design sat in the
     # deposit. Knowing WHICH WELLS EXIST says nothing about WHAT WAS DONE to
     # them, which is the same rule already stated for the other side of the pair.
@@ -798,7 +798,7 @@ def populate_condition_table(
         read_rows, reader_name, read_error, sheet_used = _rows_from_file(src)
         if read_error is not None:
             # #422: this used to be an unguarded UTF-8 text decode, so a real
-            # .xlsx plate map raised UnicodeDecodeError, the spine swallowed it
+            # .xlsx plate map raised UnicodeDecodeError, the build swallowed it
             # into a `reason:` string, and the crate shipped a header-only table
             # with nothing said about why. Name the file AND the reader.
             logger.warning(

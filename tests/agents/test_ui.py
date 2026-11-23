@@ -320,7 +320,7 @@ def test_summary_panels_fit_their_content_not_the_terminal() -> None:
 
 
 # ---------------------------------------------------------------------------
-# print_* helpers — the shared "snapshot → render → print" both arms call
+# print_* helpers — the shared "snapshot → render → print" the ReAct loop calls
 # ---------------------------------------------------------------------------
 
 
@@ -398,7 +398,7 @@ def test_print_resume_summary_is_silent_when_no_model_is_resolved(monkeypatch) -
 def test_print_resume_summary_does_not_claim_resume_after_a_scan(monkeypatch) -> None:
     """Scanned files alone must not read as a resume (#410).
 
-    ``engine.initialize(--input)`` fills ``scanned_files`` before either arm prints
+    ``engine.initialize(--input)`` fills ``scanned_files`` before the loop prints
     its banner, so the old content-based gate (``entity_count or file_count``) made
     a brand-new session indistinguishable from a resumed one. Provenance is a
     caller fact, so the adapter must be *told*, never left to infer.

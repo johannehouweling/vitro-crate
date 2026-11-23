@@ -192,7 +192,7 @@ def scaffold_isa_backbone(
 # Subtypes that produce *material* (a Sample) vs *data* (a File). Determines
 # which kind of placeholder entity is synthesized to carry a step's output so the
 # next step has something concrete to consume. EndpointReadout / DataAnalysis are
-# the two subtypes with NO build-time output fallback (AGENTS.md §14.3); a missing
+# the two subtypes with NO build-time output fallback (AGENTS.md §4.2.7); a missing
 # schema:result on them fires a tox Violation — closing that trap is this tool's
 # load-bearing job, and synthesizing an output for *every* producing step keeps
 # the whole derivation chain connected and referenceable.
@@ -262,7 +262,7 @@ def draft_process_chain(
     are always wired in the canonical chain order regardless of input order, so a
     weak model cannot mis-sequence the provenance.
 
-    **The load-bearing job — output synthesis (AGENTS.md §14.3).** Unlike
+    **The load-bearing job — output synthesis (AGENTS.md §4.2.7).** Unlike
     TestSystemPreparation / Exposure, ``EndpointReadout`` and ``DataAnalysis`` have **no
     build-time output fallback**: a process with no explicit ``result`` (and, for
     DataAnalysis, no ``object``) fires a tox REQUIRED Violation and the chain
@@ -397,7 +397,7 @@ def draft_process_chain(
                 link(state, proc.entity_id, "object", tid)
 
         # --- outputs: explicit wins; else synthesize a concrete, referenceable
-        # output so the chain connects AND the §14.3 "no output fallback" trap is
+        # output so the chain connects AND the §4.2.7 "no output fallback" trap is
         # closed. Every producing step gets a real output entity in state (a
         # Sample for a material producer, a File for a data producer) — so the
         # next step can consume it by id and EndpointReadout / DataAnalysis never
@@ -832,7 +832,7 @@ def resolve_aop(
 # ---------------------------------------------------------------------------
 # `keyEvent` is a fully declared Assay reference field: it is in the draft
 # schema, mapped by `_ASSAY_MENTION_FIELDS`, and consumed by the build — and it
-# has ZERO writers anywhere in builder/. No crate either arm has produced has
+# has ZERO writers anywhere in builder/. No crate the build has produced has
 # ever linked an Assay to the Key Event it measures, so the biological meaning of
 # the measurement is absent from every crate while the field sits there looking
 # supported.
@@ -1766,8 +1766,8 @@ def _hitl_prompt_count(human: HumanInterface | None) -> int:
 # ---------------------------------------------------------------------------
 # Publication resolution: title -> Crossref -> DOI -> publication (Issue #179)
 #
-# Closes the gap PR #217 deferred: a plan carries a publication *title* only
-# (D5 — no DOI), but ISA REQUIRES a ScholarlyArticle with an identifier. This
+# Closes the gap PR #217 deferred: a deposit often states a publication *title*
+# only (D5 — no DOI), but ISA REQUIRES a ScholarlyArticle with an identifier. This
 # composite resolves the title to a DOI via a Crossref title-search, gated by a
 # strict confidence rule so a DOI is only ever committed when it is genuinely the
 # titled work — never fabricated (D5) — then reuses draft_publication_with_authors
@@ -1838,8 +1838,8 @@ def resolve_publication(
 ) -> dict[str, Any]:
     """Resolve a publication TITLE to a DOI-backed ``ScholarlyArticle`` in ONE call.
 
-    Closes the gap PR #217 deferred: a plan carries a publication *title* only
-    (D5 — no DOI), but ISA REQUIRES a ``ScholarlyArticle`` to have an identifier
+    Closes the gap PR #217 deferred: a deposit often states a publication *title*
+    only (D5 — no DOI), but ISA REQUIRES a ``ScholarlyArticle`` to have an identifier
     and BASE requires the auto-wired root ``citation`` ``@id`` to be an absolute
     URI — both unreachable from a title alone without a DOI. This composite is the
     citation counterpart of :func:`resolve_compound`: the ONLY model-supplied
@@ -1870,7 +1870,7 @@ def resolve_publication(
 
     Args:
         state: The crate state to resolve into.
-        title: The publication title to resolve (e.g. from an extracted plan).
+        title: The publication title to resolve (e.g. as the deposit states it).
         verify: Reserved for parity with :func:`resolve_compound`; the DOI is
             implicitly verified by the Crossref resolution
             (:func:`draft_publication_with_authors` re-looks up the DOI, so an
@@ -2183,7 +2183,7 @@ def resolve_compound(
     handed_in_wiki_id = merged_hints.pop("compoundwiki_id", None)
     # Tracked separately from the merged hints so the values the AUTHORITY
     # supplied can be recorded as such. Everything else in ``merged_hints`` is
-    # the caller's (a plan value, a model-drafted hint) and keeps that origin.
+    # the caller's (a model-drafted hint) and keeps that origin.
     looked_up: dict[str, Any] = {}
     for key in _COMPOUND_DATA_FIELDS:
         value = data.get(key)
@@ -2235,15 +2235,14 @@ def resolve_compound(
         entity.set_fields_from_dict({"compoundwiki_id": handed_in_wiki_id}, source="llm")
 
     # Best-effort EPA DTXSID enrichment (#179). DTXSID is a first-class ISA-Tox
-    # chemical identifier that the deterministic pipeline otherwise never
-    # produces — ``lookup_dtxsid`` had NO pipeline caller (it was reachable only
-    # from the ReAct loop). Query CompTox by the strongest EXACT key
-    # available (CAS -> InChIKey -> name) so the match is unambiguous, and store
-    # the DTXSID only when the lookup returns one. D5-safe: the value comes
-    # straight from CompTox (the authority), never fabricated. A miss or outage
-    # is NON-FATAL — DTXSID is enrichment, not a precondition — so a CompTox
-    # failure never sinks an already-resolved compound (mirrors the graceful
-    # handling of the primary lookup above).
+    # chemical identifier, so resolving a compound looks it up too rather than
+    # leaving it to a separate ``lookup_dtxsid`` call. Query CompTox by the
+    # strongest EXACT key available (CAS -> InChIKey -> name) so the match is
+    # unambiguous, and store the DTXSID only when the lookup returns one. D5-safe:
+    # the value comes straight from CompTox (the authority), never fabricated. A
+    # miss or outage is NON-FATAL — DTXSID is enrichment, not a precondition — so
+    # a CompTox failure never sinks an already-resolved compound (mirrors the
+    # graceful handling of the primary lookup above).
     if not entity.fields.get("dtxsid"):
         dtxsid_query = _dtxsid_query(data, display_name)
         try:
@@ -2327,16 +2326,15 @@ def resolve_compound(
 # resolve_cell_line (#372)
 # ---------------------------------------------------------------------------
 
-# A catalogue NAME is a name, not an identifier, which is what makes the plan's
+# A catalogue NAME is a name, not an identifier, which is what makes
 # `catalog_name` D5-clean. This refuses the one thing that is NOT a name: a
-# Cellosaurus accession smuggled through a field the plan's identifier strip
-# deliberately leaves alone. Case-insensitive and tolerant of the `CVCL-`
-# spelling, because a model routing an id around the strip would not be expected
-# to use the canonical form.
+# Cellosaurus accession smuggled through that name field. Case-insensitive and
+# tolerant of the `CVCL-` spelling, because a model routing an id through a name
+# field would not be expected to use the canonical form.
 _ACCESSION_SHAPED = re.compile(r"^CVCL[_-]?\w+$", re.IGNORECASE)
 
 # Hint keys refused outright before anything is written (D5). A caller — the
-# ReAct model, or a plan field that slipped the strip — must never be able to
+# ReAct model or any other — must never be able to
 # hand this composite an accession: every id it commits has to come back from
 # Cellosaurus in THIS call. `rrid` and `identifier` are in here because
 # `_crate_mapping._mint_id` reads `accession`/`rrid` to build the cell line's
@@ -2400,7 +2398,7 @@ def _cell_line_candidates(display_name: str, catalog_name: str | None) -> list[t
 
     The full normalized display name first — it is what the documents call the
     line, so a hit on it is the strongest claim available. Then ``catalog_name``,
-    the short catalogue name the extract plan may report ("FRTL-5" for "FRTL-5
+    the short catalogue name a caller may pass ("FRTL-5" for "FRTL-5
     TPO-overexpressing rat thyroid follicular cells"), which is the ONLY way a
     descriptive phrase ever reaches its record: the D5 gate in
     :func:`~builder.tools.lookups.lookup_cell_line_by_name` requires an exact
@@ -2694,10 +2692,9 @@ def resolve_cell_line(
         ``{"entity_id", "name", "accession", "match": "exact"|"catalog"|"none",
         "query", "verifications": [{field, verified, message}], "verified":
         bool | None, "source"}``. ``match`` is the tier of the candidate that
-        hit and ``query`` the string that hit it, so a caller (interactive build)
-        can surface a ``catalog``-tier commit for confirmation — that prompt is
-        deliberately NOT here and NOT in ``run_pipeline``, whose contract is to
-        stay non-blocking so ``--arch pipeline`` and the corpus eval run headless.
+        hit and ``query`` the string that hit it, so a caller can surface a
+        ``catalog``-tier commit for confirmation — that prompt is deliberately
+        NOT here, so the tool stays non-blocking and the corpus eval runs headless.
         With *made_from*, ``entity_id`` is the population's Sample and ``line_id``
         the line it derives from. ``fix`` is present when the name was kept apart
         from a line it also resolved to, and says how to record both.
@@ -2955,9 +2952,8 @@ TOOL_REGISTRY.register(
 # but it stays an ORPHAN until something references it: ISA forbids a compound as
 # a process object, so a compound reaches the experiment only through the
 # Exposure's `chemicals` field (which the build turns into `reagent`s of the
-# protocol the Exposure executes). The pipeline arm wires this at
-# one moment, conditional on holding the ids then; the ReAct arm relies on the
-# model remembering to pass `hints={'chemicals': ...}`. Neither is a backstop, and
+# protocol the Exposure executes). The ReAct build relies on the model
+# remembering to pass `hints={'chemicals': ...}`. That is not a backstop, and
 # a real 22-compound crate shipped with `chemicals=None` on every process.
 #
 # This is the OBVIOUS half of that problem, so it is done without asking: one

@@ -1,8 +1,8 @@
 """Tests for builder/tools/field_kinds.py — the shared field-kind vocabulary.
 
-#375 hoisted the D5 identifier list here so both build arms read one definition.
+#375 hoisted the D5 identifier list here so every reader shares one definition.
 #377 closes the hole that survived that hoist: every list was snake_case
-(``inchikey``), while a SHACL gap's local property name is schema.org camelCase
+(``inchikey``), while a SHACL finding's local property name is schema.org camelCase
 (``inChIKey``), so the D5 guard silently missed and the user's prose was
 committed onto the exported node.
 """

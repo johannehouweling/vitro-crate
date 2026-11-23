@@ -1,4 +1,4 @@
-"""``resolve_cell_line`` — the deterministic arm's name→Cellosaurus path (#372).
+"""``resolve_cell_line`` — the one-call name→Cellosaurus path (#372).
 
 Every test drives the **real** composite over the **real** lookup stack
 (``lookup_cell_line_by_name`` → ``search_cellosaurus`` → ``_candidate`` →
@@ -178,7 +178,7 @@ class TestResolveCellLine:
     def test_a_hint_accession_is_never_committed(self):
         """Honesty control: a caller-supplied accession is refused outright (D5).
 
-        The ReAct arm's ``hints`` are model-authored, and a model that cannot
+        The ReAct loop's ``hints`` are model-authored, and a model that cannot
         resolve a name has every incentive to reach for the nearest CVCL id in
         its context (#383). The value committed must be the one the lookup
         returned — and when the lookup returns nothing, the field must be absent
@@ -253,7 +253,7 @@ class TestResolveCellLine:
         """The deliberate divergence from ``resolve_compound``.
 
         A ``CellLineSample`` with only a name is a valid ISA Sample and is what
-        the arm produced before this composite. Returning ``{ok: False}`` would
+        a build produced before this composite. Returning ``{ok: False}`` would
         delete the cell line from every crate whose line is not catalogued,
         taking ``TestSystemPreparation.cell_line`` and the Study's ``cell_lines`` mention
         with it — so the entity is always minted and there is no ``ok`` key.

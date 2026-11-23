@@ -1,4 +1,4 @@
-"""LLM build modes for the ISA-Tox RO-Crate Builder.
+"""The LLM build for the ISA-Tox RO-Crate Builder.
 
 The build is the LLM-orchestrated ReAct StateGraph (:mod:`builder.agents.react`:
 ``agent_loop``, ``system_prompt``, ``tools_spec``) over the toolbox

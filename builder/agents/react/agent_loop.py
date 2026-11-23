@@ -138,10 +138,10 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
     """Forward LangChain tool-start/end events to the shared progress spinner.
 
     The spinner is :class:`builder.agents.progress_spinner.ProgressSpinner`, the
-    SAME live spinner the deterministic pipeline drives (#344) — here it is fed the
-    per-tool signal the ReAct loop gets from LangChain callbacks (the pipeline
-    feeds the same spinner from ``engine.on_tool_event``). Clearing on tool-end
-    returns the line to the rotating thinking phrase.
+    one live spinner of the build (#344) — here it is fed the per-tool signal the
+    ReAct loop gets from LangChain callbacks (the finish backstop, which calls
+    ``engine.run_tool`` directly, feeds it from ``engine.on_tool_event`` instead).
+    Clearing on tool-end returns the line to the rotating thinking phrase.
     """
 
     def __init__(self, spinner: ProgressSpinner) -> None:
@@ -303,12 +303,11 @@ _EXPORTED_FLAG = "_crate_exported_this_session"
 
 # Attribute holding the CONTENT fingerprint of the last in-loop auto-export
 # (#287 Fix A; #380). A completed build auto-exports the crate to disk so the
-# user always gets a crate (the deterministic pipeline already exports on every
-# completed build, #233); this fingerprint makes the auto-export idempotent —
+# user always gets a crate (#233); this fingerprint makes the auto-export idempotent —
 # it re-exports only when the crate has changed since the last auto-export
 # (so the *latest* crate always lands), never twice for the same build.
 # It is `CrateState.export_fingerprint()`, NOT an entity count: a count is
-# invariant under every field-level tool this arm is told to use for the rest of
+# invariant under every field-level tool the agent is told to use for the rest of
 # the session (`set_fields`, `set_crate_metadata`, `fix_required_issues`,
 # `link`), so counting silently kept all of that work off disk.
 _AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
@@ -1136,15 +1135,14 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
     Issue #287 Fix A: the ReAct loop only wrote a crate via the finish
     backstop, which runs on the EXIT path (quit/EOF). In a live run the user kept
     the session alive, the weak model never called ``export_crate``, and a fully
-    built, base-VALID crate (70+ entities) was NEVER written. The deterministic
-    pipeline already exports on every completed build (#233); this brings the
-    ReAct loop in line.
+    built, base-VALID crate (70+ entities) was NEVER written. Every completed
+    build now lands its crate on disk (#233).
 
     Fires when, and only when:
       * the crate has entities (an empty crate has nothing to write), AND
       * the build passed BASE conformance (``build_result["conformance"]["base"]``
-        — the same gate the pipeline uses; ISA/Tox may still have gaps but a
-        base-valid crate is worth landing), AND
+        — ISA/Tox may still have gaps but a base-valid crate is worth landing),
+        AND
       * the crate has changed since the last auto-export (a CONTENT
         fingerprint over entities + metadata + the scanned-file inventory) — so
         the *latest* crate always lands and an unchanged repeat build never
@@ -2468,8 +2466,8 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # Auto-export on every completed in-loop build (#287 Fix A):
                     # the user kept the session alive and the weak model never
                     # called export_crate, so a base-valid 70+-entity crate never
-                    # landed. Mirror the deterministic pipeline (#233) — write the
-                    # crate whenever build_and_validate passes base conformance.
+                    # landed. Write the crate whenever build_and_validate passes
+                    # base conformance (#233).
                     elif tool_name == "build_and_validate":
                         _auto_export_after_build(engine, result)
                         severity = kwargs.get("severity") or "required"
@@ -4158,7 +4156,7 @@ def _finish_backstop(
 
         say("Finalizing: building and exporting the crate before exit…")
         # Build + validate in memory first so the written crate is the validated
-        # one (mirrors the deterministic pipeline's finish, §14.5/§14.6.1).
+        # one.
         try:
             engine.run_tool("build_and_validate")
         except (ValueError, KeyError, TypeError, RuntimeError) as exc:
@@ -4271,7 +4269,7 @@ def run_interactive_agent(
     With ``interactive=False`` the banner, the greeting model call and the stdin
     read are all skipped: *initial_prompt* and its autonomous continuation are the
     whole session, which then ends as Ctrl+D does — backstop included. That is
-    what lets the A/B eval measure this arm with the budget it actually ships
+    what lets the A/B eval measure the loop with the budget it actually ships
     with, instead of a single bare graph invocation (#609).
     """
     from langchain_core.messages import AIMessage, HumanMessage
@@ -4400,8 +4398,8 @@ def run_interactive_agent(
     # ── Session banner + greeting ───────────────────────────────────────
     # Only for a session someone is watching. The greeting costs a model call and
     # produces one thing: a welcome message. Headless (the A/B eval, batch), that
-    # is a token bill for politeness nobody reads, charged to this arm alone —
-    # so a run with no human present goes straight to work (#609).
+    # is a token bill for politeness nobody reads — so a run with no human
+    # present goes straight to work (#609).
     #
     # `resumed` is the caller's fact (--resume), never a guess from how populated
     # the state looks: initialize(--input) scans files before the loop starts, so
@@ -4865,7 +4863,7 @@ def run_interactive_agent(
                     console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
                 elif answers_are_synthetic(engine.human_interface):
                     # Nobody is at the keyboard (--smoke-test). This ONE read is
-                    # the reason the mode used to refuse this arm: every other
+                    # the reason the mode used to refuse the ReAct loop: every other
                     # prompt already goes through the HumanInterface, but the
                     # conversation was read straight off stdin, so a synthetic
                     # interface had nothing to answer and the run sat on an empty

@@ -86,8 +86,8 @@ def test_reasoning_effort_none_restores_temperature(monkeypatch: pytest.MonkeyPa
 def test_disagreeing_tiers_record_no_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tiers that disagree on whether a temperature is sent record none at all.
 
-    The pipeline builds every leaf on the drafter tier, so a reasoning drafter
-    behind a standard orchestrator means half the run's calls omitted the
+    A bounded drafter call is built on the drafter tier, so a reasoning drafter
+    behind a standard orchestrator means some of the run's calls omitted the
     temperature — "no single temperature was in effect" is absence, not 0.0.
     """
     _clean_env(monkeypatch)
@@ -106,7 +106,7 @@ def test_stamp_generator_records_effective_settings(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("VITRO_MAX_HISTORY_TOKENS", "9000")
     state = CrateState()
     state.max_iterations = 42
-    # The arm is stamped on the state by the build entrypoint, which is where
+    # The build is stamped on the state by the build entrypoint, which is where
     # `stamp_generator` reads it from — `export_crate` calls it with no arguments.
     state.generator.architecture = "react"
     settings = state.stamp_generator().settings

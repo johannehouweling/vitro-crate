@@ -1,24 +1,24 @@
-"""The shared live progress spinner for the interactive builds (#266, #344).
+"""The shared live progress spinner for the interactive build (#266, #344).
 
-The DEFAULT ``--interactive`` (pipeline) build prints static phase lines (#253),
-so the ~tens-of-seconds deterministic spine looked frozen. :class:`ProgressSpinner`
-gives it a live Rich spinner: an animated dots spinner with a rotating funny
-toxicology-themed phrase, the currently-running tool/phase, and elapsed seconds,
-all updating in place.
+Static phase lines (#253) look frozen through a step that runs for tens of
+seconds. :class:`ProgressSpinner` gives the build a live Rich spinner: an animated
+dots spinner with a rotating funny toxicology-themed phrase, the currently-running
+tool/phase, and elapsed seconds, all updating in place.
 
-**Both build arms share this one spinner (#344).** The deterministic pipeline drives
-it from ``engine.on_tool_event`` plus its per-phase strings; the ReAct loop
-drives it from LangChain tool-event callbacks (``_ToolSpinnerCallback`` in
-``builder/agents/react/agent_loop.py``). This module is the single source of both the
-spinner class and :data:`TOX_SPINNER_PHRASES` — neither arm keeps a private copy.
+**The build has this one spinner (#344).** The ReAct loop drives it from
+LangChain tool-event callbacks (``_ToolSpinnerCallback`` in
+``builder/agents/react/agent_loop.py``); its finish backstop, which calls
+``engine.run_tool`` directly, drives it from ``engine.on_tool_event``. This module
+is the single source of both the spinner class and :data:`TOX_SPINNER_PHRASES`.
 
 It is a reusable context manager driven by a daemon tick thread, rendering::
 
     <funny phrase>… (<elapsed>s) · <current op>
 
-**HITL safety.** The guidance tail asks the user questions via ``input()`` mid-build;
-a Rich ``Live`` repaint would clobber that prompt. The spinner registers itself as the
-active console animation (``builder.tools.hitl.register_console_animation``) on enter and
+**HITL safety.** A HITL prompt (scan-root approval, ``present_to_human``) asks the
+user a question via ``input()`` mid-build; a Rich ``Live`` repaint would clobber it.
+The spinner registers itself as the active console animation
+(``builder.tools.hitl.register_console_animation``) on enter and
 unregisters on exit, so a console HITL prompt — which wraps its ``input()`` in
 ``suspend_console_animation`` (#239) — calls :meth:`pause` (tear down the Live region,
 stop ticking) for the duration of the prompt and :meth:`resume` afterwards. The tick
@@ -63,7 +63,7 @@ _PREVIEW_MIN_WIDTH = 24
 _MIN_DWELL = 0.7
 
 
-# The single toxicology-themed phrase list, shared by both build arms (#344).
+# The single toxicology-themed phrase list (#344).
 # ``ProgressSpinner`` picks one at random when no explicit phrase is given.
 TOX_SPINNER_PHRASES: list[str] = [
     "intoxicating",
@@ -102,7 +102,7 @@ TOX_SPINNER_PHRASES: list[str] = [
 class ProgressSpinner:
     """A Rich status spinner that ticks elapsed seconds and shows the current op.
 
-    Used as a context manager around the deterministic interactive build. A daemon
+    Used as a context manager around each step of the interactive build. A daemon
     thread refreshes the rendered line (so the elapsed-seconds counter advances even
     while a long phase runs); :meth:`set_current` swaps in the currently-running
     tool/phase. On enter it registers with the hitl animation registry so a HITL
@@ -444,8 +444,8 @@ class ProgressSpinner:
     def pause(self) -> None:
         """Tear down the Live region and stop ticking so a HITL prompt is clean.
 
-        Called (via :func:`builder.tools.hitl.suspend_console_animation`) when the
-        guidance tail needs ``input()`` mid-build. Best-effort and idempotent. A
+        Called (via :func:`builder.tools.hitl.suspend_console_animation`) when a
+        HITL prompt needs ``input()`` mid-build. Best-effort and idempotent. A
         no-op in silent mode (there is no Live region owning the terminal).
         """
         self._paused.set()

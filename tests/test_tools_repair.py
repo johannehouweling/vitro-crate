@@ -5,7 +5,7 @@ left open: it consumes the routed issues from ``build_and_validate`` and attempt
 DETERMINISTIC repair per issue (no LLM, no network), based on the issue's
 ``{entity_id, property}`` and what already exists in CrateState. Repairs that need
 NEW content, a NEW entity, or any fabricated identifier are out of scope (D5) and
-are classified as ``remaining`` for the LLM leaf.
+are classified as ``remaining`` for the agent.
 
 These tests are fully offline (validation runs against the bundled context, see
 ``tests/test_offline_validation.py``).

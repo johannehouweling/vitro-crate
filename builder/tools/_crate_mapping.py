@@ -389,12 +389,11 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
 
 # The LabProcess scalars that are experimental PARAMETERS — the single source of
 # truth for "what may be overlaid onto a process step's hints" (#379). Derived, not
-# hand-written, so the deterministic pipeline's plan schema and the ReAct arm's
-# hints schema cannot drift apart.
+# hand-written, from the LabProcess draft schema, so the two cannot drift apart.
 #
 # Three deliberate exclusions:
 #   * `name` drives the process `@id` via `drafters._make_entity_id` and is merged
-#     separately — overlaying it would let a plan hijack the entity id;
+#     separately — overlaying it would hijack the entity id;
 #   * `description` is never read by `_build_process`, so it would be a dead field;
 #   * `units` is advertised as a string but the code wants a dict keyed by
 #     ParameterValue DISPLAY NAME (`profiles/models/tox.py` does `units.get("Exposure
@@ -1196,7 +1195,7 @@ def _mint_id(entity: Entity, folders: dict[tuple[str, str], str] | None = None) 
             return f"https://www.cellosaurus.org/{accession}"
     if t == "Publication":
         # Recognise a DOI on either `doi` or `identifier` in URL, CURIE, or bare
-        # form. The real pipeline never sets a `doi` field — Crossref returns the
+        # form. The real drafting path never sets a `doi` field — Crossref returns the
         # DOI as the full URL `https://doi.org/10...` on `identifier` (#179).
         # Because that value does not start with the literal `"10."`, the old
         # branch fell through to a `#Publication_...` fragment, so the auto-wired
@@ -1233,9 +1232,9 @@ def dataset_folders(state: CrateState) -> dict[tuple[str, str], str]:
       the only one, if the labelling and the state each have one assay. A Study
       takes its study folder the same way.
     * Without such a labelling, the deepest folder common to the deposited files
-      placed on the entity. An Assay that holds every deposited file, as the
-      pipeline places them, takes none this way: the folder that holds them all is
-      the deposit's or its study's, not one assay's.
+      placed on the entity. An Assay that holds every deposited file takes none
+      this way: the folder that holds them all is the deposit's or its study's,
+      not one assay's.
 
     Placed means what ``attach_files`` writes, the entity's ``hasPart``. A file
     the build adds itself, such as a step's result, a protocol it places or the
@@ -1690,7 +1689,7 @@ def _mirror_profile_predicates(crate: ROCrate) -> None:
 # second, and no mixed form escapes it: the SHOULD's SPARQL flags ANY identifier
 # that is not a PropertyValue, while the MUST's sh:datatype constrains EVERY
 # value of the path. Trading a Violation for a Warning is a bad trade — ISA
-# conformance is the stronger claim, and the pipeline asserts it end to end.
+# conformance is the stronger claim.
 #
 # This was tried (the wrap ran last, after the ISA hierarchy had derived
 # study/assay identifiers from the root's as text) and it flipped ISA conformance
@@ -2316,9 +2315,9 @@ def _add_leaves(
         # Co-type an extra-typed File as a @type list; a plain File keeps its
         # scalar @type. additional_types is consumed here, never emitted as a
         # stray literal (see _STRUCT_FIELDS). A source-code file is typed by its
-        # extension, in both arms and with or without a scan: SoftwareSourceCode,
-        # and LabProtocol, the procedure an analysis step follows
-        # (RO-Crate 1.2 multi-type, #786, D17).
+        # extension, with or without a scan: SoftwareSourceCode, and LabProtocol,
+        # the procedure an analysis step follows (RO-Crate 1.2 multi-type, #786,
+        # D17).
         # A protocol document is typed as one (#646). The scan already decided
         # this — `classify_file` stamps every deposit file — and the crate used
         # to drop the answer, so the document went in as plain data while a
@@ -3468,10 +3467,11 @@ def _add_generator_provenance(state: CrateState, crate: ROCrate) -> None:
         ("Model", gen.model if not model_url else None),
         ("Model provider", gen.provider),
         ("Drafter model", gen.drafter_model),
-        # Which arm built this crate ("pipeline" / "react"). Without it the two
-        # first-class build paths are indistinguishable from the crate alone, so
-        # comparing them needs an external record of which run wrote which
-        # directory — exactly the unlinked context this tool exists to remove.
+        # Which build made this crate: "react" (the ReAct loop), or absent for a
+        # crate exported from tool calls alone. Without it the crate alone cannot
+        # say which path wrote it, so comparing runs needs an external record of
+        # which run wrote which directory — exactly the unlinked context this
+        # tool exists to remove.
         ("Build architecture", gen.architecture),
     ):
         if not value:
@@ -3579,8 +3579,8 @@ def _build_csvw_schema(
         # and the base profile then flags "references NCIT_C16403 as a string"
         # and fails the whole pass. Making cited vocabulary a string was right
         # for propertyID, whose values (ORCID, PubChem, DTXSID scheme IRIs) the
-        # crate never describes; it does not carry over here, and a run of
-        # tests/test_pipeline_e2e.py is what says so.
+        # crate never describes; it does not carry over here, and
+        # tests/test_csvw_payload.py is what says so.
         if col.get("propertyUrl"):
             props["propertyUrl"] = {"@id": col["propertyUrl"]}
         if value_urls.get(title):

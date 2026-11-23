@@ -1,9 +1,8 @@
 """The id a crate gives an entity leads back to the entity in the state.
 
-A finding names an entity by the ``@id`` of its node, and that is the string an
-agent or the guidance has in hand when it goes to act on the finding. Four
-places turn it back into a state entity: the repair loop (and through it the gap
-engine and the guidance), ``resolve_entity_id`` behind the tools, the reference
+A finding names an entity by the ``@id`` of its node, and that is the string the
+agent has in hand when it goes to act on the finding. Four places turn it back
+into a state entity: the repair loop, ``resolve_entity_id`` behind the tools, the reference
 normaliser behind ``set_fields``, and the agent's test of whether a finding is
 its own to fix. They share one function, so that an Assay identified by its
 folder, and a file whose path needs escaping, are found by all of them.

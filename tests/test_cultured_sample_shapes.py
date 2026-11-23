@@ -2,7 +2,7 @@
 
 The builder now splits a culture per cell line, so the crates this repo produces
 no longer assert a mixture. That fixes today's output; it does not stop a crate
-built by the ReAct arm, hand-authored, or produced by a future refactor from
+built by the ReAct loop, hand-authored, or produced by a future refactor from
 saying it again. These pin the shapes that do.
 
 A co-culture is a real experimental design and is accommodated rather than

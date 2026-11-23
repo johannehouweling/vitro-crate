@@ -8,8 +8,8 @@ returns::
     /v1/chat/completions. To use function tools, use /v1/responses or set
     reasoning_effort to 'none'.
 
-Both the ReAct loop and the pipeline's drafter leaves bind tools, so such a
-model must be routed through the Responses API. These tests pin that behaviour
+The ReAct loop binds tools, so such a model must be routed through the
+Responses API. These tests pin that behaviour
 and guarantee standard (non-reasoning) models are left exactly as before.
 """
 

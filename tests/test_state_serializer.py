@@ -221,8 +221,8 @@ class TestDiscoveredDocumentsSurviveTheRename:
 
     ``--resume`` bypasses ``initialize()``, so discovery never re-runs and those
     dicts are what the readers get for the rest of the session. Every reader now
-    asks for ``classification``, and one of them is not cosmetic: the ReAct gap
-    engine counts assay folders by looking for documents classified ``metadata``
+    asks for ``classification``, and one of them is not cosmetic: the ReAct loop's
+    ``open_items`` counts assay folders by looking for documents classified ``metadata``
     or ``protocol``, so on an old session it found none and the "the input has N
     assay folders but the crate has M Assays" item silently stopped appearing.
 

@@ -1,8 +1,7 @@
 """A property holding one value is written as that value, not a one-item array (RO-Crate 1.2).
 
 RO-Crate 1.2 recommends the compact JSON-LD form, and roc-validator 0.13 reports every
-one-item array as a SHOULD finding, which the gap engine then raised as "set this
-field" on fields already set.
+one-item array as a SHOULD finding — a "set this field" on fields already set.
 """
 
 from __future__ import annotations

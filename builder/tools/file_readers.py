@@ -1470,8 +1470,8 @@ def read_file(
         compact: Apply the shared boilerplate compactors (#378) —
             :func:`compact_grid_text` for ``.xlsx`` grids and
             :func:`compact_attribute_json` for BioStudies ``.json`` descriptors.
-            Defaults to **False** so no existing caller's output changes; the
-            deterministic pipeline opts in for its bounded context slice.
+            Defaults to **False** so a caller gets the file as written unless it
+            asks.
 
     Returns:
         File content as a string, a directory-guidance message, or *None*.
@@ -1518,12 +1518,6 @@ TOOL_REGISTRY.register(
     read_docx,
     description="Read a Word .docx file and return its text content",
 )
-# A worksheet whose name marks it as the run's plan. Observed as `layout 27-03`,
-# `layout 01-03` and `Layout` across this lab's deposits — the date suffix varies
-# per run, so the match is a prefix-free substring on the case-folded name.
-_LAYOUT_SHEET = "layout"
-
-
 TOOL_REGISTRY.register(
     "read_file",
     read_file,

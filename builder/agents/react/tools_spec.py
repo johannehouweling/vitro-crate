@@ -1177,7 +1177,7 @@ def expected_tool_spec_names() -> set[str]:
 def assert_tool_spec_parity() -> None:
     """Raise :class:`ToolSpecParityError` if TOOL_SPECS has drifted (Issue #327).
 
-    Called when the ReAct arm builds its LangChain tools, so a mismatch fails fast
+    Called when the ReAct loop builds its LangChain tools, so a mismatch fails fast
     at build time rather than silently advertising the wrong toolbox to the LLM.
     """
     # `str(...)`: a spec's values are heterogeneous (name, description, nested

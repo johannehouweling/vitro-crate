@@ -2881,7 +2881,7 @@ class TestDuplicatePeopleReachTheChecklist:
 
 
 class TestHeadlessSessions:
-    """``interactive=False`` — the contract the A/B harness drives this arm with.
+    """``interactive=False`` — the contract the A/B harness drives the loop with.
 
     It is the CALLER's fact, never inferred: ``AgentEngine`` defaults to a
     ``SimulatedHumanInterface``, so a batch engine and a test engine look

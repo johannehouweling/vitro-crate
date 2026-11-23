@@ -126,9 +126,10 @@ class MultiChoiceResponse(TypedDict):
 # the approver for filesystem access (fail-closed, #197).
 SCAN_ROOT_PURPOSE = "scan_root"
 
-# ``purpose`` of a guidance-tail question (#813). Its rows are answers only: the
-# console skips the question on Esc and ends the questions on Ctrl+D, and says so
-# on the box's help line (:data:`_GUIDANCE_KEYS`).
+# ``purpose`` of a guidance question (#813). Its rows are answers only: the
+# console skips the question on Esc or Ctrl+D (Ctrl+D also sets
+# ``ConsoleHumanInterface.is_done``), and names both keys on the box's help line
+# (:data:`_GUIDANCE_KEYS`).
 GUIDANCE_PURPOSE = "guidance"
 _GUIDANCE_KEYS = "esc skip · ctrl+d build now"
 
@@ -183,9 +184,10 @@ class SimulatedHumanInterface:
     it denies: the simulator can never be the approver for filesystem access
     (fail-closed, #197).
 
-    ``is_interactive`` is ``False`` — this is the headless default, so the
-    interactive build path (AGENTS.md §14.6) never runs the HITL guidance tail
-    behind it (the A/B eval and batch runs stay automated-only).
+    ``is_interactive`` is ``False`` — this is the headless default, so behind it
+    the build (AGENTS.md §4.4.6) never waits on an answer nobody can give: a
+    scan-root escalation is denied and the validation escalation is never offered
+    (the A/B eval and batch runs stay automated-only).
     """
 
     is_interactive: bool = False
@@ -403,11 +405,12 @@ def _default_console_select_many(context: str, choices: list[str]) -> list[int] 
 class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
-    This is the CLI frontend the **default interactive build path** runs behind
-    (`main.py --interactive` → `run_interactive_build`, AGENTS.md §14.6.1). Unlike
+    This is the CLI frontend the **interactive build** runs behind
+    (`main.py --interactive` → `run_build`, AGENTS.md §4.4.6). Unlike
     :class:`SimulatedHumanInterface` it is ``is_interactive = True``, so the
-    guidance tail actually runs and routes its ask-user prompts / draft
-    confirmations to the user.
+    build's questions — scan-root approval, the validation escalation and the
+    agent's own ``present_to_human`` / ``request_input`` calls among them — reach
+    the user.
 
     The free-text prompt is read through an injectable ``prompt_func`` (a
     ``field_type -> text`` reader) and the question is displayed through an
@@ -471,7 +474,7 @@ class ConsoleHumanInterface:
         self._done = False
 
     def is_done(self) -> bool:
-        """Whether the user requested that guidance stop and the crate be built."""
+        """Whether the user asked to stop answering: Ctrl+D, EOF, or a stop word."""
         return self._done
 
     @staticmethod
@@ -509,9 +512,9 @@ class ConsoleHumanInterface:
         caller that only knows its offered rows sees neither an approval nor a
         rejection it was not given. An empty line there is a skip.
 
-        A :data:`GUIDANCE_PURPOSE` question offers answers only (#813): Esc skips
-        it, Ctrl+D also ends the questions (:meth:`is_done`), and the box's help
-        line says so. Anywhere else Esc declines.
+        A :data:`GUIDANCE_PURPOSE` question offers answers only (#813): Esc or
+        Ctrl+D skips it, and the box's help line names both keys. Anywhere else
+        either declines. Ctrl+D also sets :meth:`is_done`, whatever the purpose.
 
         Fail-closed is preserved for a scan-root escalation: its default lands on
         the denying choice, so an accidental Enter never widens filesystem
@@ -538,7 +541,7 @@ class ConsoleHumanInterface:
             try:
                 chosen = self._select(choices, default_index, _GUIDANCE_KEYS if guidance else None)
             except EOFError:
-                # Ctrl+D: stop asking, as EOF does in the text box.
+                # Ctrl+D: the user is done answering, as EOF is in the text box.
                 self._done = True
                 chosen = None
             if own_answer and chosen == len(choices) - 1:
@@ -604,8 +607,8 @@ class ConsoleHumanInterface:
     def _read_answer(self, field_type: str) -> str | None:
         """One line from the box; ``None`` is a skip — empty, EOF, or a stop word.
 
-        EOF and a stop word also end guidance (:meth:`is_done`): a closed stdin
-        will never answer anything else, and "build" means build.
+        EOF and a stop word also set :meth:`is_done`: a closed stdin will never
+        answer anything else, and "build" means build.
         """
         try:
             value = self._read(field_type).strip()
@@ -702,16 +705,14 @@ class SmokeTestHumanInterface:
         minutes: float | None = None,
     ) -> None:
         """Args:
-        conversation_turns: How many turns to drive a conversational loop
-            (the ReAct arm) before ending the session. Ignored by the
-            default arm, which has no conversational channel, and superseded
-            entirely when *minutes* is given. ``<= 0`` ends it at the first
-            prompt.
+        conversation_turns: How many turns to drive the ReAct loop's
+            conversation before ending the session. Superseded entirely when
+            *minutes* is given. ``<= 0`` ends it at the first prompt.
         minutes: Optional wall-clock budget (``--smoke-test 20``). Once it is
-            spent, both arms wind down at their next question and export what
-            they have. Measured on :func:`time.monotonic` from construction —
-            not a wall date — so a clock adjustment mid-run cannot end a
-            session early or extend one forever.
+            spent, the session winds down at its next conversational prompt and
+            exports what it has. Measured on :func:`time.monotonic` from
+            construction — not a wall date — so a clock adjustment mid-run
+            cannot end a session early or extend one forever.
         """
         self._conversation_budget = int(conversation_turns)
         self._deadline: float | None = (
@@ -722,7 +723,7 @@ class SmokeTestHumanInterface:
         """Whether a wall-clock budget was given and has been spent.
 
         ``False`` when none was given: an unbudgeted run is bounded by the turn
-        count and by each loop's own guards, exactly as before.
+        count and by the loop's own guards.
         """
         return self._deadline is not None and time.monotonic() >= self._deadline
 
@@ -764,28 +765,24 @@ class SmokeTestHumanInterface:
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         """Answer every open field with :data:`SMOKE_TEST_ANSWER`.
 
-        A real answer, not a skip: skipping would leave the guidance loop with
-        nothing to commit, so the commit → re-assess → next-gap path this mode
-        exists to exercise would never run.
+        A real answer, not a skip: a skip would give the asker nothing to act on,
+        so the path an answered question drives — the one this mode exists to
+        exercise — would never run.
 
         **:data:`CONVERSATION_FIELD_TYPE` is the exception, and it is why this
-        class needs state at all.** Every other channel terminates on its own:
-        the guidance loop runs out of gaps, the report runs out of findings,
-        ``max_rounds`` bounds the rest. A conversational loop has no such bound —
-        it ends when the person says so, and :data:`SMOKE_TEST_ANSWER` is not a
-        stop word, so answering it affirmatively forever is an infinite run
-        spending a model call per turn. After :data:`SMOKE_TEST_CONVERSATION_TURNS`
-        the answer becomes a skip, which the loop reads as end-of-input and
-        finalises on — the same ending Ctrl+D gives, so the crate is still
-        exported. Budget exhaustion is deliberately NOT ``is_done()``: that
-        answers a different question (may guidance stop early?) whose honest
-        answer here stays "no".
+        class needs state at all.** Every other channel is a question asked inside
+        a turn, and the loop's own guards bound the turn. A conversational loop
+        has no such bound — it ends when the person says so, and
+        :data:`SMOKE_TEST_ANSWER` is not a stop word, so answering it
+        affirmatively forever is an infinite run spending a model call per turn.
+        After :data:`SMOKE_TEST_CONVERSATION_TURNS` the answer becomes a skip,
+        which the loop reads as end-of-input and finalises on — the same ending
+        Ctrl+D gives, so the crate is still exported. Budget exhaustion is
+        deliberately NOT ``is_done()``: that answers a different question (does
+        the user want to stop answering?) whose honest answer here stays "no".
 
-        An identifier field is safe to answer this way because the value cannot
-        become one: the guidance tail routes every reply through
-        ``_deterministic_decision`` / the interpret leaf, both of which force an
-        identifier-bearing field to a skip (D5), and the citation-author path
-        re-verifies any pasted ORCID against a real lookup before use.
+        The citation-author path's ORCID prompt is safe to answer this way: it
+        re-verifies any pasted ORCID against a real lookup before use (D5).
         """
         if field_type == CONVERSATION_FIELD_TYPE:
             if self._time_is_up():
@@ -839,22 +836,18 @@ class SmokeTestHumanInterface:
         return {"values": [], "skipped": True}
 
     def is_done(self) -> bool:
-        """End guidance only when a wall-clock budget has been spent.
+        """Report done only once a wall-clock budget has been spent.
 
-        Without one this is always ``False``, and deliberately so: ending at the
-        first opportunity would exercise nothing — the tail would return before
-        asking anything, which is precisely the path this mode is for. An
-        unbudgeted run therefore leans on ``run_guidance``'s own termination
-        guards (the report exhausted, no gap making progress, the hard
-        ``max_rounds`` bound), which already guarantee termination without a
-        cooperating frontend.
+        Without one this is always ``False``, and deliberately so: the honest
+        answer to the question this method asks — "does the user want to stop
+        now?" — is "no" for a harness that answers everything. An unbudgeted run
+        is bounded instead by the conversation turn count and the loop's own
+        guards.
 
-        A ``--smoke-test 20`` run is the exception, and it is the honest answer
-        to the question this method actually asks — "does the user want to stop
-        now?" — because the user said so up front, in minutes. ``run_guidance``
-        consults this at the TOP of every round, so the deadline lands between
-        gaps and the crate is exported with whatever was answered, never
-        mid-question with a half-applied edit.
+        A ``--smoke-test 20`` run is the exception, because the user said so up
+        front, in minutes. The session itself ends at the conversational prompt
+        (:meth:`request_input`), between turns, so the crate is exported with
+        whatever was answered, never mid-question.
         """
         return self._time_is_up()
 
