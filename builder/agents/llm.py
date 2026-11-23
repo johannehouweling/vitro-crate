@@ -1,26 +1,19 @@
-"""Shared LLM plumbing for both build modes (Issue #309).
+"""Shared LLM plumbing for the build (Issue #309).
 
 Model construction (:func:`_build_chat_model`) plus the provider-detection,
-token-usage, request-timeout and recursion-limit helpers used by BOTH the ReAct
-agent loop (:mod:`builder.agents.react.agent_loop`) and the deterministic pipeline's
-bounded leaves (:mod:`builder.agents.pipeline.leaves`).
-
-Extracted out of ``agent_loop.py`` so the pipeline no longer imports from an
-agent-mode module just to build its drafter model -- a wrong-direction
-dependency the build-mode harmonization removes. This module depends on neither
-mode; the provider SDKs (``langchain_openai`` / ``langchain_anthropic``) are
+token-usage, request-timeout and recursion-limit helpers used by the ReAct agent
+loop (:mod:`builder.agents.react.agent_loop`) and by the bounded drafter call that
+reads a deposit's structure (:mod:`builder.agents.structure`). This module depends
+on neither; the provider SDKs (``langchain_openai`` / ``langchain_anthropic``) are
 imported lazily inside :func:`_build_chat_model` so importing this module stays
 cheap.
 
 It is also the shared home for the token-accounting seam: :data:`UsageSink` and
-:func:`make_usage_logger` live here rather than in the pipeline spine (where they
-were born, #221) because the spine is not the only non-ReAct caller of a bounded
-leaf any more -- the HITL guidance tail is one too (#384), and any future one
-(a second guidance-style tail, an MCP front-end) gets accounting by construction
-instead of by remembering. The logger only reads ``engine.state`` and
-``engine.profiler``, and says so structurally via :class:`UsageEngine`, so this
-module never imports the engine at all -- not even under ``TYPE_CHECKING`` -- and
-stays cycle-free and cheap to import.
+:func:`make_usage_logger`, so a bounded call outside the loop gets accounting by
+construction instead of by remembering. The logger only reads ``engine.state``
+and ``engine.profiler``, and says so structurally via :class:`UsageEngine`, so
+this module never imports the engine at all -- not even under ``TYPE_CHECKING``
+-- and stays cycle-free and cheap to import.
 """
 
 from __future__ import annotations
@@ -84,18 +77,15 @@ class UsageEngine(Protocol):
 
 @dataclass(frozen=True)
 class ModelOverrides:
-    """Caller-supplied model selection, threaded to BOTH build modes (#399).
+    """Caller-supplied model selection, threaded to every model call (#399).
 
-    The CLI's ``--provider`` / ``--model`` / ``--api-base`` used to reach the
-    ReAct loop as explicit arguments while the deterministic pipeline resolved its
-    model from the ENVIRONMENT instead. The flags were accepted on both paths and
-    applied on only one, so an A/B asked to compare two architectures on one model
-    silently compared two models — and part of any measured token or cost delta
-    was a model delta rather than an architecture delta.
+    The CLI's ``--provider`` / ``--model`` / ``--api-base`` reach the ReAct loop as
+    explicit arguments and the bounded drafter calls as this value, so one run's
+    calls cannot quietly resolve their model from the environment instead.
 
     Carried as one value rather than three loose arguments because it crosses
-    several layers (CLI -> build -> spine -> leaf, and the eval factory in
-    parallel), and a bare triple invites one of the three being dropped at a hop.
+    several layers (CLI -> build -> leaf, and the eval factory in parallel), and a
+    bare triple invites one of the three being dropped at a hop.
 
     Every field is optional: an empty instance means "resolve from the
     environment", which is exactly the pre-existing behaviour, so threading this
@@ -241,8 +231,8 @@ def _use_responses_api(resolved_model: str | None) -> bool:
 
     Reasoning models (gpt-5.x, o-series) reject ``temperature`` and cannot bind
     function tools on ``/v1/chat/completions`` with ``reasoning_effort`` — the
-    API requires the Responses API instead. Both the ReAct loop and the pipeline
-    drafter leaves bind tools, so such a model routes through it. Detect by name,
+    API requires the Responses API instead. The ReAct loop binds tools, so such a
+    model routes through it. Detect by name,
     with ``VITRO_OPENAI_USE_RESPONSES_API`` as an explicit override for
     custom/Azure deployment names the heuristic cannot recognise. An explicit
     ``reasoning_effort="none"`` turns reasoning OFF, so that call is treated as a
@@ -265,10 +255,10 @@ def effective_sampling_settings(model: str | None = None) -> dict[str, str]:
 
     ``temperature`` appears only when it is genuinely applied, and only when
     BOTH model tiers apply it. The OpenAI branch omits it for a Responses-API
-    reasoning model, and the tiers can disagree: the pipeline builds every leaf
-    with ``role="drafter"``, so ``VITRO_OPENAI_DRAFTER_MODEL`` can put a
-    reasoning model behind the pipeline while the orchestrator stays on a
-    standard one (or the reverse). When the two disagree no single temperature
+    reasoning model, and the tiers can disagree: a bounded leaf is built with
+    ``role="drafter"``, so ``VITRO_OPENAI_DRAFTER_MODEL`` can put a reasoning
+    model behind the leaves while the orchestrator stays on a standard one (or
+    the reverse). When the two disagree no single temperature
     was in effect, and that is recorded as absence — the same way
     :func:`_apply_temperature` expresses "no opinion" — rather than as a number
     half the run's calls never saw.
@@ -345,8 +335,8 @@ def _build_chat_model(
             ``on_llm_new_token`` callback can show the reply as it is written
             (the interactive footer's live tail). ``invoke`` still returns one
             aggregated message, so callers are unaffected. Set only by the
-            interactive ReAct loop; the pipeline's bounded leaves have nothing
-            to display and stay non-streaming. Off by default, and
+            interactive ReAct loop; the bounded leaves have nothing to display
+            and stay non-streaming. Off by default, and
             ``VITRO_NO_STREAM=1`` forces it off everywhere — a provider that
             mishandles streamed tool calls must be recoverable without a code
             change.
@@ -489,9 +479,9 @@ def _extract_token_usage(message: Any) -> tuple[int | None, int | None]:
     """Extract ``(input_tokens, output_tokens)`` from a LangChain ``AIMessage``.
 
     Provider-agnostic and the SINGLE source of truth for usage mining across the
-    ReAct model node (:func:`_wrap_model_node`) and the deterministic pipeline's
-    bounded leaves (:mod:`builder.agents.pipeline.leaves`), so both arms of the eval
-    harness record token counts with identical semantics:
+    ReAct model node (:func:`_wrap_model_node`) and the bounded leaves
+    (:mod:`builder.agents.structure`), so every call records token counts with
+    identical semantics:
 
     1. Prefer the standardised ``usage_metadata`` (langchain-core >=0.3).
     2. Fall back to provider-specific ``response_metadata["token_usage"]`` /
@@ -564,11 +554,9 @@ def make_usage_logger(engine: UsageEngine, totals: dict[str, int]) -> UsageSink:
     was never initialized) the accumulation still happens; only the profile write
     is skipped.
 
-    Lives here, not in the pipeline spine, because the spine is not the only
-    caller: the HITL guidance tail builds one of these too (#384). One
-    implementation means the two phases of an interactive run cannot drift into
-    logging two different event shapes, which is precisely how the guidance tail's
-    spend went missing from the status bar in the first place.
+    One implementation means a leaf call and a ReAct hop cannot drift into logging
+    two different event shapes, which is how a leaf's spend once went missing from
+    the status bar (#384).
     """
 
     def _sink(
