@@ -1,8 +1,8 @@
 """Deterministic, bounded discovery of scientific documentation.
 
-Discovery is deliberately independent of either agent architecture.  It uses
-the scanner inventory, reads only small previews inside approved roots, and
-returns ranked evidence for ReAct and the deterministic pipeline to consume.
+Discovery is deliberately independent of the agent.  It uses the scanner
+inventory, reads only small previews inside approved roots, and returns ranked
+evidence for the ReAct loop to consume.
 Filenames are signals, never requirements.
 """
 
@@ -219,8 +219,8 @@ def _tabular_signals(preview: str) -> tuple[list[str], float]:
 #
 # What a file IS, in four values, answered once for every scanned file and read
 # by everything downstream. It replaces four competing vocabularies — a
-# discovery `role`, the pipeline plan's raw/processed/condition_table, the
-# spine's raw_data/processed_data, and the process chain's raw/processed folder
+# discovery `role`, a build plan's raw/processed/condition_table, the
+# build's raw_data/processed_data, and the process chain's raw/processed folder
 # tier — which disagreed because two of them labelled FORM ("this is a table")
 # and two labelled FUNCTION ("this is metadata"), so a tabular metadata workbook
 # could only be one and lost the other.

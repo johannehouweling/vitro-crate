@@ -5,7 +5,7 @@ assays are: S-VHPS22 files ``study_01…/assay_01…04/``, WP2.3 files
 ``<study>/Assays/<assay>/``, S-VHPS26 files one ``Assay_<x>/``. Folder names
 vary per deposit, so no fixed layout and no name rule decides it. Instead the
 tree is summarised here (:func:`tree_summary`), one bounded model call labels it
-(:func:`builder.agents.pipeline.leaves.derive_deposit_structure`), and the
+(:func:`builder.agents.structure.derive_deposit_structure`), and the
 labelling is accepted only when :func:`check_structure` finds nothing wrong;
 otherwise :func:`fallback_structure` — one study, one assay, at the root — is
 what the build keeps, and :func:`describe_structure` says so in one line.

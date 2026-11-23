@@ -75,11 +75,10 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
         1 = INFO    (normal progress)
         2 = DEBUG   (verbose/tool internals)
 
-    The interactive build drives a multi-step deterministic pipeline whose
-    progress is logged at INFO; with the default WARNING level the run looks
-    dead. When *interactive* is set and the user has not requested any extra
-    verbosity (``verbose == 0``), the effective level is raised to INFO so that
-    pipeline progress is visible. A user-requested higher verbosity (``-v`` /
+    The interactive build logs its progress at INFO; with the default WARNING
+    level the run looks dead. When *interactive* is set and the user has not
+    requested any extra verbosity (``verbose == 0``), the effective level is
+    raised to INFO so that progress is visible. A user-requested higher verbosity (``-v`` /
     ``-vv``) is never downgraded.
 
     The interactive INFO bump is for *our* progress lines only. Promoting the
@@ -137,7 +136,7 @@ def setup_logging(verbose: int = 0, interactive: bool = False) -> None:
 
             # INFO, not WARNING: the interactive bump above already promoted the
             # root logger to INFO, so this shows exactly the records that print
-            # today — just quietly, and once each — rather than hiding pipeline
+            # today — just quietly, and once each — rather than hiding the
             # progress that the bump exists to surface.
             install_notice_handler(level=logging.INFO)
         except Exception:  # noqa: BLE001 — never let chrome stop the session
@@ -231,24 +230,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--interactive",
         "-I",
         action="store_true",
-        help="Run in interactive build mode: the ReAct agent loop, or with "
-        "--pipeline the deterministic pipeline + HITL guidance tail (requires "
-        "LangChain extra + API key)",
-    )
-    arm = parser.add_mutually_exclusive_group()
-    arm.add_argument(
-        "--react",
-        action="store_true",
-        help="With --interactive, the ReAct agent loop (the LLM orchestrates the "
-        "tool calls). The default, named here so a choice reads as one",
-    )
-    arm.add_argument(
-        "--pipeline",
-        action="store_true",
-        help="With --interactive, use the deterministic pipeline + HITL guidance "
-        "build (code owns the step ordering, the LLM is confined to bounded "
-        "leaves) instead of the default ReAct loop (a supported alternative; see "
-        "AGENTS.md §14)",
+        help="Run in interactive build mode: the ReAct agent loop, where the LLM "
+        "orchestrates the tool calls (requires LangChain extra + API key)",
     )
     parser.add_argument(
         "--smoke-test",
@@ -259,7 +242,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="MINUTES",
         help="Drive the interactive build with NOBODY at the keyboard: every "
         'choice prompt confirms its pre-selected option and every open field is '
-        'answered "yes, continue". Implies --interactive; works on both arms. '
+        'answered "yes, continue". Implies --interactive. '
         "Takes an OPTIONAL wall-clock budget in minutes (--smoke-test 20): the "
         "run winds down at its next question once the time is spent and exports "
         "what it has. Without one it drives a few turns and stops. For TESTING "
@@ -272,8 +255,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="With --interactive, the agent's first instruction, in place of "
         "the default it gets with an input folder ('Build the crate and "
         "validate it.'). Without a folder it waits for one. The session stays "
-        "interactive afterwards. Ignored by the --pipeline build, which runs "
-        "unprompted.",
+        "interactive afterwards.",
     )
     parser.add_argument(
         "--provider",
@@ -529,10 +511,8 @@ def main(argv: list[str] | None = None) -> int:
     Returns 0 on success, 1 on error.
     """
     args = parse_args(argv)
-    # The default interactive build (pipeline + guidance) logs progress at INFO;
-    # bump the default level there so the run does not look dead. The ReAct
-    # loop keeps its own output, so the bump applies to the whole interactive
-    # path.
+    # The interactive build logs progress at INFO; bump the default level there
+    # so the run does not look dead.
     setup_logging(args.verbose, interactive=args.interactive)
 
     logger.info("ISA-Tox RO-Crate Builder v0.1.0")
@@ -589,19 +569,17 @@ def main(argv: list[str] | None = None) -> int:
         if not _ensure_configured():
             return 1
 
-    # Any interactive run gets a REAL interactive HumanInterface. The DEFAULT
-    # build needs it so run_interactive_build won't (correctly) skip guidance
-    # (AGENTS.md §14.6.1); the ReAct loop needs it too so the scanner
-    # approval guard (engine._authorize_scan_root) can prompt-once for a
-    # user-named folder instead of fail-closing — without it a conversational
-    # ReAct scan of an un-approved folder returns no files. Non-interactive
+    # Any interactive run gets a REAL interactive HumanInterface. The ReAct loop
+    # needs it so the scanner approval guard (engine._authorize_scan_root) can
+    # prompt-once for a user-named folder instead of fail-closing — without it a
+    # conversational scan of an un-approved folder returns no files. Non-interactive
     # (batch) runs keep the headless simulated default.
     if args.smoke_test:
         # --smoke-test: an interface that answers ITSELF (confirm the pre-selected
         # choice, "yes, continue" into every open field). It reports
-        # is_interactive = True, which is the point — the guidance tail is gated on
-        # that single signal, so the headless SimulatedHumanInterface can never
-        # exercise it. Scan roots stay fail-closed: confirming the pre-selection
+        # is_interactive = True, which is the point — the loop's questions are gated
+        # on that single signal, so the headless SimulatedHumanInterface can never
+        # exercise them. Scan roots stay fail-closed: confirming the pre-selection
         # denies a scan_root escalation (#197), pinned by
         # tests/test_smoke_test_mode.py.
         from builder.tools.hitl import SmokeTestHumanInterface
@@ -615,8 +593,8 @@ def main(argv: list[str] | None = None) -> int:
         from builder.agents import ui
         from builder.tools.hitl import ConsoleHumanInterface
 
-        # Inject the shared rounded ❯ box + green-● question styling (#344) so the
-        # pipeline's guidance prompts render like the ReAct arm's: the question is
+        # Inject the shared rounded ❯ box + green-● question styling (#344) so a
+        # question asked through the interface renders like the loop's own: it is
         # shown via ui.render_reply, the answer read via ui.boxed_input. Injection
         # (not an import inside hitl.py) keeps builder.tools free of a
         # builder.agents.ui dependency — no agents→tools→agents cycle.
@@ -649,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         engine.state = loaded
         # Resumed sessions bypass initialize(), so restore the profiler before
-        # the ReAct/pipeline loop starts. Without this, run_tool and graph-node
+        # the ReAct loop starts. Without this, run_tool and graph-node
         # instrumentation silently has no writer and profile.ndjson stops at the
         # previous session checkpoint.
         engine.ensure_profiler()
@@ -703,52 +681,30 @@ def main(argv: list[str] | None = None) -> int:
         entity_count,
     )
 
-    # Interactive build mode. Two first-class arms over one toolbox (AGENTS.md
-    # §1, §14): the DEFAULT is the ReAct agent loop; the deterministic pipeline
-    # + HITL guidance tail is the alternative behind --pipeline.
+    # Interactive build mode: the ReAct agent loop.
     if args.interactive:
-        from builder.agents.build import DEFAULT_INSTRUCTION, BuildMode, run_build
+        from builder.agents.build import DEFAULT_INSTRUCTION, run_build
 
-        mode = BuildMode.from_cli(pipeline=args.pipeline)
-
-        # A folder on the command line says what to do: the ReAct loop is told
-        # to build unless --prompt says otherwise. Without a folder the session
-        # is conversational and waits for a first message (#412, #846).
+        # A folder on the command line says what to do: the loop is told to build
+        # unless --prompt says otherwise. Without a folder the session is
+        # conversational and waits for a first message (#412, #846).
         initial_prompt = args.prompt
-        if initial_prompt is None and mode is BuildMode.REACT and args.input:
+        if initial_prompt is None and args.input:
             initial_prompt = DEFAULT_INSTRUCTION
 
-        # The pipeline build is folder-driven: with no scanned files there is
-        # genuinely nothing to build, so tell the user how to proceed instead of
-        # exiting near-silently. The ReAct loop is conversational and runs
-        # without pre-scanned files, so this guard is pipeline-only.
-        if mode is BuildMode.PIPELINE and len(engine.state.scanned_files) == 0:
-            print(
-                "No input documents found. The pipeline build is folder-driven: "
-                "pass --input <folder> to build an ISA-Tox crate from your "
-                "research documents, or drop --pipeline for the conversational "
-                "agent."
-            )
-            return 0
-
-        # One switch routes A/B (#309): PIPELINE -> deterministic spine + HITL
-        # guidance tail (surfaced via the output channel); REACT -> the ReAct
-        # loop (provider/model/base_url apply). run_build ignores the kwargs that
-        # don't apply to the chosen mode.
         run_build(
-            mode,
             engine,
             provider=args.provider,
             model=args.model,
             base_url=args.api_base,
             output=print,
             # This is the only place that knows whether the session was loaded or
-            # freshly scanned; both arms are told rather than left to infer it
-            # from state that --input has already populated (#410).
+            # freshly scanned; the loop is told rather than left to infer it from
+            # state that --input has already populated (#410).
             resumed=bool(args.resume),
-            # ReAct-only kickoff: without it the loop greets and blocks on stdin
-            # having done no work, because the greeting invoke sits outside the
-            # autonomous-continuation loop (#412).
+            # Without it the loop greets and blocks on stdin having done no work,
+            # because the greeting invoke sits outside the autonomous-continuation
+            # loop (#412).
             initial_prompt=initial_prompt,
             verbose=args.verbose > 0,
         )

@@ -129,17 +129,13 @@ _SEVERITY_TO_TIER: dict[str, Tier] = {
 # Stable tier rank for the primary sort.
 _TIER_RANK: dict[Tier, int] = {"MUST": 0, "SHOULD": 1, "MAY": 2}
 
-# Sentinel ``fix_hint`` for a gap the guidance loop can NOT commit deterministically
-# from the gap's own fields (no settable entity field and no crate-level slot). It
-# is recorded for reporting but never consumes an ask-user / draft turn — see
-# ``builder.agents.pipeline.guidance._next_actionable_gap``.
+# Sentinel ``fix_hint`` for a gap the build can NOT commit deterministically from
+# the gap's own fields (no settable entity field and no crate-level slot). It is
+# recorded for reporting, and no turn is spent asking a person for it.
 REPORT_ONLY = "report-only"
 
 # Local property names a crate-level gap (``entity_id is None``) can be committed
-# to via the Root Data Entity metadata setter. MUST stay in sync with
-# ``builder.agents.pipeline.guidance._CRATE_METADATA_FIELDS`` (the guidance loop's
-# ``_apply_value`` is the single place these are actually written); kept here as a
-# lower-module constant to avoid a circular import (guidance imports gap_analysis).
+# to via the Root Data Entity metadata setter.
 _CRATE_SETTABLE_FIELDS: frozenset[str] = frozenset(
     {"name", "title", "description", "identifier", "accession"}
 )
@@ -165,13 +161,11 @@ def _is_committable(
     prop: str | None,
     entity_type: str | None = None,
 ) -> bool:
-    """Whether the guidance loop could deterministically commit such a gap.
+    """Whether the build could deterministically commit such a gap.
 
-    Mirrors :func:`builder.agents.pipeline.guidance._apply_value`'s success
-    conditions so the gap engine and the guidance loop can never drift on what
-    "settable" means. A gap this returns ``False`` for stays in the report (honest
-    counting) but is marked ``report-only``, so the loop never spends a human turn
-    on a question whose answer it would then discard.
+    A gap this returns ``False`` for stays in the report (honest counting) but is
+    marked ``report-only``, so no human turn is spent on a question whose answer
+    could not be written.
 
     Committable when the gap names a field the loop can actually write:
 
@@ -197,8 +191,7 @@ def _is_committable(
     committed to one, but naming an entity that already exists in the crate can —
     and that is precisely the useful question when a repair rule declined because
     two candidates were ambiguous ("which File is this analysis' input?"). #375
-    makes the *prose* case honest (``_apply_value`` refuses it and the loop asks
-    once) rather than removing the interaction.
+    makes the *prose* case honest rather than removing the interaction.
     """
     field = _local_name(prop)
     if not field:
