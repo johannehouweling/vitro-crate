@@ -19,12 +19,9 @@ No LLM, no network, no SHACL: the build wiring is exercised with injected runner
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from builder.engine import AgentEngine
-from builder.state import CrateState
 from builder.tools.hitl import (
     SCAN_ROOT_PURPOSE,
     SMOKE_TEST_ANSWER,
@@ -35,7 +32,7 @@ from builder.tools.hitl import (
     answers_are_synthetic,
     is_interactive,
 )
-from main import main, parse_args
+from main import parse_args
 
 
 class TestProtocolAndInteractiveSignal:
@@ -45,11 +42,8 @@ class TestProtocolAndInteractiveSignal:
         assert isinstance(SmokeTestHumanInterface(), HumanInterface)
 
     def test_is_interactive_true(self):
-        """The guidance tail is gated on this one signal (AGENTS.md §14.6.1).
-
-        Behind a non-interactive interface ``run_interactive_build`` degrades to
-        the automated pipeline + export and ``run_guidance`` is never called — so
-        a smoke mode reporting False would exercise nothing it was asked to.
+        """The loop's questions are gated on this one signal: a smoke mode reporting
+        False would exercise nothing it was asked to.
         """
         assert SmokeTestHumanInterface().is_interactive is True
         assert is_interactive(SmokeTestHumanInterface()) is True
@@ -240,34 +234,6 @@ class TestOpenFieldsAndOptionalCapabilities:
 class TestIdentifiersAreNeverSynthesised:
     """D5: ``"yes, continue"`` must not be able to become a CAS or an ORCID."""
 
-    def test_guidance_forces_an_identifier_commit_to_a_skip(self):
-        """The guidance interpret fallback skips identifier-bearing fields.
-
-        Confirming the guard still holds for THIS answer rather than assuming it:
-        the same reply commits happily on a descriptive field.
-        """
-        from builder.agents.pipeline.guidance import _deterministic_decision
-        from builder.tools.gap_analysis import Gap
-
-        def _gap(prop: str) -> Gap:
-            return Gap(
-                tier="MUST",
-                source="shacl",
-                entity_id="#compound-1",
-                entity_type="MolecularEntity",
-                property=prop,
-                message="missing",
-                suggestion=None,
-                fix_hint="ask-user",
-                auto_fixable=False,
-            )
-
-        assert _deterministic_decision(_gap("identifier"), SMOKE_TEST_ANSWER) == {"action": "skip"}
-        assert _deterministic_decision(_gap("description"), SMOKE_TEST_ANSWER) == {
-            "action": "commit",
-            "value": SMOKE_TEST_ANSWER,
-        }
-
     def test_pasted_orcid_prose_is_rejected_by_verification(self):
         """The citation-author escalation asks for an ORCID as free text.
 
@@ -313,59 +279,6 @@ class TestTheRunSaysTheAnswersAreSynthetic:
         where it landed — in a name, a description — so the notice quotes it."""
         assert SMOKE_TEST_ANSWER in SYNTHETIC_ANSWER_NOTICE
         assert "SMOKE TEST" in SYNTHETIC_ANSWER_NOTICE
-
-    def test_export_line_is_followed_by_the_notice(self, tmp_path):
-        """Emitted by the build, immediately after the crate path (#233 line).
-
-        Scrollback read later must not present a crate full of placeholder prose
-        as a real one, so the two lines are adjacent by construction.
-        """
-        from builder.agents.build import run_interactive_build
-
-        out_dir = tmp_path / "smoke-ro-crate"
-        engine = AgentEngine(state=CrateState(), human_interface=SmokeTestHumanInterface())
-        engine.initialize()
-        engine.state.metadata.output_path = str(out_dir)
-        lines: list[str] = []
-
-        def fake_exporter(state: CrateState, **kw: Any) -> dict[str, Any]:
-            return {"success": True, "crate_path": str(out_dir), "error": None}
-
-        run_interactive_build(
-            engine,
-            pipeline_runner=lambda eng: {"ok": True, "conformance": {}, "issues": []},
-            guidance_runner=lambda eng, human, **kw: {"resolved": [], "asked": []},
-            exporter=fake_exporter,
-            output=lines.append,
-        )
-
-        path_index = next(i for i, line in enumerate(lines) if line.startswith("Crate written to:"))
-        assert lines[path_index + 1] == SYNTHETIC_ANSWER_NOTICE
-
-    def test_a_real_frontend_gets_no_notice(self, tmp_path):
-        """A build whose answers came from a person must not be labelled synthetic."""
-        from builder.agents.build import run_interactive_build
-        from builder.tools.hitl import SimulatedHumanInterface
-
-        out_dir = tmp_path / "plain-ro-crate"
-        engine = AgentEngine(state=CrateState(), human_interface=SimulatedHumanInterface())
-        engine.initialize()
-        engine.state.metadata.output_path = str(out_dir)
-        lines: list[str] = []
-
-        run_interactive_build(
-            engine,
-            pipeline_runner=lambda eng: {"ok": True, "conformance": {}, "issues": []},
-            exporter=lambda state, **kw: {
-                "success": True,
-                "crate_path": str(out_dir),
-                "error": None,
-            },
-            output=lines.append,
-        )
-
-        assert not any("SMOKE TEST" in line for line in lines)
-
 
 class TestTheConversationTerminates:
     """The bound that makes ``--smoke-test --react`` finite.
@@ -589,30 +502,6 @@ class TestCli:
             with pytest.raises(SystemExit):
                 parse_args(["--smoke-test", bad])
 
-    def test_the_budget_reaches_the_interface(self, monkeypatch, capsys, tmp_path):
-        """End to end: the number on the command line becomes the interface's
-        deadline, and the run says so before spending anything."""
-        self._stub_config(monkeypatch)
-        d = tmp_path / "data"
-        d.mkdir()
-        (d / "test.txt").write_text("hello\n")
-        seen: list[Any] = []
-
-        import builder.agents.build as build_mod
-
-        monkeypatch.setattr(
-            build_mod,
-            "run_interactive_build",
-            lambda engine, **kw: seen.append(engine.human_interface) or {"pipeline": {}},
-        )
-
-        assert main(["--smoke-test", "20", "--pipeline", "--input", str(d)]) == 0
-        human = seen[0]
-        assert isinstance(human, SmokeTestHumanInterface)
-        assert human._deadline is not None, "the budget never reached the interface"
-        assert human.is_done() is False, "20 minutes must not be spent on arrival"
-        assert "20 minute" in capsys.readouterr().out
-
     def test_a_bare_smoke_test_sets_no_deadline(self):
         """The control for the test above — without a number nothing is on a
         clock, so the turn cap stays the bound."""
@@ -624,77 +513,3 @@ class TestCli:
         assert args.smoke_test is True
         assert args.interactive is True
 
-    def test_react_is_driven_not_refused(self, monkeypatch, capsys, tmp_path):
-        """The combination this mode most needs, and the one it used to refuse.
-
-        The refusal was real while it stood: the ReAct loop read its conversation
-        straight off stdin, so a synthetic interface had nothing to answer and the
-        run sat on an empty terminal. Now that the read goes through the
-        interface, refusing would be turning away the arm a smoke test is FOR.
-        """
-        self._stub_config(monkeypatch)
-        d = tmp_path / "data"
-        d.mkdir()
-        (d / "test.txt").write_text("hello\n")
-        seen: list[Any] = []
-
-        import builder.agents.react.agent_loop as agent_loop
-
-        monkeypatch.setattr(
-            agent_loop,
-            "run_interactive_agent",
-            lambda engine, *a, **kw: seen.append(engine.human_interface),
-        )
-
-        assert main(["--smoke-test", "--react", "--input", str(d)]) == 0
-        assert len(seen) == 1, "the ReAct loop must actually be started"
-        assert isinstance(seen[0], SmokeTestHumanInterface)
-        # The notice is not skipped just because this is the other arm.
-        assert "SMOKE TEST" in capsys.readouterr().out
-
-    def test_wires_the_smoke_interface_and_prints_the_opening_notice(
-        self, monkeypatch, capsys, tmp_path
-    ):
-        """The engine handed to the build answers itself and reports interactive."""
-        self._stub_config(monkeypatch)
-        d = tmp_path / "data"
-        d.mkdir()
-        (d / "test.txt").write_text("hello\n")
-        seen: list[Any] = []
-
-        import builder.agents.build as build_mod
-
-        def _capture(engine, **kw):
-            seen.append(engine.human_interface)
-            return {"pipeline": {}, "guidance": None}
-
-        monkeypatch.setattr(build_mod, "run_interactive_build", _capture)
-
-        assert main(["--smoke-test", "--pipeline", "--input", str(d)]) == 0
-        assert len(seen) == 1
-        assert isinstance(seen[0], SmokeTestHumanInterface)
-        assert is_interactive(seen[0]) is True
-        # The notice lands BEFORE the build, so an accidental --smoke-test is
-        # obvious immediately rather than only at the end.
-        assert "SMOKE TEST" in capsys.readouterr().out
-
-    def test_plain_interactive_still_gets_the_console_interface(self, monkeypatch, tmp_path):
-        """No --smoke-test => the real stdin frontend, unchanged."""
-        from builder.tools.hitl import ConsoleHumanInterface
-
-        self._stub_config(monkeypatch)
-        d = tmp_path / "data"
-        d.mkdir()
-        (d / "test.txt").write_text("hello\n")
-        seen: list[Any] = []
-
-        import builder.agents.build as build_mod
-
-        monkeypatch.setattr(
-            build_mod,
-            "run_interactive_build",
-            lambda engine, **kw: seen.append(engine.human_interface) or {"pipeline": {}},
-        )
-
-        assert main(["--interactive", "--pipeline", "--input", str(d)]) == 0
-        assert isinstance(seen[0], ConsoleHumanInterface)

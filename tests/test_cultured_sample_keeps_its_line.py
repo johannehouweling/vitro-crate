@@ -33,7 +33,7 @@ from builder.tools.builder import assemble_crate
 from builder.tools.composites import draft_process_chain
 from builder.tools.drafters import draft_sample
 
-# Every S-VHPS22 process runs the whole pipeline, SHACL passes included.
+# Every S-VHPS22 build assembles and validates the whole crate, SHACL passes included.
 pytestmark = pytest.mark.timeout(240)
 
 REPO = Path(__file__).resolve().parents[1]
@@ -140,65 +140,6 @@ def _two_line_culture() -> list[dict[str, Any]]:
     return _cultures(state)
 
 
-def _svhps22_cultures() -> list[dict[str, Any]]:
-    """The cultures of S-VHPS22 built as ``tests/test_pipeline_real_input.py`` builds
-    a deposit: scanned off disk and run through ``run_pipeline`` offline. What that
-    module and ``tests/conftest.py`` stub is stubbed here as well, because their
-    stubs do not reach a process of its own. The plan names each line the deposit
-    names.
-
-    The pipeline grows only the first line it resolves, so its own culture never
-    splits. The deposit is then given the culture an agent drafts for it: one step
-    naming every line resolved, in the order the README names them."""
-    import builder.agents.pipeline.pipeline as pipeline
-    from builder.engine import AgentEngine
-    from builder.tools import composites, file_descriptions, lookups
-    from builder.tools.hitl import SimulatedHumanInterface
-
-    def plan(context: str, **_: Any) -> dict[str, Any]:
-        low = context.lower()
-        return {"cell_lines": [{"name": line} for line in SVHPS22_LINES if line.lower() in low]}
-
-    miss = {"found": False, "data": {}, "error": "offline"}
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(pipeline, "get_provider", lambda: "openai")
-        patch.setattr(pipeline, "extract_plan", plan)
-        patch.setattr(
-            pipeline,
-            "draft_entity_fields",
-            lambda entity_type, context, **_: {
-                "description": f"Drafted {entity_type} description."
-            },
-        )
-        patch.setattr(file_descriptions, "describe_payload_files", lambda state, **_: [])
-        patch.setattr(lookups, "lookup_compound_wiki", lambda name: {})
-        for lookup in (
-            "lookup_compound",
-            "lookup_dtxsid",
-            "lookup_cell_line_by_name",
-            "lookup_cell_line",
-        ):
-            patch.setattr(composites, lookup, lambda query: miss)
-        patch.setattr(composites, "lookup_exact_term", lambda label, ontology: miss)
-        patch.setattr(composites, "compound_wiki_id", lambda inchikey: "")
-        patch.setattr(composites, "search_works_by_title", lambda title: [])
-        patch.setattr(
-            composites,
-            "verify_identifier",
-            lambda state, entity_id, field: {"verified": False, "message": "offline"},
-        )
-        engine = AgentEngine(state=CrateState(), human_interface=SimulatedHumanInterface())
-        engine.initialize(input_path=str(SVHPS22))
-        pipeline.run_pipeline(engine)
-    state = engine.state
-    lines = {str(e.fields.get("name")): e.entity_id for e in state.list_entities("CellLineSample")}
-    assay = state.list_entities("Assay")[0].entity_id
-    # Named apart from the pipeline's "Cell culture", whose step and Sample it would reuse.
-    culture = _culture([lines[line] for line in SVHPS22_LINES], "Neural cell line culture")
-    draft_process_chain(state, assay, [culture])
-    return _cultures(state)
-
-
 def _in_processes(function: str) -> dict[str, Any]:
     """What *function* of this module returns in a fresh interpreter under each seed."""
     script = (
@@ -236,17 +177,6 @@ class TestEveryProcessBuildsTheSameCultures:
             assert [culture["grows"] for culture in cultures] == [["H4"], ["SK-N-AS"]], seed
             _assert_each_part_yields_its_own_line(cultures)
         assert runs[SEEDS[0]] == runs[SEEDS[1]], "one culture built differently in two processes"
-
-    def test_the_svhps22_deposit_gives_the_same_culture_samples_in_two_processes(self) -> None:
-        """The deposit whose culture documents the split follows (one per line)."""
-        runs = _in_processes("_svhps22_cultures")
-        parts = [c["step"] for c in runs[SEEDS[0]] if c["step"].startswith("Culture ")]
-        assert parts == [f"Culture {line}" for line in SVHPS22_LINES], runs[SEEDS[0]]
-        assert runs[SEEDS[0]] == runs[SEEDS[1]], (
-            "S-VHPS22 built different cultures in two processes"
-        )
-        _assert_each_part_yields_its_own_line(runs[SEEDS[0]])
-
 
 class TestTheDraftedSampleDerivesFromTheFirstLineStated:
     @pytest.mark.parametrize("lines", [LINES, LINES[::-1]], ids=["sk-n-as-first", "h4-first"])
