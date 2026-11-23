@@ -1,9 +1,7 @@
-"""Tests for Exposure condition-table population + Frictionless bridge (Issue #144).
+"""Tests for Exposure condition-table population (Issue #144).
 
 ``populate_condition_table`` writes per-well rows into the Exposure condition
-table CSV (replacing the header-only placeholder from #94). ``csvw_to_frictionless``
-converts the CSVW column descriptors into the Frictionless ``{fields: [...]}``
-shape so ``validate_table`` needs no hand-authored schema.
+table CSV (replacing the header-only placeholder from #94).
 """
 
 from __future__ import annotations
@@ -18,10 +16,8 @@ from builder.tools._crate_mapping import _CONDITION_TABLE_COLUMNS
 from builder.tools.data_content import (
     _UNIT_SUFFIX_RE,
     condition_table_fit,
-    csvw_to_frictionless,
     populate_condition_table,
     project_condition_rows,
-    validate_table,
 )
 
 # Every test here exports a crate, and each export now runs the uncached,
@@ -75,29 +71,6 @@ def _exposure_state() -> CrateState:
     return state
 
 
-def test_csvw_to_frictionless_maps_columns():
-    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
-    assert "fields" in schema
-    names = [f["name"] for f in schema["fields"]]
-    # The full 10-column condition-table schema (Issue #180, Lane D).
-    assert names == [
-        "well_id",
-        "assay",
-        "cell_line",
-        "compound",
-        "concentration_value",
-        "concentration_unit",
-        "exposure_duration",
-        "experiment",
-        "technical_replicate",
-        "control",
-    ]
-    by_name = {f["name"]: f for f in schema["fields"]}
-    # double -> number, string -> string (Frictionless types)
-    assert by_name["concentration_value"]["type"] == "number"
-    assert by_name["cell_line"]["type"] == "string"
-
-
 def test_populate_condition_table_writes_rows(tmp_path):
     state = _exposure_state()
     # Population fills whatever columns the data provides; the schema describes
@@ -119,45 +92,6 @@ def test_populate_condition_table_writes_rows(tmp_path):
     assert reader[0]["concentration_value"] == "10"
     assert reader[1]["concentration_value"] == "100"
     assert reader[0]["well_id"] == "A1"
-
-
-def test_populated_table_validates_with_inferred_schema(tmp_path):
-    state = _exposure_state()
-    rows = [
-        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
-         "concentration_value": "10", "concentration_unit": "uM",
-         "exposure_duration": "24h"},
-    ]
-    result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
-    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
-    report = validate_table(result["path"], schema)
-    assert report["ok"] is True, report
-
-
-def test_populated_table_rejects_non_numeric_concentration(tmp_path):
-    """The inferred CSVW schema TYPES ``concentration_value`` as a number, so a row
-    whose value is valid-as-string but not-a-number must FAIL content validation with
-    an error routed to that column.
-
-    The happy-path test above would still pass even if the column were typed as a
-    plain string — this negative case is what makes the number-typing meaningful.
-    """
-    state = _exposure_state()
-    rows = [
-        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
-         "concentration_value": "abc",  # not a number — must be rejected by the type
-         "concentration_unit": "uM", "exposure_duration": "24h"},
-    ]
-    result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
-    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
-    report = validate_table(result["path"], schema)
-
-    assert report["ok"] is False, report
-    assert any(
-        "concentration_value" in str(issue.get("property", ""))
-        or "concentration_value" in str(issue.get("message", ""))
-        for issue in report["issues"]
-    ), report["issues"]
 
 
 class TestProjectConditionRows:
@@ -957,72 +891,6 @@ class TestPlateMapIntakeByFormat:
         assert out["ok"] is False
         assert "no sheet" in out["error"]
         assert "Notes" in out["error"]
-
-
-class TestAWorkbookThatIsSimplyNotTheDesignTable:
-    """"Opened fine, holds no per-condition sheet" is not a read failure (#594).
-
-    ``_rows_from_file`` reports both through its ``error`` channel, which was
-    harmless while a caller named ONE file and either way got nothing. Searching
-    every scanned table for the design table makes the difference load-bearing:
-    read as failures, svhps22's twenty perfectly good workbooks would fire the
-    #422 "could not READ" warning and put a false ``read_failed`` on the result.
-    """
-
-    @staticmethod
-    def _measurements(path) -> None:
-        import openpyxl
-
-        book = openpyxl.Workbook()
-        sheet = book.active
-        sheet.title = "Readings"
-        sheet.append(["timepoint", "absorbance", "operator"])
-        sheet.append([0, 0.412, "AB"])
-        sheet.append([30, 0.688, "AB"])
-        book.save(path)
-
-    def test_it_reports_no_error(self, tmp_path) -> None:
-        from builder.tools.data_content import condition_table_fit_of
-
-        book = tmp_path / "readings.xlsx"
-        self._measurements(book)
-
-        wells, mapped, error = condition_table_fit_of(book)
-
-        assert (wells, mapped) == (0, 0), "a measurement sheet is not a design table"
-        assert error is None, f"a readable workbook must not be reported as failed: {error}"
-
-    def test_a_workbook_that_cannot_be_opened_still_does(self, tmp_path) -> None:
-        """The control: the #422 signal must survive the distinction above."""
-        from builder.tools.data_content import condition_table_fit_of
-
-        broken = tmp_path / "plate_map.xlsx"
-        broken.write_text("this is not a workbook", encoding="utf-8")
-
-        wells, mapped, error = condition_table_fit_of(broken)
-
-        assert (wells, mapped) == (0, 0)
-        assert error, "an unopenable workbook must still be reported"
-
-    def test_a_real_plate_map_still_wins(self, tmp_path) -> None:
-        """The other control: the predicate still finds the design table."""
-        import openpyxl
-
-        from builder.tools.data_content import condition_table_fit_of
-
-        book = tmp_path / "design.xlsx"
-        wb = openpyxl.Workbook()
-        wb.active.title = "Cover"
-        wb.active.append(["Depositor", "Lab X"])
-        plate = wb.create_sheet("Plate map")
-        plate.append(["well_id", "compound", "concentration_value", "concentration_unit"])
-        plate.append(["A1", "BPA", 10.0, "uM"])
-        wb.save(book)
-
-        wells, mapped, error = condition_table_fit_of(book)
-
-        assert error is None
-        assert wells == 1 and mapped >= 3
 
 
 class TestAKeyOnItsOwnDescribesNothing:

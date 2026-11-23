@@ -294,7 +294,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     ``engine.state.documents``: the ReAct state brief includes a ``Documents: N``
     line and the context is appended as a document-context SystemMessage block.
 
-    Discovery is best-effort and bounded (``_MAX_CONTEXT_CHARS`` caps preview text).
+    Discovery is best-effort and bounded (each preview is capped).
     A failure never breaks initialization — it just leaves ``state.documents`` empty.
     """
     from builder.tools.document_discovery import (

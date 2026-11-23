@@ -587,18 +587,6 @@ def slot_matcher(
     return _state_match
 
 
-def slot_type_present(entity_type: str, nodes: list[dict[str, Any]]) -> bool:
-    """Whether any assembled node matches ``entity_type``'s slot-type rule.
-
-    The graph-aware counterpart of "is there an instance of this type?" — the
-    check that decides whether an MIT parameter gets a per-field question or the
-    #257 creation prompt. A ``CrateState`` type scan answers ``False`` for every
-    ``LabProcess*`` subtype (they are not ``EntityType`` members), so a fully
-    parameterised Exposure still produced "No LabProcessExposure recorded yet".
-    """
-    return any(_node_matches_slot_type(n, entity_type) for n in nodes)
-
-
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------

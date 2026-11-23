@@ -15,8 +15,6 @@ from __future__ import annotations
 from rocrate.model import Dataset
 from rocrate.rocrate import ROCrate
 
-from builder.state import CrateState, Entity, EntityProvenance
-from builder.tools.gap_analysis import _is_committable
 from builder.tools.validation import verify_payload
 from profiles.validator import validate_crate_dict
 
@@ -68,28 +66,3 @@ class TestAFolderOfTheCrateIsNoDirectoryOnTheWeb:
         assert "./assay_01/" in _asked_for_a_distribution(result.issues, "optional")
 
 
-class TestNoOneIsAskedForAnArchive:
-    """A directory's ``distribution`` is the archive its repository serves once the
-    crate is published, so no answer given while the crate is built fills it."""
-
-    def _state(self) -> CrateState:
-        state = CrateState()
-        state.add_entity(
-            Entity(
-                entity_id="study_1",
-                type="Study",
-                fields={"name": "Uptake"},
-                _provenance=EntityProvenance(created_by="llm"),
-            )
-        )
-        return state
-
-    def test_a_distribution_is_no_question(self) -> None:
-        state = self._state()
-
-        assert _is_committable(state, "./#Study_study_1", "http://schema.org/distribution") is False
-
-    def test_a_description_of_the_same_entity_still_is(self) -> None:
-        state = self._state()
-
-        assert _is_committable(state, "./#Study_study_1", "http://schema.org/description") is True

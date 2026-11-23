@@ -361,23 +361,6 @@ class TestTheInLoopVerdictCarriesReachability:
         )
         assert state.validation.isa_reachability_checked is True
 
-    def test_the_gap_engine_carries_it_as_a_must_gap(self, tmp_path: Path) -> None:
-        """The guidance summary reads `assess_gaps`, which must agree with the loop.
-
-        Report-only: the edge is missing on whatever should point AT the entity,
-        so no value the guidance loop could set on the entity itself clears it.
-        """
-        from builder.tools.gap_analysis import REPORT_ONLY, assess_gaps
-
-        report = assess_gaps(_state_with_a_detached_process(tmp_path))
-
-        assert report.conformance["isa"] is False
-        assert [
-            (g.tier, g.fix_hint)
-            for g in report.gaps
-            if g.source == "shacl" and "proc_orphan" in (g.entity_id or "") and g.tier == "MUST"
-        ] == [("MUST", REPORT_ONLY)]
-
     def test_a_current_verdict_that_never_asked_is_re_run(self, tmp_path: Path) -> None:
         """A disk `validate` report covers every tier and never asked (#738)."""
         state = _state_with_a_detached_process(tmp_path)

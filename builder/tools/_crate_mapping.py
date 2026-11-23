@@ -3226,15 +3226,6 @@ _CONDITION_TABLE_COLUMNS: tuple[dict[str, str], ...] = (
 # CSVW schema can never drift apart.
 _CONDITION_TABLE_HEADER = ",".join(c["titles"] for c in _CONDITION_TABLE_COLUMNS) + "\n"
 
-# The condition-table columns whose cells name in-crate entities, keyed to the
-# entity type they resolve against. The single map consumed by the schema's
-# valueUrl branch (_build_condition_table_schema), the pipeline's payload
-# validation, and the eval scorer (#474) — one definition, no drift.
-CONDITION_TABLE_REFERENCE_COLUMNS: dict[str, str] = {
-    "compound": "MolecularEntity",
-    "cell_line": "CellLineSample",
-}
-
 # The zero-row condition table (#473). `_synth_condition_table` ships a
 # header-only CSV typed csvw:Table with the FULL ten-column schema — datatype and
 # propertyUrl on every column, valueUrl on cell_line/compound. Over zero rows
