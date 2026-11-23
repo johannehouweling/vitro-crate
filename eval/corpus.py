@@ -18,7 +18,7 @@ crate reaches ``{base, isa, tox}`` REQUIRED conformance through ``build_and_vali
 (see :func:`reaches_isa_tox_conformance`).
 
 A case may *additionally* declare ``min_entities`` — a minimum count of domain
-entities (by ``@type``) its build must produce. That gives the A/B a second,
+entities (by ``@type``) its build must produce. That gives the harness a second,
 additive **content-quality** signal (:func:`meets_entity_quota`): conformance
 measures whether the agent *acted*; the quota measures whether what it drafted is
 actually there. ``min_entities`` never changes the success predicate; it is a
@@ -47,9 +47,9 @@ _DRAFTING_INPUT = _REPO_ROOT / "tests" / "fixtures" / "svhps22_input"
 # raw documents a researcher actually keeps — a study description, a methods /
 # protocol write-up, a compound list, and nested measurement + analysis CSVs, with
 # NO metadata file. It exercises the full scan -> extract -> materialize -> assess
-# path for both archs, and a *good* build must draft a COMPLETE in-vitro tox study
-# (the four-step process chain), not just a backbone. Lives under eval/ so the
-# A/B owns its own fixture independently of the tests/ end-to-end fixtures.
+# path, and a *good* build must draft a COMPLETE in-vitro tox study (the
+# four-step process chain), not just a backbone. Lives under eval/ so the
+# harness owns its own fixture independently of the tests/ end-to-end fixtures.
 _ARBITRARY_TOX_INPUT = _REPO_ROOT / "eval" / "fixtures" / "arbitrary_tox_folder"
 
 
@@ -110,7 +110,7 @@ def reaches_isa_tox_conformance(state: CrateState) -> dict[str, Any]:
 def meets_entity_quota(state: CrateState, min_entities: dict[str, int] | None) -> dict[str, Any]:
     """Content-quality check: did *state* draft at least ``min_entities`` per type?
 
-    This is the second, *additive* signal the A/B uses alongside
+    This is the second, *additive* signal the harness uses alongside
     :func:`reaches_isa_tox_conformance`. Conformance answers "did the agent act?";
     the quota answers "is the drafted domain content actually there?" — a crate can
     reach ``{base, isa, tox}`` with an almost-empty backbone, so a draft-quality
@@ -286,7 +286,7 @@ def _drafting_state() -> CrateState:
     # The Adverse Outcome Pathway this TPO screen investigates (AOP-Wiki 42),
     # keyed by its resolvable IRI exactly as resolve_aop would
     # (Issue #180). AOP linking is a tox SHOULD, so it does not gate REQUIRED
-    # conformance; the case's min_entities quota is what makes the A/B measure it.
+    # conformance; the case's min_entities quota is what makes the harness measure it.
     state.add_entity(
         _ent(
             "https://aopwiki.org/aops/42",
@@ -502,7 +502,7 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
             "{base, isa, tox} conformance gate; the additive min_entities quota "
             "measures whether the build actually drafted the domain content "
             "(compound, cell line, the two files, and the AOP-Wiki pathway the "
-            "TPO screen investigates) — so the A/B can compare draft QUALITY, not "
+            "TPO screen investigates) — so a run is scored on draft QUALITY, not "
             "just that the agent acted (Issues #179, #180)."
         ),
         kind="structured",
@@ -524,7 +524,7 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
             "CellLineSample": 1,
             "File": 2,
             # AOP-Wiki linking (Issue #180): TPO inhibition is AOP 42, so a good
-            # build must draft the pathway — this makes the A/B score AOP, not
+            # build must draft the pathway — this makes the harness score AOP, not
             # just backbone + compound + cell line.
             "AdverseOutcomePathway": 1,
         },
@@ -553,11 +553,11 @@ DEFAULT_CORPUS: tuple[EvalCase, ...] = (
             "keeps — a study description, a methods/protocol write-up, a compound "
             "list, and nested measurement + analysis CSVs, with NO metadata file — "
             "and build the COMPLETE in-vitro tox study. This is the case that "
-            "exercises the full scan -> extract -> materialize -> assess path for "
-            "BOTH archs (not a pre-seeded backbone). Success is the strict "
+            "exercises the full scan -> extract -> materialize -> assess path "
+            "(not a pre-seeded backbone). Success is the strict "
             "{base, isa, tox} conformance gate; the additive min_entities quota is "
             "set to a complete-study floor (the four-step process chain, a cell "
-            "line, a compound, a protocol, the data files) so the A/B compares "
+            "line, a compound, a protocol, the data files) so the harness measures "
             "whether the build drafted a WHOLE study, not just that it acted."
         ),
         # An arbitrary folder with no metadata file is the unstructured tier — the

@@ -1,7 +1,7 @@
 """Tests for the ``python -m eval`` entry point — offline (mock factory).
 
 The CLI's default factory is the LIVE ReAct agent, so these inject a mock factory
-and a canned profile reader to drive the whole pipeline (parse args -> run -> write
+and a canned profile reader to drive the whole flow (parse args -> run -> write
 report) without a model. Only the wiring and the on-disk artifact are asserted.
 """
 
@@ -43,9 +43,9 @@ class TestArgParser:
 
     def test_overrides(self) -> None:
         args = build_arg_parser().parse_args(
-            ["--label", "pipeline", "--repeats", "5", "--out", "x.ndjson"]
+            ["--label", "react-gpt-4o", "--repeats", "5", "--out", "x.ndjson"]
         )
-        assert args.label == "pipeline"
+        assert args.label == "react-gpt-4o"
         assert args.repeats == 5
         assert args.out == "x.ndjson"
 
