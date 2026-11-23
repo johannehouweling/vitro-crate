@@ -1,21 +1,20 @@
-"""``python -m eval`` — run the A/B harness and write a labeled report.
+"""``python -m eval`` — run the harness over the ReAct build and write a labeled report.
 
-Live by default: it runs the chosen build arm (``--arch react|pipeline``, mapped
-onto :class:`builder.agents.build.BuildMode`) over the corpus — real LLM calls
-with your configured DeepSeek-flash / OpenAI / Anthropic credentials — and writes a
-labeled ndjson report under ``eval_reports/``. Run each arm under its own label::
+Live by default: it runs the ReAct build (:func:`builder.agents.build.run_build`)
+over the corpus — real LLM calls with your configured DeepSeek-flash / OpenAI /
+Anthropic credentials — and writes a labeled ndjson report under ``eval_reports/``.
+Runs made under different labels (another model, prompt or revision) diff with
+:func:`eval.report.compare_reports`::
 
-    python -m eval --arch react --label react
-    python -m eval --arch pipeline --label pipeline
+    python -m eval --label react
+    python -m eval --label react-gpt-4o --model gpt-4o
 
-and diff the two reports with :func:`eval.report.compare_reports` (see
-``eval/README.md``; the ReAct run used for the original A/B is frozen at git tag
-``react-baseline``).
+See ``eval/README.md``; the ReAct baseline is frozen at git tag ``react-baseline``.
 
 The ``agent_factory`` / ``profile_reader`` parameters of :func:`run_main` exist so
 the offline tests drive the whole flow with a mock — they are never used live.
 
-For a fair, defensible A/B (#331) the report also records, per case: the
+For a defensible comparison (#331) the report also records, per case: the
 **stop-reason** (``completed`` / ``cap_hit`` / ``error`` — a ReAct "win" at the
 recursion cap is not a clean win), the **cost** in USD (from
 ``eval.metrics.MODEL_PRICES`` or the ``--price-input`` / ``--price-output``
@@ -32,8 +31,6 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from builder.agents.build import BuildMode
-from builder.agents.llm import ModelOverrides
 from builder.config import load_config, merge_with_env
 from eval.agent_api import BuildAgent
 from eval.corpus import DEFAULT_CORPUS
@@ -49,16 +46,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     """Return the CLI argument parser for ``python -m eval``."""
     parser = argparse.ArgumentParser(
         prog="python -m eval",
-        description="Run the agent-agnostic A/B evaluation harness over the corpus.",
-    )
-    parser.add_argument(
-        "--arch",
-        choices=("react", "pipeline"),
-        default="react",
-        help=(
-            "Architecture under test: 'react' (DEFAULT) drives the live ReAct "
-            "engine; 'pipeline' runs the deterministic spine (AGENTS.md §14)."
-        ),
+        description="Run the evaluation harness over the corpus with the ReAct build.",
     )
     parser.add_argument(
         "--label",
@@ -126,49 +114,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def select_agent_factory(
-    mode: BuildMode,
-    *,
-    provider: str | None,
-    model: str | None,
-    base_url: str | None,
-) -> Callable[[], BuildAgent]:
-    """Return the live agent factory for the chosen build *mode*.
-
-    Both modes receive provider/model/base_url. The pipeline arm DOES call a model
-    — its bounded leaves run on the drafter tier — and used to resolve it from the
-    environment while ReAct took the CLI values, so ``--model X`` moved one arm and
-    not the other and a "same-model" A/B silently compared two models (#399). The
-    CLI's ``--arch`` string
-    maps straight onto the shared enum via ``BuildMode(arch)``, so ``main.py`` and
-    this harness flip A/B through the *same* switch (#309). Keeping selection here
-    means :func:`run_main` stays mode-agnostic and the choice is unit-testable.
-
-    Args:
-        mode: The :class:`~builder.agents.build.BuildMode` to build.
-        provider: LLM provider override, applied to BOTH arms.
-        model: Model name override, applied to BOTH arms.
-        base_url: Custom OpenAI-compatible base URL, applied to BOTH arms.
-
-    Returns:
-        A zero-arg factory producing fresh :class:`~eval.agent_api.BuildAgent`s.
-
-    Raises:
-        ValueError: If *mode* is unrecognised.
-    """
-    if mode is BuildMode.PIPELINE:
-        from eval.pipeline_factory import make_pipeline_agent_factory
-
-        return make_pipeline_agent_factory(
-            overrides=ModelOverrides(provider=provider, model=model, base_url=base_url)
-        )
-    if mode is BuildMode.REACT:
-        from eval.react_factory import make_react_agent_factory
-
-        return make_react_agent_factory(provider=provider, model=model, base_url=base_url)
-    raise ValueError(f"Unknown build mode: {mode!r}")
-
-
 def run_main(
     argv: list[str] | None = None,
     *,
@@ -192,23 +137,18 @@ def run_main(
     logging.basicConfig(level=logging.INFO)
 
     if agent_factory is None:
-        # LIVE path only — and BOTH arches need creds. The ReAct factory reads
-        # provider/api_key/base_url/model from the environment
-        # (builder.agents.llm); the deterministic pipeline now does too —
-        # post-#211 its drafter-leaf (builder/agents/leaves.py, via
-        # builder.agents.llm._build_chat_model) reads the same env vars.
-        # So bridge any creds kept solely in ~/.config/vitro-crate/config.toml
-        # into os.environ first — mirroring how the interactive CLI hydrates via
-        # merge_with_env(). Without this, creds-in-config.toml make a live ReAct
-        # run raise "No LLM provider configured", and a live --arch pipeline run
-        # silently no-op the drafter-leaf -> a false-negative A/B comparison
-        # (#179). When no provider is configured both arches still no-op
-        # gracefully. The offline/mock path (injected agent_factory) skips this
-        # entirely so its tests stay config-free.
+        # LIVE path only. The ReAct build reads provider/api_key/base_url/model
+        # from the environment (builder.agents.llm), so creds kept solely in
+        # ~/.config/vitro-crate/config.toml are bridged into os.environ first —
+        # as the interactive CLI does via merge_with_env(). Without it a live run
+        # raises "No LLM provider configured" despite valid creds on disk (#179).
+        # The offline/mock path (injected agent_factory) skips this so its tests
+        # stay config-free.
         merge_with_env(load_config())
 
-        agent_factory = select_agent_factory(
-            BuildMode(args.arch),
+        from eval.react_factory import make_react_agent_factory
+
+        agent_factory = make_react_agent_factory(
             provider=args.provider,
             model=args.model,
             base_url=args.api_base,
@@ -257,9 +197,9 @@ def run_main(
         "completed=%d cap_hit=%d error=%d total_spend=%s cost_per_repeat=%s -> %s",
         summary["success_rate"],
         # A gap between these two is flakiness — the thing #405 made visible.
-        # The denominator is the cases this arm ATTEMPTED, which is what every
+        # The denominator is the cases the agent ATTEMPTED, which is what every
         # rate above is computed over; printing it against the corpus size would
-        # read as failures on cases the arm was never asked to do (#609).
+        # read as failures on cases it reported not_applicable (#609).
         summary["num_success_all_repeats"],
         summary["num_cases_compared"],
         summary["num_success_any_repeat"],

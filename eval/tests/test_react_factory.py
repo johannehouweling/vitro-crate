@@ -24,9 +24,8 @@ class TestReActAgentWiring:
         assert isinstance(agent, BuildAgent)
 
     def test_engine_uses_the_production_headless_human(self) -> None:
-        """Both arms get the SAME headless human, so the A/B compares
-        architectures and not environments (#609); see
-        ``eval/tests/test_arm_symmetry.py`` for what that symmetry buys."""
+        """The measured build meets the human batch mode uses (#609); see
+        ``eval/tests/test_headless_engine.py`` for what that buys."""
         engine = make_react_agent_factory()()._make_engine()
         assert type(engine.human_interface) is SimulatedHumanInterface
 
