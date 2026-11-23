@@ -49,7 +49,7 @@ class TestArbitraryToxFolderCaseRegistered:
 
     def test_case_scans_a_folder_so_the_full_path_runs(self) -> None:
         # The case feeds its input by pointing input_path at a folder, so the
-        # harness runs scan -> extract -> materialize -> assess for BOTH archs.
+        # harness runs scan -> extract -> materialize -> assess.
         case = _case()
         assert case.input_path is not None, (
             "the case must scan a folder (input_path) so the build runs the full "

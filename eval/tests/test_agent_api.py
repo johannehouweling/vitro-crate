@@ -2,8 +2,8 @@
 
 The harness only ever talks to a :class:`~eval.agent_api.BuildAgent`: a zero-arg
 ``agent_factory`` returns one, and the runner calls ``.build(case)``. This keeps
-the harness independent of *how* a crate is built (ReAct today, deterministic
-pipeline tomorrow). These tests pin the contract with an in-memory fake.
+the harness independent of *how* a crate is built. These tests pin the contract
+with an in-memory fake.
 """
 
 from __future__ import annotations

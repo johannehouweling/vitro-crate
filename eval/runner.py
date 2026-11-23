@@ -11,8 +11,8 @@ each corpus case ``repeats`` times, and records per-case:
 * a **determinism** signal — a stable hash of the resulting crate ``@graph`` across
   repeats; identical hashes ⇒ deterministic.
 
-The same call shape runs today's ReAct engine and a future pipeline — only the
-factory changes — so a ReAct :class:`EvalReport` and a pipeline one diff cleanly.
+Every run shares one report shape, so two labeled reports (another model, prompt
+or revision) diff cleanly with :func:`eval.report.compare_reports`.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from builder.tools.air_assessment import assess_air_readiness
 from eval.agent_api import AgentFactory, BuildOutcome
 from eval.corpus import EvalCase, meets_entity_quota, reaches_isa_tox_conformance
 from eval.metrics import compute_cost, crate_graph_hash, mine_profile_metrics
-from eval.scorers import condition_table_typing_score, mit_propertyid_coverage
+from eval.scorers import mit_propertyid_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class CaseResult:
     clock. ``crate_hashes`` holds one hash per repeat, and ``deterministic`` is
     ``True``/``False`` when there is more than one repeat to compare, else ``None``.
 
-    For the stochastic ReAct arm one draw is noisy, so ``total_tokens_per_repeat``
+    For the stochastic ReAct build one draw is noisy, so ``total_tokens_per_repeat``
     / ``latency_per_repeat`` / ``stop_reasons`` additionally record **every**
     repeat (trap 4, #335); :meth:`variance` derives a mean ± spread block from them.
     The headline fields above stay repeat #1's so existing consumers are unchanged.
@@ -96,14 +96,12 @@ class CaseResult:
     cases without a quota, ``meets_quota`` is ``None`` and ``entity_counts`` empty
     — the signal is purely additive and never affects ``success``.
 
-    ``mit_propertyid`` / ``csvw_typing`` are additive measurement axes
-    (#474, :mod:`eval.scorers`): per-parameter MIT coverage joined via
-    ``schema:propertyID``, and the row-level CSVW typing and referential-integrity
-    score. Headlines are repeat #1's; ``*_per_repeat`` record every repeat (#405).
-    ``csvw_typing`` is ``None`` — "not assessed" — for an arm with no pipeline
-    condition-table report (ReAct, mocks); ``mit_propertyid`` is ``None`` when the
-    crate graph could not be assembled or the MIT YAML offers no joinable
-    parameters — not assessed, never a fabricated zero.
+    ``mit_propertyid`` is an additive measurement axis (#474,
+    :mod:`eval.scorers`): per-parameter MIT coverage joined via
+    ``schema:propertyID``. The headline is repeat #1's; ``mit_propertyid_per_repeat``
+    records every repeat (#405). It is ``None`` when the crate graph could not be
+    assembled or the MIT YAML offers no joinable parameters — not assessed, never a
+    fabricated zero.
 
     ``air_met`` / ``air_assessed`` are AI-readiness, scored against the published
     NIH Bridge2AI criteria (#657, :mod:`builder.tools.air_assessment`). They are two
@@ -144,11 +142,8 @@ class CaseResult:
     conformance_per_repeat: list[dict[str, bool]] = field(default_factory=list)
     meets_quota_per_repeat: list[bool | None] = field(default_factory=list)
     mit_propertyid: float | None = None
-    csvw_typing: float | None = None
     mit_propertyid_detail: dict[str, Any] = field(default_factory=dict)
-    csvw_typing_detail: dict[str, Any] = field(default_factory=dict)
     mit_propertyid_per_repeat: list[float | None] = field(default_factory=list)
-    csvw_typing_per_repeat: list[float | None] = field(default_factory=list)
     air_met: int | None = None
     air_assessed: int | None = None
     air_detail: dict[str, Any] = field(default_factory=dict)
@@ -166,7 +161,7 @@ class CaseResult:
         ``success`` above is repeat #1's representative verdict; this is what the
         case actually achieved. A 1-in-3 case is ``0.33`` here and ``True`` there,
         and the difference is the whole point: intermittent conformance is the
-        stochastic arm's characteristic failure mode, and it used to leave no trace
+        stochastic build's characteristic failure mode, and it used to leave no trace
         in the report at all. Falls back to :attr:`success` when no per-repeat
         verdicts were recorded (a hand-built or pre-#405 result).
         """
@@ -206,7 +201,7 @@ class CaseResult:
         """Mean ± spread across repeats for the noisy metrics (trap 4, #335).
 
         The single definition shared by :meth:`to_dict` (the ndjson case line) and
-        :func:`eval.report.compare_reports` (the A/B diff), so the written report
+        :func:`eval.report.compare_reports` (the run diff), so the written report
         and the comparison can never drift apart.
         """
         return {
@@ -249,11 +244,8 @@ class CaseResult:
             "conformance_per_repeat": self.conformance_per_repeat,
             "meets_quota_per_repeat": self.meets_quota_per_repeat,
             "mit_propertyid": self.mit_propertyid,
-            "csvw_typing": self.csvw_typing,
             "mit_propertyid_detail": self.mit_propertyid_detail,
-            "csvw_typing_detail": self.csvw_typing_detail,
             "mit_propertyid_per_repeat": self.mit_propertyid_per_repeat,
-            "csvw_typing_per_repeat": self.csvw_typing_per_repeat,
             "air_met": self.air_met,
             "air_assessed": self.air_assessed,
             "air_detail": self.air_detail,
@@ -266,7 +258,7 @@ class CaseResult:
 
 @dataclass
 class EvalReport:
-    """The full report for one harness run (one architecture, one label)."""
+    """The full report for one harness run (one label)."""
 
     label: str
     repeats: int
@@ -275,19 +267,19 @@ class EvalReport:
     def summary(self, case_ids: set[str] | None = None) -> dict[str, Any]:
         """Aggregate the per-case results into a comparison-ready dict.
 
-        Keyed so a ReAct run and a pipeline run can be diffed field by field:
-        success rate, mean/median tokens and latency, and the determinism rate
-        (over cases where determinism is defined).
+        Keyed so two labeled runs can be diffed field by field: success rate,
+        mean/median tokens and latency, and the determinism rate (over cases where
+        determinism is defined).
 
-        Cases an arm reports ``not_applicable`` for are counted
-        (``num_not_applicable``) and excluded from every average — the folder-driven
-        pipeline cannot attempt a conversational case, and averaging it in scores a
-        capability gap as a cost win (#609). ``num_cases_compared`` is the
-        denominator the rest of the numbers use.
+        Cases the agent reports ``not_applicable`` for are counted
+        (``num_not_applicable``) and excluded from every average — averaging in a
+        case the agent did not attempt scores a capability gap as a cost win
+        (#609). ``num_cases_compared`` is the denominator the rest of the numbers
+        use.
 
         *case_ids* restricts the aggregate to those cases — used by
         :func:`eval.report.compare_reports` to compute a head-to-head over the
-        cases both arms attempted, so two summaries are never read side by side
+        cases every run attempted, so two summaries are never read side by side
         with different denominators (#609).
 
         ``success_rate`` is the share of **attempted** (case x repeat) builds that
@@ -302,17 +294,16 @@ class EvalReport:
             else [r for r in self.results if r.case_id in case_ids]
         )
         n = len(scoped)
-        # A case one arm does not attempt is NOT a data point about that arm's
-        # quality or cost (#609). Averaging a conversational case into the
-        # folder-driven pipeline's numbers turns a capability gap into a cost win
+        # A case the agent does not attempt is NOT a data point about its quality
+        # or cost (#609). Averaging it in turns a capability gap into a cost win
         # ($0, no tokens, an empty crate that still passes conformance). Count it,
-        # name it, and compare the arms on the cases they both attempted.
+        # name it, and compare runs on the cases they all attempted.
         compared = [r for r in scoped if r.stop_reason != "not_applicable"]
         num_not_applicable = n - len(compared)
         # ``success_rate`` spans repeats (#405): the mean of each case's own
         # conformant fraction, i.e. the share of all (case x repeat) builds that
         # worked. It used to be repeat #1's pass rate under a name every reader
-        # takes to mean "how often this architecture works" — a 1-in-3 case scored
+        # takes to mean "how often this build works" — a 1-in-3 case scored
         # a full 1.0. The mean is chosen over any-repeat (optimistic, the old
         # behaviour by accident) and all-repeat (strict, but 1-of-3 and 2-of-3
         # collapse to the same 0) because it is the only one that preserves
@@ -343,9 +334,9 @@ class EvalReport:
             total_cost_usd / max(1, self.repeats) if total_cost_usd is not None else None
         )
         # Per-repeat spread (trap 4, #335): the mean coefficient of variation of
-        # total tokens across cases — one arm-level "how stochastic" number. ~0 for
-        # a deterministic arm, high for a stochastic one. A case with a zero mean (no
-        # model call) contributes CV 0 rather than dividing by zero.
+        # total tokens across cases — one run-level "how stochastic" number. ~0 for
+        # a deterministic agent, high for a stochastic one. A case with a zero mean
+        # (no model call) contributes CV 0 rather than dividing by zero.
         cvs: list[float] = []
         for r in compared:
             spread = _spread(r.total_tokens_per_repeat)
@@ -356,7 +347,7 @@ class EvalReport:
             "label": self.label,
             "repeats": self.repeats,
             "num_cases": n,
-            # The denominator behind every average below: the cases this arm
+            # The denominator behind every average below: the cases the agent
             # actually attempted (#609).
             "num_cases_compared": len(compared),
             "num_not_applicable": num_not_applicable,
@@ -398,7 +389,7 @@ def _safe_build(agent: Any, case: EvalCase) -> tuple[BuildOutcome, float]:
 
 
 # Substrings (case-insensitive) that mark a build error as a **transient**
-# network/API failure rather than an architecture failure (trap 1). Named reason
+# network/API failure rather than a failure of the build (trap 1). Named reason
 # phrases only — no bare numeric HTTP codes, which false-positive on unrelated text
 # (e.g. "500 entities"). A run whose error matches is re-run before it counts.
 _TRANSIENT_ERROR_MARKERS: tuple[str, ...] = (
@@ -426,7 +417,7 @@ def _is_transient_error(error: str | None) -> bool:
     """Return True if *error* looks like a transient network/API failure (trap 1).
 
     A transient error (connection drop, timeout, rate limit, 5xx, overload) is a
-    property of the network, not of the architecture under test, so the harness
+    property of the network, not of the build under test, so the harness
     re-runs it rather than scoring it as a build failure. Matching is on named
     reason phrases (see :data:`_TRANSIENT_ERROR_MARKERS`); anything else — a
     validation failure, a ``KeyError``, a non-conformant crate — is a genuine,
@@ -497,24 +488,6 @@ def _assembled_graph(state: CrateState) -> list[dict[str, Any]] | None:
         return None
 
 
-def _condition_table_report(outcome: BuildOutcome) -> dict[str, Any] | None:
-    """The build's own condition-table record, or ``None`` when the arm has none.
-
-    Lives at ``pipeline_result["materialized"]["condition_table"]`` — the field
-    the pipeline arm reports and the ReAct arm (and mocks) leave ``None``, which
-    is exactly the "not assessed" signal :func:`eval.scorers.condition_table_typing_score`
-    expects.
-    """
-    result = outcome.pipeline_result
-    if not isinstance(result, dict):
-        return None
-    materialized = result.get("materialized")
-    if not isinstance(materialized, dict):
-        return None
-    table = materialized.get("condition_table")
-    return table if isinstance(table, dict) else None
-
-
 def _run_case(
     agent_factory: AgentFactory,
     case: EvalCase,
@@ -534,7 +507,7 @@ def _run_case(
     for _ in range(max(1, repeats)):
         # A fresh agent per repeat — the determinism check must not be polluted by
         # carried-over engine/session state. Each repeat re-runs transient failures
-        # (trap 1) so a network blip is not scored as an architecture failure.
+        # (trap 1) so a network blip is not scored as a build failure.
         outcome, latency, retries = _build_with_transient_retries(
             agent_factory, case, max_transient_retries=max_transient_retries
         )
@@ -555,22 +528,18 @@ def _run_case(
     # runs a full 3-pass SHACL `build_and_validate`, so scoring naively would
     # triple this harness's validation cost at the default --repeats 3. Two repeats
     # with an identical canonical @graph cannot disagree about conformance, so the
-    # verdict is computed once per DISTINCT crate: a deterministic arm pays exactly
-    # what it paid before, and a stochastic one pays only for crates that genuinely
-    # differ.
+    # verdict is computed once per DISTINCT crate: repeats that converge on one
+    # crate pay for one validation, and only crates that genuinely differ cost
+    # more.
     scored: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     predicates: list[dict[str, Any]] = []
     quotas: list[dict[str, Any]] = []
-    # The manuscript axes (#474) join against the assembled graph the build
-    # loop above already produced for the hash (one assembly per repeat, shared).
-    # The MIT score is memoised on the digest like the conformance predicate;
-    # csvw_typing additionally depends on the repeat's OWN pipeline report (the
-    # condition-table path is per-session), so it is computed per repeat. Both
-    # are guarded — one bad crate or CSV must never abort a multi-case run.
+    # The MIT axis (#474) joins against the assembled graph the build loop above
+    # already produced for the hash (one assembly per repeat, shared), and is
+    # memoised on the digest like the conformance predicate. It is guarded — one
+    # bad crate must never abort a multi-case run.
     mit_by_digest: dict[str, tuple[float | None, dict[str, Any]]] = {}
     mit_scores: list[float | None] = []
-    typing_scores: list[float | None] = []
-    typing_details: list[dict[str, Any]] = []
     air_met: list[int | None] = []
     air_assessed: list[int | None] = []
     air_profiles: list[list[dict[str, Any]]] = []
@@ -607,23 +576,6 @@ def _run_case(
                     logger.warning("MIT scoring failed for %s: %s", case.case_id, exc)
                     mit_by_digest[digest] = (None, {})
         mit_scores.append(mit_by_digest[digest][0])
-
-        if graph_i is None:
-            typing_scores.append(None)
-            typing_details.append({})
-        else:
-            try:
-                typed = condition_table_typing_score(
-                    outcome_i.state, graph_i, _condition_table_report(outcome_i)
-                )
-                typing_scores.append(typed["score"])
-                typing_details.append(
-                    {"reason": typed["reason"], "columns": typed["columns"]}
-                )
-            except Exception as exc:  # noqa: BLE001 - additive axes never fail the harness
-                logger.warning("CSVW typing scoring failed for %s: %s", case.case_id, exc)
-                typing_scores.append(None)
-                typing_details.append({})
 
         # AI-readiness is scored per repeat, not memoised on the crate digest: two
         # repeats can share a canonical @graph and still differ in state, and one of
@@ -701,11 +653,8 @@ def _run_case(
         conformance_per_repeat=[dict(p["conformance"]) for p in predicates],
         meets_quota_per_repeat=[q["meets_quota"] for q in quotas],
         mit_propertyid=mit_scores[0],
-        csvw_typing=typing_scores[0],
         mit_propertyid_detail=mit_by_digest[hashes[0]][1],
-        csvw_typing_detail=typing_details[0],
         mit_propertyid_per_repeat=mit_scores,
-        csvw_typing_per_repeat=typing_scores,
         air_met=air_met[0] if air_met else None,
         air_assessed=air_assessed[0] if air_assessed else None,
         air_detail={"dimensions": air_profiles[0]} if air_profiles else {},

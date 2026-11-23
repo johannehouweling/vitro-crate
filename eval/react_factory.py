@@ -1,21 +1,18 @@
-"""The live ReAct agent factory — one of the two architectures under test.
+"""The live ReAct agent factory — the build the harness measures.
 
 This wraps the as-built prose-prompt ReAct StateGraph (AGENTS.md §4 / D1) behind
-the agent-agnostic :class:`~eval.agent_api.BuildAgent` contract. The
-deterministic-pipeline factory (``pipeline_factory.py``, AGENTS.md §14) implements
-the same contract; the harness A/B's the two by swapping factories.
+the agent-agnostic :class:`~eval.agent_api.BuildAgent` contract.
 
 A build:
 
 1. creates a headless :class:`~builder.engine.AgentEngine` behind the production
-   :class:`~builder.tools.hitl.SimulatedHumanInterface` — the SAME human the
-   pipeline arm gets, so the A/B compares architectures and not environments
-   (#609);
+   :class:`~builder.tools.hitl.SimulatedHumanInterface` — the human batch mode
+   gets, so the corpus meets the build as an unattended run does (#609);
 2. ``initialize(input_path)`` — scans the case's input dir if any, and (always)
    assigns a ``session_id`` + opens the run's ``profile.ndjson``;
-3. runs the SHIPPED loop (``run_build(BuildMode.REACT, ..., interactive=False)``)
-   with the case's prompt as its kickoff — the same budget users get, rather than
-   the single bare graph invocation this used to make (#609);
+3. runs the SHIPPED build (``run_build(engine, ..., interactive=False)``) with the
+   case's prompt as its kickoff — the same budget users get, rather than the
+   single bare graph invocation this used to make (#609);
 4. returns the engine's final :class:`~builder.state.CrateState` and ``session_id``
    so the runner can mine that run's profile for tokens / latency / iterations.
 
@@ -51,8 +48,10 @@ def _live_graph_driver(
 ) -> tuple[str, str | None]:
     """Drive the SHIPPED ReAct loop once for *prompt* (LIVE LLM call).
 
-    Calls :func:`builder.agents.react.agent_loop.run_interactive_agent`, which is
-    the arm users run. It used to build its own tools/model/graph here and
+    Calls :func:`builder.agents.build.run_build` — the entrypoint ``main.py``
+    uses, which reads the deposit's structure and then runs
+    :func:`builder.agents.react.agent_loop.run_interactive_agent`. It used to
+    build its own tools/model/graph here and
     ``invoke`` once — a copy of the loop's setup that measured a strictly smaller
     budget than the real thing: no wall-clock timeout guard, no self-continue,
     and no autonomous continuation, so a turn that narrated instead of asking
@@ -66,12 +65,11 @@ def _live_graph_driver(
         ``(stop_reason, error)`` — *error* is the last turn's failure reason, or
         ``None``. The loop absorbs model failures so the session survives them,
         so without that message the harness's transient-failure retry (which
-        matches on the reason phrase) could never fire for this arm (#609).
+        matches on the reason phrase) could never fire for this build (#609).
     """
-    from builder.agents.build import BuildMode, run_build
+    from builder.agents.build import run_build
 
     result = run_build(
-        BuildMode.REACT,
         engine,
         provider=provider,
         model=model,
@@ -110,12 +108,12 @@ class ReActBuildAgent:
         self._graph_driver = graph_driver
 
     def _make_engine(self) -> AgentEngine:
-        """Create a fresh headless engine — the same one the pipeline arm gets.
+        """Create a fresh headless engine behind the production human.
 
-        Both arms use the production :class:`SimulatedHumanInterface`: nothing
-        blocks on stdin, no scan root is widened, and the loop's
-        RECOMMENDED/OPTIONAL validation escalation stays gated off, so neither arm
-        pays for sweeps the other never runs (#609).
+        :class:`SimulatedHumanInterface` is what batch mode uses: nothing blocks on
+        stdin, no scan root is widened, and the loop's RECOMMENDED/OPTIONAL
+        validation escalation stays gated off, so a measured build pays for no
+        sweep an unattended run would skip (#609).
         """
         return AgentEngine(human_interface=SimulatedHumanInterface())
 
@@ -185,8 +183,8 @@ def make_react_agent_factory(
     """Return a zero-arg factory producing fresh :class:`ReActBuildAgent` instances.
 
     This is the callable handed to :func:`eval.runner.run_eval` for a live ReAct
-    baseline. A future pipeline ships its own ``make_*_agent_factory`` with the
-    same shape, and the harness compares them by swapping which factory it runs.
+    run; ``python -m eval`` builds it from ``--provider`` / ``--model`` /
+    ``--api-base``.
     """
 
     def factory() -> ReActBuildAgent:

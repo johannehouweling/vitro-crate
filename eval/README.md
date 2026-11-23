@@ -1,15 +1,13 @@
-# `eval/` — A/B evaluation harness (the ReAct → pipeline decision gate)
+# `eval/` — evaluation harness for the ReAct build
 
-This package is the in-repo A/B evaluation harness the pipeline-default decision was
-**gated on** (AGENTS.md §14.1, D15): the
-defensible win for this system is *cost, latency, reproducibility, testability,
-predictability* — not blanket correctness — so we measure those directly instead of
-asserting them.
+This package is the in-repo evaluation harness for the ReAct build. It measures
+*conformance, content, cost, latency, termination and reproducibility* over a fixed
+corpus directly, instead of asserting them.
 
-The harness is **agent-agnostic**: it measures the prose-prompt ReAct engine and the
-deterministic pipeline — both shipped, the pipeline being the `--interactive` default
-— by swapping a single factory. The corpus, metrics, and report are unchanged across
-architectures, so two runs diff cleanly.
+The harness is **agent-agnostic**: it measures whatever `BuildAgent` a factory
+returns, and the live factory drives the shipped ReAct build. Every run writes the
+same labeled report, so runs under different labels (another model, prompt or
+revision) diff cleanly.
 
 > **Cost note.** A *live* harness run makes real LLM calls (your configured
 > DeepSeek-flash / OpenAI / Anthropic credentials) — that is its purpose. **CI and the
@@ -18,7 +16,7 @@ architectures, so two runs diff cleanly.
 
 ## The agent-agnostic factory
 
-The only thing the harness knows about an architecture is the
+The only thing the harness knows about the build it measures is the
 [`BuildAgent`](agent_api.py) contract:
 
 ```python
@@ -28,46 +26,30 @@ class BuildAgent(Protocol):
 
 `run_eval(agent_factory, corpus, *, repeats=2)` takes a **zero-arg `agent_factory`**
 that returns a fresh `BuildAgent` per repeat (a fresh agent each time so no engine /
-session state leaks into the determinism signal). To A/B two architectures you change
-only the factory:
+session state leaks into the determinism signal):
 
-| Architecture | Factory | Status |
-|--------------|---------|--------|
-| ReAct engine (as-built) | `eval.react_factory.make_react_agent_factory()` | implemented — the harness's **`--arch` DEFAULT** |
-| Deterministic pipeline | `eval.pipeline_factory.make_pipeline_agent_factory()` (same shape) | implemented — the shipped **product** default (D15); opt-in here (§14.5) |
+| Agent | Factory | Used by |
+|-------|---------|---------|
+| ReAct build (as shipped) | `eval.react_factory.make_react_agent_factory()` | `python -m eval` (live) |
 | Offline tests | an in-memory mock returning canned `CrateState`s | tests only |
 
-`ReActBuildAgent` wraps the existing LangGraph ReAct loop: it creates a headless
-`AgentEngine` behind the production `SimulatedHumanInterface` — the **same** human the
-pipeline arm gets, so the A/B compares architectures and not environments (#609) —
-`initialize()`s the
-case's input directory (which also assigns the `session_id` and opens this run's
-`profile.ndjson`), then runs the **shipped** loop
-(`agent_loop.run_interactive_agent(..., interactive=False)`) with the case's prompt as
+`ReActBuildAgent` wraps the shipped LangGraph ReAct loop: it creates a headless
+`AgentEngine` behind the production `SimulatedHumanInterface` — the human batch mode
+gets, so nothing blocks on stdin, no scan root is widened and no
+RECOMMENDED/OPTIONAL sweep runs (#609) — `initialize()`s the case's input directory
+(which also assigns the `session_id` and opens this run's `profile.ndjson`), then runs
+the **shipped** build (`builder.agents.build.run_build(engine, ..., interactive=False)`,
+which reads the deposit's structure and runs the ReAct loop) with the case's prompt as
 its kickoff and returns the final `CrateState`. It used to build its own tools/model/graph
 and `invoke` once — a copy of the loop's setup that measured a strictly smaller budget
-than the arm users run: no wall-clock timeout guard, no self-continue, and no autonomous
-continuation, so a turn that narrated instead of asking ended the measured build then
-and there (#609). The model-driving step is injected so the wiring is unit-tested offline.
+than the build users run: no wall-clock timeout guard, no self-continue, and no
+autonomous continuation, so a turn that narrated instead of asking ended the measured
+build then and there (#609). The model-driving step is injected so the wiring is
+unit-tested offline.
 
-`PipelineBuildAgent` reports a case with **no input directory** as
-`not_applicable` and does not build it. That arm is folder-driven by design —
-`main.py --interactive` refuses to run with nothing scanned and points the user at
-`--react` — so it never read `case.prompt`; left to run, it scaffolded an empty crate,
-passed conformance and scored a win at $0 against an arm that drafted the whole study
-from the brief. Not-applicable cases are counted (`num_not_applicable`) and left out of
-every average; `num_cases_compared` is the denominator for the rest (#609).
-
-`PipelineBuildAgent` wraps the shipped pipeline arm (`run_interactive_build` over
-`builder/agents/pipeline/pipeline.py::run_pipeline`,
-AGENTS.md §14.5): same headless-engine + `initialize()` setup, but instead of letting a
-model choose the order it runs the code-driven spine (scaffold → draft →
-build_and_validate → bounded fix loop), then exports and persists. The spine calls a
-model only through its bounded leaves, and only when a provider is configured — with
-none set it is a strict no-op, which is what lets this arm run in CI for real. The
-spine call is injected so the wiring is unit-tested in isolation. This arm is the
-shipped `--interactive` **default** (AGENTS.md D15); ReAct is the opt-in alternative
-behind `--react`.
+An agent may report a case `not_applicable` — one it does not attempt. Such cases are
+counted (`num_not_applicable`) and left out of every average, so a capability gap
+never scores as a $0 win; `num_cases_compared` is the denominator for the rest (#609).
 
 ## The corpus
 
@@ -80,7 +62,7 @@ data — all inputs are in-repo and offline:
 | `structured-svhps21` | `structured` | Scan the in-repo `tests/fixtures/svhps21_input` folder (README + raw/processed CSVs) and build from its structured metadata. |
 | `structured-svhps22` | `structured` | **Entity-drafting** case: scan a *richer* `tests/fixtures/svhps22_input` folder (README naming a compound + cell line + protocol, plus raw/processed CSVs) and draft the full ISA-Tox domain set. Carries a `min_entities` content quota (below). |
 | `unstructured-conversation` | `unstructured` | No metadata files — the whole crate is elicited from the prompt. |
-| `arbitrary-tox-folder` | `unstructured` | Realistic arbitrary research folder, **no metadata file**: a study description, a methods/protocol write-up, a compound list, and nested measurement + analysis CSVs. Exercises the full scan → extract → materialize → assess path for **both** arms. Carries a complete-study `min_entities` quota (below). |
+| `arbitrary-tox-folder` | `unstructured` | Realistic arbitrary research folder, **no metadata file**: a study description, a methods/protocol write-up, a compound list, and nested measurement + analysis CSVs. Exercises the full scan → extract → materialize → assess path. Carries a complete-study `min_entities` quota (below). |
 
 **Success predicate** (shared, strict): a case succeeds when its crate reaches
 `{base, isa, tox}` REQUIRED conformance via `build_and_validate`
@@ -89,8 +71,8 @@ data — all inputs are in-repo and offline:
 **Content-quality signal** (additive, per-case): conformance only measures whether
 the agent *acted* — an almost-empty backbone can pass it. A case may also declare
 `min_entities` (a minimum count of domain entities by `@type`); the harness then
-records `meets_quota` + `entity_counts` (`meets_entity_quota`) so the A/B can
-compare whether the drafted *content* is actually there, not just that the agent
+records `meets_quota` + `entity_counts` (`meets_entity_quota`) so runs can be
+compared on whether the drafted *content* is actually there, not just that the agent
 acted. `min_entities` never changes the success predicate — cases without it report
 `meets_quota = None`. Two cases declare one: `structured-svhps22` demands a compound,
 a cell line, both attached data files and the AOP-Wiki pathway; `arbitrary-tox-folder`
@@ -106,30 +88,23 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
   `always_succeeds` across repeats (#405), + the per-layer **conformance** map;
 - **content quality** — `meets_quota` (bool / `None`) + `entity_counts`, recorded for
   cases that declare a `min_entities` quota (see above); `None` otherwise;
-- **the manuscript's evaluation axes** (#474, [`scorers.py`](scorers.py)) —
+- **the manuscript's MIT axis** (#474, [`scorers.py`](scorers.py)) —
   `mit_propertyid`: per-parameter MIT coverage joined via `schema:propertyID`
   against the ontology IRIs curated in `mit/invitro_tox.yaml`, counting only
   non-empty non-placeholder bindings; the denominator is the IRI-bearing
   parameters, and `mit_propertyid_detail` names which bound so a zero is
   diagnosable (an exact-IRI join: where the crate and the MIT YAML curate
   different terms for one concept, the parameter honestly reads unbound).
-  `csvw_air`: the AI-readiness axis, **row-level** — half for a CSVW-typed
-  *and populated* condition table (a header-only table scores 0, never a
-  vacuous pass), half for its reference cells resolving in-crate, with the
-  #408 multivalued-`valueUrl` drop never penalised. `csvw_air` is `None` —
-  "not assessed" — for an arm without a pipeline condition-table report
-  (ReAct). Both are additive; neither touches `success`. Both surface per
-  repeat (`*_per_repeat`) and in `compare_reports`;
+  It is additive and never touches `success`; it surfaces per repeat
+  (`mit_propertyid_per_repeat`) and in `compare_reports`;
 - **tokens** — input / output / total, summed from the run's `profile.ndjson`
   (`node_end`/`model` events);
 - **latency** — wall-clock seconds for the build;
 - **iteration count** and **tool-call count** — also mined from `profile.ndjson`;
 - **stop-reason** (#331) — `completed` (the agent self-terminated), `cap_hit` (the
   ReAct loop hit its recursion cap — a valid-at-the-cutoff run, **not** a clean win),
-  `error`, or `not_applicable` (the case asks for something this arm does not do —
-  a conversational, no-input-directory build on the folder-driven pipeline; it is
-  counted and named, never averaged in). The pipeline is `completed` or
-  `not_applicable`;
+  `error`, or `not_applicable` (the agent does not attempt the case; it is counted
+  and named, never averaged in);
 - **model + cost** (#331) — `model_name` mined from `profile.ndjson`, and `cost_usd`
   from `eval.metrics.MODEL_PRICES` (or the `--price-input`/`--price-output` override
   for an unlisted model). An unpriced model records `cost_usd = None` — never a
@@ -143,8 +118,8 @@ Per case, across `repeats` runs ([`metrics.py`](metrics.py), [`runner.py`](runne
   a case that self-terminated once and hit the cap twice must not read as a clean
   win;
 - **transient retries** (#331) — how many transient network/API failures were re-run
-  before the result counted (a connection drop / timeout / rate-limit is not an
-  architecture failure);
+  before the result counted (a connection drop / timeout / rate-limit is not a
+  build failure);
 - **determinism** — a stable SHA-256 hash of the assembled crate `@graph` (volatile
   `datePublished`/`dateModified` stripped, nodes sorted by `@id`) compared across
   repeats; identical ⇒ deterministic. With `repeats == 1`, determinism is `None`.
@@ -156,24 +131,25 @@ pass rate (#405) — beside **`num_success_all_repeats`** (every repeat conforme
 shows up, **mean/median tokens**,
 **mean/median latency**, the **determinism rate**, the **stop-reason breakdown**
 (`num_completed` / `num_cap_hit` / `num_error`), **`num_not_applicable`** and
-**`num_cases_compared`** (the denominator every rate above uses — cases the arm
+**`num_cases_compared`** (the denominator every rate above uses — cases the agent
 attempted), **`mean_total_tokens_cv`** (the
-arm-level "how stochastic" number), and two cost figures: **`total_cost_usd`** — the
+run-level "how stochastic" number), and two cost figures: **`total_cost_usd`** — the
 run's actual spend, every repeat of every priced case, `None` when no case was priced
 — and **`mean_cost_usd_per_repeat`**, the same money divided by `repeats` so runs made
 with different `--repeats` stay comparable.
 
-`compare_reports` carries the per-case spread through to the A/B diff, not just the
+`compare_reports` carries the per-case spread through to the diff, not just the
 means (#400) — without it a real tweak is indistinguishable from run-to-run noise on
-the stochastic ReAct arm, which is the whole reason `--repeats` defaults to 3.
+the stochastic ReAct build, which is the whole reason `--repeats` defaults to 3.
 
 ## Report format
 
 `write_report(report, path)` writes one labeled **ndjson** per run: a
 `{"record": "case", ...}` line per case carrying every metric, then one
 `{"record": "summary", ...}` line with the aggregates. `compare_reports(a, b, ...)`
-returns a side-by-side A/B diff (both summaries plus a per-case table keyed by
-`case_id`) so a ReAct report and a pipeline report compare field-for-field.
+returns a side-by-side diff — the summaries, a per-case table keyed by `case_id`, and
+a `head_to_head` block over the cases every run attempted — so two labeled reports
+compare field-for-field.
 
 ## Running it
 
@@ -185,43 +161,29 @@ uv run --extra langchain python -m eval --label react-baseline
 # -> writes eval_reports/react-baseline.ndjson
 ```
 
-Then **freeze the baseline** so future pipeline runs have a stable comparison point:
+Then **freeze the baseline** so later runs have a stable comparison point:
 
 ```bash
-git tag react-baseline      # tags the ReAct baseline commit (AGENTS.md §14.5)
+git tag react-baseline      # tags the ReAct baseline commit
 git push origin react-baseline
 ```
 
-### Deterministic pipeline run
+### Comparing runs
 
 ```bash
-uv run --extra langchain python -m eval --arch pipeline --label pipeline
-# -> writes eval_reports/pipeline.ndjson
+uv run --extra langchain python -m eval --label react-gpt-4o --model gpt-4o
+# -> writes eval_reports/react-gpt-4o.ndjson
 ```
 
-With **no provider configured** every spine step is deterministic and the drafter
-leaf is a strict no-op, which is what lets this arm run in CI for real. That is a
-property of the unconfigured environment, not of the architecture: the spine does
-call a model — through its bounded leaves — whenever a provider is set.
+Then diff it against the frozen baseline with `compare_reports`. Quote the
+`head_to_head` block, which covers only the cases every run attempted, and read the
+per-case `variance` / `*_per_repeat` fields before calling a difference real: the
+ReAct build is stochastic. The levers worth watching are **clean self-termination**
+(`num_cap_hit`), the **determinism rate**, and **cost, tokens, and latency**.
 
-> **A real A/B needs credentials on BOTH arches.** Diffing a credentialed ReAct
-> baseline against a no-provider pipeline run silently no-ops the drafter leaf, so
-> an undrafted crate scores as a free win — a false-negative comparison (#179).
-
-Then diff it against the frozen baseline with `compare_reports`. The D15 levers the
-A/B exists to settle are **clean self-termination** (no recursion-cap stalls),
-**determinism rate 1.0** (identical `@graph` hash across repeats — the property the
-deterministic path asserts), and **cost, tokens, and latency** (the spine reaches
-the model only through its bounded leaves — gated calls it skips when they cannot
-change state — where a ReAct turn loop spends a model call every turn until it stops
-itself or hits the cap). Do not restate the published figures as settled: every one
-of them predates the harness fixes in #609 and must be re-measured before it is
-quoted again.
-
-`--arch react|pipeline` (DEFAULT `react`) selects the factory; ReAct stays the default
-so the existing baseline workflow is unchanged. Other options: `--repeats N` (builds per
-case; **default 3** so variance is over more than one or two samples), `--out PATH`,
-`--provider`, `--model`, `--api-base`. For a fair, defensible A/B (#331):
+Options: `--label NAME` (default `react-baseline`), `--repeats N` (builds per case;
+**default 3** so variance is over more than one or two samples), `--out PATH`,
+`--provider`, `--model`, `--api-base`. For a defensible comparison (#331):
 `--price-input`/`--price-output` (USD per 1M tokens — price a model not in the built-in
 table, e.g. for the paper re-run) and `--max-transient-retries N` (re-run transient
 network/API failures before they count; default 2). See `python -m eval --help`.

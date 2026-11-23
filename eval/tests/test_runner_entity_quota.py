@@ -4,7 +4,7 @@ The harness's success predicate stays unchanged (``{base, isa, tox}`` conformanc
 On top of it, for cases that declare ``min_entities``, the runner now records a
 per-case content-quality signal — ``entity_counts`` (what was drafted) and
 ``meets_quota`` (did the draft contain the demanded domain entities). This lets
-the ReAct→pipeline A/B compare *draft content*, not just "did the agent act".
+runs be compared on *draft content*, not just "did the agent act".
 
 Fully offline via mock agents; ``build_and_validate`` runs, so the module carries
 the harness 120s timeout.

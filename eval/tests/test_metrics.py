@@ -135,8 +135,8 @@ class TestCrateGraphHash:
         ``stamp_generator`` records how the crate was produced — start/end times
         and PropertyValues whose ``@id``s embed the token counts and cost. Those
         differ on every run by construction, so without scrubbing them the
-        determinism signal calls even the deterministic pipeline arm stochastic
-        and the scoring memoisation keyed on this hash never hits again.
+        determinism signal calls even two identical crates different and the
+        scoring memoisation keyed on this hash never hits again.
         """
         a = _state_with("Stable")
         a.stamp_generator()

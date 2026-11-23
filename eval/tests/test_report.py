@@ -87,13 +87,13 @@ class TestWriteReport:
 
 class TestCompareReports:
     def test_diffs_two_labeled_reports_per_metric(self) -> None:
-        react = _report("react-baseline")
-        pipeline = _report("pipeline")
-        diff = compare_reports(react, pipeline)
-        assert diff["labels"] == ["react-baseline", "pipeline"]
+        baseline = _report("react-baseline")
+        other = _report("react-gpt-4o")
+        diff = compare_reports(baseline, other)
+        assert diff["labels"] == ["react-baseline", "react-gpt-4o"]
         # Per-metric side-by-side with both summaries present.
         assert "react-baseline" in diff["summaries"]
-        assert "pipeline" in diff["summaries"]
+        assert "react-gpt-4o" in diff["summaries"]
         # A per-case table keyed by case_id, success for both labels.
         assert "cases" in diff
         assert set(diff["cases"]) == {"c1", "c2"}
@@ -101,7 +101,7 @@ class TestCompareReports:
     def test_per_case_carries_efficiency_and_termination_signals(self) -> None:
         # The A/B diff surfaces stop_reason / model / $ so a cap_hit "win" and the
         # cost gap are visible per case (#331).
-        diff = compare_reports(_report("react-baseline"), _report("pipeline"))
+        diff = compare_reports(_report("react-baseline"), _report("react-gpt-4o"))
         c2 = diff["cases"]["c2"]["react-baseline"]
         assert c2["stop_reason"] == "cap_hit"
         assert c2["model_name"] == "gpt-4o"
@@ -155,7 +155,7 @@ class TestCompareReportsCarriesSpread:
     """
 
     def test_per_case_carries_the_variance_block(self) -> None:
-        diff = compare_reports(_noisy_report("react"), _noisy_report("pipeline"))
+        diff = compare_reports(_noisy_report("react"), _noisy_report("react-gpt-4o"))
         variance = diff["cases"]["noisy"]["react"]["variance"]
         assert variance["total_tokens"]["mean"] == 200.0
         assert variance["total_tokens"]["min"] == 100

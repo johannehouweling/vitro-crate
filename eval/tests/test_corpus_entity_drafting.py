@@ -140,7 +140,7 @@ class TestEntityDraftingCaseLinksAOP:
     so a *good* svhps22 build must draft the pathway as a typed
     ``AdverseOutcomePathway`` entity AND reference it from the Study
     (``schema:mentions``). Before this, no corpus case exercised AOP linking, so
-    neither A/B arm was ever scored on getting it — the feature could silently
+    no build was ever scored on getting it — the feature could silently
     regress. The quota demands the AOP so the harness now measures it.
     """
 

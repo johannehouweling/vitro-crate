@@ -1,6 +1,6 @@
 """Re-price an existing eval report from its recorded token counts (#335).
 
-The A/B re-run records per-case ``input_tokens`` / ``output_tokens`` / ``model_name``
+An eval report records per-case ``input_tokens`` / ``output_tokens`` / ``model_name``
 but leaves ``cost_usd`` null whenever the run's model is unpriced and no price
 override was passed — exactly the gpt-5.6-luna paper re-run, whose price is
 deliberately kept out of the public :data:`eval.metrics.MODEL_PRICES`. Re-running the
