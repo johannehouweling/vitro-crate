@@ -314,6 +314,20 @@ _AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
 # Where the last successful export landed, so a suppressed repeat can name it.
 _EXPORT_PATH_FLAG = "_crate_last_export_path"
 
+
+def mark_crate_written(engine: Any, crate_path: Any) -> None:
+    """Record that this session wrote its crate, and where."""
+    setattr(engine, _EXPORTED_FLAG, True)
+    setattr(engine, _EXPORT_PATH_FLAG, str(crate_path) if crate_path else None)
+
+
+def crate_written(engine: Any) -> str | None:
+    """Where this session wrote its crate, ``""`` when the path is unknown, or
+    ``None`` when it wrote none."""
+    if not getattr(engine, _EXPORTED_FLAG, False):
+        return None
+    return getattr(engine, _EXPORT_PATH_FLAG, None) or ""
+
 # Attribute holding the optional single-arg console sink the loop installs so an
 # in-loop auto-export can surface the absolute crate path to the user (#287 Fix
 # A). Default ``None`` is a strict no-op (mirrors ``on_tool_event``, #266), so a
@@ -1190,6 +1204,7 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
         setattr(engine, _EXPORTED_FLAG, True)
         setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, fingerprint)
         crate_path = result.get("crate_path")
+        mark_crate_written(engine, crate_path)
         try:
             from pathlib import Path
 
@@ -2454,7 +2469,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         and result.get("success")
                     ):
                         setattr(engine, _EXPORTED_FLAG, True)
-                        setattr(engine, _EXPORT_PATH_FLAG, result.get("crate_path"))
+                        mark_crate_written(engine, result.get("crate_path"))
                         try:
                             setattr(
                                 engine,
@@ -3434,6 +3449,22 @@ def _format_user_answers(engine: AgentEngine, *, limit: int = 8) -> str:
     )
 
 
+def _format_unanswered_questions(engine: AgentEngine, *, limit: int = 8) -> str:
+    """The questions a run nobody answered could not put to a person (``--unattended``).
+
+    Kept on the state, so a session resumed with a person at the keyboard asks
+    them; an answer closes each one (:meth:`CrateState.record_user_answer`).
+    """
+    questions = getattr(engine.state, "unanswered_questions", None) or []
+    if not questions:
+        return ""
+    lines = [f"- {question[:200]}" for question in questions[-limit:]]
+    return (
+        "\n[Asked in an earlier run nobody answered — put these to the user when a "
+        "person can answer]\n" + "\n".join(lines)
+    )
+
+
 def _will_self_continue(engine: AgentEngine, self_continues: int) -> bool:
     """Whether a guard-stopped turn is about to resume without asking the user.
 
@@ -4044,6 +4075,7 @@ def _build_agent_graph(
                 _format_compact_state_summary(engine)
                 + _format_open_items(engine)
                 + _format_user_answers(engine)
+                + _format_unanswered_questions(engine)
                 + "\n"
                 + _format_document_evidence(engine)
             ),
@@ -4179,6 +4211,7 @@ def _finish_backstop(
             setattr(engine, _EXPORTED_FLAG, True)
             setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, fingerprint)
             crate_path = result.get("crate_path")
+            mark_crate_written(engine, crate_path)
             try:
                 from pathlib import Path
 

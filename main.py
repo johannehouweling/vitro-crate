@@ -234,6 +234,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "orchestrates the tool calls (requires LangChain extra + API key)",
     )
     parser.add_argument(
+        "--unattended",
+        action="store_true",
+        help="Build from --input (or a --resume session) with nobody at the keyboard: "
+        "a question gets no answer, what the deposit and the lookups do not state "
+        "stays empty and is reported, and the crate is exported. Unanswered "
+        "questions are kept in the session for a later --resume --interactive. "
+        "Exits 1 when no crate was written.",
+    )
+    parser.add_argument(
         "--smoke-test",
         nargs="?",
         const=True,
@@ -337,6 +346,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # the silent misfire the mode exists to make visible. Normalised here, once, so
     # every downstream reader (the logging bump, the engine wiring, the build
     # dispatch) sees a single consistent `interactive` fact.
+    if args.unattended and (args.interactive or args.smoke_test):
+        parser.error("--unattended asks nobody, so it cannot be combined with "
+                     "--interactive or --smoke-test")
+    if args.unattended and not (args.input or args.resume):
+        parser.error("--unattended needs a deposit (--input) or a session (--resume)")
     if args.smoke_test:
         args.interactive = True
     return args
@@ -505,6 +519,45 @@ def _run_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_unattended(engine: AgentEngine, args: argparse.Namespace) -> int:
+    """Build with nobody at the keyboard; 0 when a crate was written, else 1.
+
+    The engine keeps its headless interface, which answers nothing (D5), and the
+    loop runs without a conversation: the instruction and its autonomous
+    continuation are the whole session, which ends with the export. The questions
+    nobody answered stay in the session, for ``--resume`` with ``--interactive``.
+    """
+    from builder.agents.build import UNATTENDED_INSTRUCTION, run_build
+    from builder.agents.react.agent_loop import crate_written
+
+    instruction = UNATTENDED_INSTRUCTION
+    if args.prompt:
+        instruction = f"{args.prompt.strip()}\n\n{UNATTENDED_INSTRUCTION}"
+    run_build(
+        engine,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.api_base,
+        output=print,
+        resumed=bool(args.resume),
+        initial_prompt=instruction,
+        verbose=args.verbose > 0,
+        interactive=False,
+    )
+    open_questions = engine.state.unanswered_questions
+    if open_questions:
+        count = len(open_questions)
+        print(
+            f"{count} question{'' if count == 1 else 's'} went unanswered. To answer "
+            f"{'it' if count == 1 else 'them'}: python -m main --resume "
+            f"{engine.state.session_id} --interactive"
+        )
+    if crate_written(engine) is None:
+        print("No crate was written.")
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the builder CLI.
 
@@ -565,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_graph(args)
 
     # Ensure config is loaded before creating the engine
-    if args.interactive:
+    if args.interactive or args.unattended:
         if not _ensure_configured():
             return 1
 
@@ -606,11 +659,6 @@ def main(argv: list[str] | None = None) -> int:
                 # expected answer pre-selected and arrow keys to change it.
                 select_func=lambda choices, default, keys: ui.select_option(
                     ui.get_console(), choices, default=default, keys=keys
-                ),
-                # Questions whose honest answer is several of the choices get a
-                # checkbox box instead — space toggles, enter confirms the set.
-                select_many_func=lambda hint, choices: ui.select_options(
-                    ui.get_console(), choices, hint=hint
                 ),
             )
         )
@@ -680,6 +728,10 @@ def main(argv: list[str] | None = None) -> int:
         len(engine.state.scanned_files),
         entity_count,
     )
+
+    # Unattended build: the same loop, with nobody to answer it.
+    if args.unattended:
+        return _run_unattended(engine, args)
 
     # Interactive build mode: the ReAct agent loop.
     if args.interactive:
