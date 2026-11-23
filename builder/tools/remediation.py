@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from profiles.identifier_namespaces import (
+    FUNDER_SHOULD_HAVE_ROR,
     MALFORMED,
     NAMESPACE_CHECKS,
     ORGANIZATION_NEEDS_ROR,
@@ -597,7 +598,7 @@ _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
     # a malformed iD is not a missing one. `_instruction` names the namespace.
     ((MALFORMED,), _CORRECT_IDENTIFIER),
     (("ORCID",), "Add an ORCID"),
-    ((ORGANIZATION_NEEDS_ROR,), "Add a ROR ID"),
+    ((ORGANIZATION_NEEDS_ROR, FUNDER_SHOULD_HAVE_ROR), "Add a ROR ID"),
     (("affiliation",), "Add an institutional affiliation"),
     (("contactPoint", "contact point"), "Add a contact email"),
     (("organization SHOULD have a URL", "URL"), "Add a website"),

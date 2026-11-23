@@ -167,8 +167,9 @@ def example_iri(prefix: str) -> str:
 # `scripts/refresh_identifier_namespaces.py`), then a run of the generator.
 
 # The namespaces an entity's ``@id`` is checked in, in the order the shape lists
-# them: people and organisations, chemicals, cell lines, publications, the AOP and
-# its key events, then the ontologies `profiles/ontology_iris` builds term IRIs in.
+# them: people and organisations, chemicals, cell lines, publications and grants,
+# the AOP and its key events, then the ontologies `profiles/ontology_iris` builds
+# term IRIs in.
 # Each is given what this project calls an ``@id`` there, which is the one thing
 # here the registry does not supply: a fix hint and the report name the finding's
 # namespace with it, since the shape's one message cannot.
@@ -179,6 +180,7 @@ NAMESPACE_CHECKS: dict[str, str] = {
     "compoundwiki": "Compound Wiki item address",
     "cellosaurus": "Cellosaurus address",
     "doi": "DOI address",
+    "cordis.project": "CORDIS project address",
     "aop": "AOP-Wiki pathway address",
     "aop.events": "AOP-Wiki key event address",
     "bao": "BAO term",
@@ -226,6 +228,7 @@ VALUE_CHECKS: dict[str, str] = {
 MALFORMED = "MUST have the form its registry gives it"
 PERSON_NEEDS_ORCID = "MUST be identified by an ORCID iD"
 ORGANIZATION_NEEDS_ROR = "MUST be identified by a ROR ID"
+FUNDER_SHOULD_HAVE_ROR = "SHOULD be identified by a ROR ID"
 
 
 def namespace_start(prefix: str) -> str:

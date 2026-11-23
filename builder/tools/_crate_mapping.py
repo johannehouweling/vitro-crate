@@ -4871,12 +4871,21 @@ def _add_declared_funding(state: CrateState, crate: ROCrate, idx: dict[str, Any]
     The funder is the root's ``funder``, an Organization, as RO-Crate asks. A grant
     number is no property of an organization, so it is a ``Grant`` the root's
     ``funding`` references, and the grant names its funder.
+
+    A grant a lookup confirmed (``metadata.grants``, an EU grant CORDIS holds) is
+    written as what the lookup found: at its DOI, else its CORDIS address, with its
+    title, acronym and CORDIS page, and the organisation that awarded it as funder
+    in place of the programme the deposit named.
     """
     root = crate.root_dataset
     for stated in state.metadata.funding:
         name = str(stated.get("funder") or "").strip()
         number = str(stated.get("identifier") or "").strip()
-        funder = _declared_funder(state, crate, idx, name) if name else None
+        found = state.metadata.grants.get(number) if number else None
+        if found:
+            funder = _organization_at(state, idx, found.get("funder_ror"))
+        else:
+            funder = _declared_funder(state, crate, idx, name) if name else None
         if funder is not None:
             _append_unique(root, "funder", funder)
         if not number:
@@ -4886,10 +4895,32 @@ def _add_declared_funding(state: CrateState, crate: ROCrate, idx: dict[str, Any]
             "name": f"{name} grant {number}" if name else f"Grant {number}",
             "identifier": number,
         }
+        grant_id = f"#grant_{_slug(number)}"
+        if found:
+            if found.get("title"):
+                properties["name"] = found["title"]
+            if found.get("acronym"):
+                properties["alternateName"] = found["acronym"]
+            if found.get("url"):
+                properties["url"] = found["url"]
+            doi = _registry_iri("doi", _bare_doi(found.get("doi") or ""))
+            grant_id = doi or found.get("url") or grant_id
         if funder is not None:
             properties["funder"] = {"@id": funder.id}
-        grant = crate.add(ContextEntity(crate, f"#grant_{_slug(number)}", properties=properties))
+        grant = crate.add(ContextEntity(crate, grant_id, properties=properties))
         _append_unique(root, "funding", grant)
+
+
+def _organization_at(state: CrateState, idx: dict[str, Any], ror: Any) -> Any:
+    """The written node of the Organization the crate holds under the ROR ID *ror*."""
+    wanted = str(ror or "").strip().rstrip("/").rsplit("/", 1)[-1].casefold()
+    if not wanted:
+        return None
+    for org in state.list_entities("Organization"):
+        held = str(org.fields.get("ror") or "").strip().rstrip("/").rsplit("/", 1)[-1]
+        if held.casefold() == wanted and (node := _node_for(idx, org)) is not None:
+            return node
+    return None
 
 
 # People/organisation references an ISA dataset can carry. Held here (not in

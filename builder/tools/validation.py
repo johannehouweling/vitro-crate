@@ -492,6 +492,10 @@ _NAMESPACE_ANSWERS: dict[str, str] = {
     "compoundwiki": "Resolve the chemical again with `resolve_compound`",
     "cellosaurus": "Resolve the cell line again with `resolve_cell_line`",
     "doi": "Resolve the publication again with `resolve_publication`",
+    "cordis.project": (
+        "The grant's address comes from CORDIS, for the grant number the deposit "
+        "states; check that number"
+    ),
     "aop": "Resolve the pathway again with `resolve_aop`",
     "aop.events": "Link the assay to its key event again with `link_assay_to_key_event`",
 }
@@ -524,6 +528,7 @@ def _identifier_fix(issue: RoutableIssue, graph: list[Any] | None = None) -> str
     real identifier, and a model shown one beside a malformed id may copy it.
     """
     from profiles.identifier_namespaces import (
+        FUNDER_SHOULD_HAVE_ROR,
         MALFORMED,
         NAMESPACE_CHECKS,
         ORGANIZATION_NEEDS_ROR,
@@ -549,6 +554,14 @@ def _identifier_fix(issue: RoutableIssue, graph: list[Any] | None = None) -> str
             "this organisation's name; otherwise leave the finding for the depositor "
             "to answer. Never guess an ID, and do not remove the organisation to "
             "clear this finding."
+        )
+    if FUNDER_SHOULD_HAVE_ROR in message:
+        return (
+            f"`{entity}` is named only as a funder and ROR registers no organisation "
+            "under that name; a funding programme has none. Where the deposit states "
+            "the grant number of an EU grant, the CORDIS lookup names the European "
+            "Commission as funder. Otherwise the depositor can name the organisation "
+            "that awarded the grant. Never guess an ID."
         )
     if MALFORMED not in message:
         return None

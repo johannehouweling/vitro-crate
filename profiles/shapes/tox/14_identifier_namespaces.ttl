@@ -3,7 +3,8 @@
 # profiles/identifier_namespaces.py, then run the script.
 #
 # Identifier namespaces: an identifier MUST have the form its registry gives it.
-# Every Person is identified by an ORCID iD and every Organization by a ROR ID;
+# Every Person is identified by an ORCID iD and every Organization by a ROR ID, an
+# Organization named only as a funder SHOULD be (a programme often has none), and
 # any other identifier is checked only where the crate claims its namespace. Each
 # sh:pattern is derived from the record the rdfs:seeAlso beside it names: the
 # Bioregistry's, vendored in profiles/vocabulary/identifier_namespaces.json. An
@@ -27,12 +28,47 @@ tox:PersonMustBeIdentifiedByOrcid a sh:NodeShape ;
 
 tox:OrganizationMustBeIdentifiedByRor a sh:NodeShape ;
     sh:name "An organization MUST be identified by a ROR ID" ;
-    sh:description "An Organization's @id MUST be the address of the organization's ROR ID." ;
-    sh:targetClass schema:Organization ;
+    sh:description "An Organization's @id MUST be the address of the organization's ROR ID, unless the crate names it only as a funder." ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT DISTINCT ?this WHERE {
+                ?this a <http://schema.org/Organization> .
+                FILTER (
+                    NOT EXISTS { ?funded <http://schema.org/funder> ?this }
+                    || EXISTS {
+                        ?other ?link ?this .
+                        FILTER (?other != ?this && ?link NOT IN (<http://schema.org/funder>, <http://schema.org/sponsor>))
+                    }
+                )
+            }
+        """ ;
+    ] ;
     rdfs:seeAlso <https://bioregistry.io/registry/ror> ;
     sh:pattern "^https://ror\\.org/" ;
     sh:message "An Organization MUST be identified by a ROR ID: its @id is https://ror.org/ followed by the ID" ;
     sh:severity sh:Violation .
+
+tox:FunderShouldBeIdentifiedByRor a sh:NodeShape ;
+    sh:name "A funder SHOULD be identified by a ROR ID" ;
+    sh:description "An Organization the crate names only as a funder SHOULD be identified by a ROR ID. A funding programme often has none." ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT DISTINCT ?this WHERE {
+                ?this a <http://schema.org/Organization> .
+                ?funded <http://schema.org/funder> ?this .
+                FILTER NOT EXISTS {
+                    ?other ?link ?this .
+                    FILTER (?other != ?this && ?link NOT IN (<http://schema.org/funder>, <http://schema.org/sponsor>))
+                }
+            }
+        """ ;
+    ] ;
+    rdfs:seeAlso <https://bioregistry.io/registry/ror> ;
+    sh:pattern "^https://ror\\.org/" ;
+    sh:message "An Organization named only as a funder SHOULD be identified by a ROR ID: its @id is https://ror.org/ followed by the ID" ;
+    sh:severity sh:Warning .
 
 # Selected: every described entity whose @id starts with one of the namespaces
 # below. The whole prefix is matched, so an ontology's own IRI (…/obo/ncit.owl) and
@@ -45,7 +81,7 @@ tox:IdentifierMustBeWellFormed a sh:NodeShape ;
         sh:select """
             SELECT DISTINCT ?this WHERE {
                 ?this a ?type .
-                FILTER(isIRI(?this) && REGEX(STR(?this), "^(https://orcid\\\\.org/|https://ror\\\\.org/|https://pubchem\\\\.ncbi\\\\.nlm\\\\.nih\\\\.gov/compound/|https://compoundcloud\\\\.wikibase\\\\.cloud/entity/|https://www\\\\.cellosaurus\\\\.org/|https://doi\\\\.org/|https://aopwiki\\\\.org/aops/|https://aopwiki\\\\.org/events/|http://www\\\\.bioassayontology\\\\.org/bao#BAO_|http://purl\\\\.obolibrary\\\\.org/obo/CHEBI_|http://purl\\\\.obolibrary\\\\.org/obo/CL_|http://www\\\\.ebi\\\\.ac\\\\.uk/efo/EFO_|http://purl\\\\.obolibrary\\\\.org/obo/GO_|http://purl\\\\.obolibrary\\\\.org/obo/IAO_|http://purl\\\\.obolibrary\\\\.org/obo/MSIO_|http://purl\\\\.obolibrary\\\\.org/obo/NCBITaxon_|http://purl\\\\.obolibrary\\\\.org/obo/NCIT_|http://purl\\\\.obolibrary\\\\.org/obo/OBI_|http://purl\\\\.obolibrary\\\\.org/obo/PATO_|http://purl\\\\.obolibrary\\\\.org/obo/UBERON_|http://purl\\\\.obolibrary\\\\.org/obo/UO_)"))
+                FILTER(isIRI(?this) && REGEX(STR(?this), "^(https://orcid\\\\.org/|https://ror\\\\.org/|https://pubchem\\\\.ncbi\\\\.nlm\\\\.nih\\\\.gov/compound/|https://compoundcloud\\\\.wikibase\\\\.cloud/entity/|https://www\\\\.cellosaurus\\\\.org/|https://doi\\\\.org/|https://cordis\\\\.europa\\\\.eu/project/id/|https://aopwiki\\\\.org/aops/|https://aopwiki\\\\.org/events/|http://www\\\\.bioassayontology\\\\.org/bao#BAO_|http://purl\\\\.obolibrary\\\\.org/obo/CHEBI_|http://purl\\\\.obolibrary\\\\.org/obo/CL_|http://www\\\\.ebi\\\\.ac\\\\.uk/efo/EFO_|http://purl\\\\.obolibrary\\\\.org/obo/GO_|http://purl\\\\.obolibrary\\\\.org/obo/IAO_|http://purl\\\\.obolibrary\\\\.org/obo/MSIO_|http://purl\\\\.obolibrary\\\\.org/obo/NCBITaxon_|http://purl\\\\.obolibrary\\\\.org/obo/NCIT_|http://purl\\\\.obolibrary\\\\.org/obo/OBI_|http://purl\\\\.obolibrary\\\\.org/obo/PATO_|http://purl\\\\.obolibrary\\\\.org/obo/UBERON_|http://purl\\\\.obolibrary\\\\.org/obo/UO_)"))
             }
         """ ;
     ] ;
@@ -68,6 +104,9 @@ tox:IdentifierMustBeWellFormed a sh:NodeShape ;
         # Digital Object Identifier: https://doi.org/10.1038/s41597-022-01807-3
         [ rdfs:seeAlso <https://bioregistry.io/registry/doi> ;
           sh:pattern "^https://doi\\.org/(10.\\d{2,9}/.*)$" ]
+        # CORDIS Project: https://cordis.europa.eu/project/id/817732
+        [ rdfs:seeAlso <https://bioregistry.io/registry/cordis.project> ;
+          sh:pattern "^https://cordis\\.europa\\.eu/project/id/(\\d+)$" ]
         # AOPWiki: https://aopwiki.org/aops/98
         [ rdfs:seeAlso <https://bioregistry.io/registry/aop> ;
           sh:pattern "^https://aopwiki\\.org/aops/(\\d+)$" ]

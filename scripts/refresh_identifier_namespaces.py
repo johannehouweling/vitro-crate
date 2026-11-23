@@ -55,6 +55,8 @@ PREFIXES: tuple[str, ...] = (
     # publications
     "doi",
     "pubmed",
+    # grants: an EU research project by its grant agreement number
+    "cordis.project",
     # ontologies whose terms the profile and the builder use
     "bao",
     "chebi",

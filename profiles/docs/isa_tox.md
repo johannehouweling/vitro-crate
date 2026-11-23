@@ -501,9 +501,12 @@ looked up; it is never the identifier. A Person is `https://orcid.org/0000-0002-
 address.
 
 Two checks apply to every entity of their type. Every Person MUST be identified by an ORCID iD, and every
-Organization, a funder or an affiliation included, MUST be identified by a ROR ID. Neither may be invented to
-satisfy the profile: a person or an organisation no registry confirms an identifier for is reported, and only the
-depositor can answer it.
+Organization, an affiliation included, MUST be identified by a ROR ID. An Organization the crate names only as a
+`funder` SHOULD be identified by a ROR ID: a funding programme is often named as a funder and has no ROR record
+to give, while the organisation that awarded the grant does (an EU grant's funder is the European Commission, and
+its grant agreement is identified by its DOI, `https://doi.org/10.3030/<number>`, or its CORDIS address). None may
+be invented to satisfy the profile: a person or an organisation no registry confirms an identifier for is
+reported, and only the depositor can answer it.
 
 Every other check applies only where the crate claims the namespace. An entity whose `@id` starts with one of the
 addresses below MUST have that namespace's form; a chemical with a crate-local `@id` (`#iopanoic-acid`) is not
@@ -519,6 +522,7 @@ names in its `propertyID` (`https://orcid.org`).
 |Compound Wiki item|`https://compoundcloud.wikibase.cloud/entity/`|none: the Bioregistry holds no record, and the form is the profile's (`Q` and digits)|
 |Cellosaurus|`https://www.cellosaurus.org/`|[cellosaurus](https://bioregistry.io/registry/cellosaurus)|
 |DOI|`https://doi.org/`|[doi](https://bioregistry.io/registry/doi)|
+|CORDIS project|`https://cordis.europa.eu/project/id/`|[cordis.project](https://bioregistry.io/registry/cordis.project)|
 |AOP-Wiki pathway|`https://aopwiki.org/aops/`|[aop](https://bioregistry.io/registry/aop)|
 |AOP-Wiki key event|`https://aopwiki.org/events/`|[aop.events](https://bioregistry.io/registry/aop.events)|
 |Ontology terms|the ontology's term prefix, e.g. `http://purl.obolibrary.org/obo/NCIT_`|one per ontology: BAO, ChEBI, CL, EFO, GO, IAO, MSIO, NCBITaxon, NCIT, OBI, PATO, UBERON, UO|
@@ -527,7 +531,7 @@ The `value` of an identifier PropertyValue is checked by the name that states it
 `PubChem CID`, `DTXSID`, `Compound Wiki`, `DOI` and `PubMedID`, each against its record (`comptox` for a DTXSID,
 `pubmed` for a PubMed identifier), and a DOI is stated bare (`10.1038/s41597-022-01807-3`). A chemical's
 `inChIKey` is checked against the [inchikey](https://bioregistry.io/registry/inchikey) record. Every one of these
-is a Violation where it applies.
+is a Violation where it applies, and so is a missing ORCID iD or ROR ID; a funder's missing ROR ID is a Warning.
 
 Three checks elsewhere in the profile take their form from the same records: a [cell line](#source-cells---cell-line)
 SHOULD carry its Cellosaurus accession (`CVCL_0440`, also written `RRID:CVCL_0440`), a

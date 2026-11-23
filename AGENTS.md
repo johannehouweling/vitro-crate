@@ -192,6 +192,9 @@ CrateState {
         license_from_deposit: bool,
         # the funding the deposit declares, as it states it; either key may be absent
         funding: [{ funder, identifier }],
+        # the grants a lookup confirmed, by the number the deposit states: an EU grant
+        # CORDIS holds, with its DOI, CORDIS address and the ROR ID of its funder
+        grants: { number: { acronym, title, url, doi, programme, funder_ror } },
         # the people and organisations the deposit identifies, as it states them, and
         # nothing else of them
         people: [{ name, orcid }], organizations: [{ name, ror }],
@@ -1964,8 +1967,9 @@ injected drift.
 
 Verification asks a registry whether an identifier exists; the ISA-Tox shapes check that it has
 the form its namespace gives it, offline. Every Person MUST be identified by an ORCID iD and every
-Organization by a ROR ID, unconditionally; everything else is checked only where the crate claims
-the namespace (an `@id` under a checked address, the `value` of an identifier PropertyValue, an
+Organization by a ROR ID, except one the crate names only as a funder, which SHOULD be: a funding
+programme has no ROR record to give. Everything else is checked only where the crate claims the
+namespace (an `@id` under a checked address, the `value` of an identifier PropertyValue, an
 `inChIKey`). The profile document's Identifier Namespaces section is the table. What must hold:
 
 - **A form is read from the registry, never typed.** `profiles/vocabulary/identifier_namespaces.json`
@@ -1977,7 +1981,8 @@ the namespace (an `@id` under a checked address, the `value` of an identifier Pr
 - **The shapes are generated, one per question.** `profiles/shapes/tox/14_identifier_namespaces.ttl`
   is written by `scripts/gen_identifier_shapes.py` from two tables in `identifier_namespaces`
   (`NAMESPACE_CHECKS`, `VALUE_CHECKS`) and never edited by hand: whether a Person's and an
-  Organization's `@id` is in the ORCID and ROR namespace at all, whether an `@id` in any checked
+  Organization's `@id` is in the ORCID and ROR namespace at all (a Warning, not a Violation, for an
+  Organization nothing refers to but a `funder`), whether an `@id` in any checked
   namespace has its form (one `sh:or` with a pattern per namespace), whether an identifier
   PropertyValue's `value` has its scheme's form, and an InChIKey's. Every `sh:pattern` in the tox
   shapes names the one record it came from with `rdfs:seeAlso`, and
@@ -1989,14 +1994,17 @@ the namespace (an `@id` under a checked address, the `value` of an identifier Pr
   target is SPARQL, and it runs once.
 - **The record is a pointer on a shape, never an identity.** A crate keeps `https://orcid.org/…`;
   `https://bioregistry.io/registry/orcid` appears only as a shape's `rdfs:seeAlso` (`ontology_iris`).
-- **A node-level constraint carries its `sh:message` and `sh:severity` on the NodeShape**, and stays
-  at `sh:Violation`. Both engines ignore a severity inside a constraint, and a Warning-level node
-  shape is not loaded under the REQUIRED gate. The namespace target matches the whole address
+- **A node-level constraint carries its `sh:message` and `sh:severity` on the NodeShape.** Both
+  engines ignore a severity inside a constraint, and a Warning-level node shape is not loaded under
+  the REQUIRED gate, so every check is a Violation but the funder's, a recommendation by design. The
+  funder target excludes the node itself and `schema:sponsor` as referrers, because an engine that
+  infers adds both. The namespace target matches the whole address
   (`identifier_namespaces.namespace_start`), so an ontology's own IRI (`…/obo/ncit.owl`) and the
   scheme nodes identifier PropertyValues name (`https://orcid.org`) are never selected.
 - **One message, read by the `@id`.** The form check speaks one message for every namespace, and the
   words the tooling keys on are constants in `identifier_namespaces` (`MALFORMED`,
-  `PERSON_NEEDS_ORCID`, `ORGANIZATION_NEEDS_ROR`), never a second copy. The fix hint
+  `PERSON_NEEDS_ORCID`, `ORGANIZATION_NEEDS_ROR`, `FUNDER_SHOULD_HAVE_ROR`), never a second copy.
+  The fix hint
   (`validation._identifier_fix`) and the report's instruction (`remediation._instruction`) name the
   namespace through `namespace_of(@id)`, and a finding on a generated identifier PropertyValue names
   the entity and field it is written from.
@@ -2005,15 +2013,12 @@ the namespace (an `@id` under a checked address, the `value` of an identifier Pr
   (`_registry_iri`), and leaves anything that is not one as given, for the shape to report. The form
   it was stated in still reaches the node (`_stated_addresses`), two entities that now mint one `@id`
   are written as one node (`_written_as_one`), and a DOI PropertyValue's value is stored bare.
-- **A finding is answered, not gamed.** No identifier is invented (D5): the `value` of an identifier
-  PropertyValue is an identifier field (`field_kinds.is_identifier_value`), and a node-level finding
-  names no field, so the guidance loop never asks for either in prose. A REQUIRED finding is never
+- **A finding is answered, not gamed.** No identifier is invented (D5). A REQUIRED finding is never
   filed under citations (`validation._partition_citations`). `verify_identifier` clears an ORCID iD
   whose record states another family name. The ReAct loop stops continuing by itself when the only
   REQUIRED findings are missing ORCID iDs and ROR IDs (`agent_loop._agent_is_done`), without calling
-  the crate complete: its hint says how many still need one. Its instructions forbid deleting a
-  person to clear one, and both arms name who lacks an identifier at the end
-  (`build.format_unidentified_agents`), the pipeline from the findings guidance left open.
+  the crate complete: its hint says how many still need one, and the session ends naming who
+  (`agent_loop.format_unidentified_agents`). Its instructions forbid deleting a person to clear one.
 
 ### The Profile Crate
 
@@ -2232,6 +2237,9 @@ All lookups follow a consistent pattern: return `{found: bool, data: dict, error
 - **Crossref**: DOI → title, authors, journal, volume, ISSN, work type, year. The build
   writes the journal as a `Periodical` and the volume as a `PublicationVolume`, which
   the article is `isPartOf`
+- **CORDIS**: EU grant agreement number → project acronym, title, framework programme,
+  grant DOI and the European Commission's contribution (`lookups/cordis.py`). It is
+  called for a declared funder's grant number, never chosen by the model
 
 ### Multi-Strategy Lookups
 For chemicals, `lookup_compound` tries by name, then CAS, then the
@@ -2531,13 +2539,18 @@ give funding a place of its own: the BioStudies `Funding` section (`Agency`, `Gr
 and nothing more. A grant number is no property of an organization, so it is a `Grant` the root's
 `funding` references, named after its funder and number, which names that funder. This is also what
 fills the checklist's `Investigation:funder` slot. ISA-Tox requires every Organization to be identified by
-a ROR ID (§6, Identifier Namespaces), so both arms ask ROR for the record that registers exactly the
-declared name (`composites.look_up_declared_funders`, behind the provider gate, as an affiliation is
-matched: the pipeline in its spine, the ReAct arm before its loop starts). One that does gives the ROR ID
-to the Organization the crate holds under that ID or under the declared name, or to a new one, with the
-declared name as an `alternateName` where it goes by another; the build then writes the funder as the
-Organization that holds the ROR ID. A funder no record registers, such as a programme, is written by
-name only and is an open MUST the depositor answers.
+a ROR ID (§6, Identifier Namespaces), so the build looks the declared funding up once, before the loop
+starts and behind the provider gate (`composites.look_up_declared_funders`). An EU grant comes first: a
+grant number CORDIS holds under the programme the deposit names ("EU Horizon 2020" for an `H2020`
+project, `composites.cordis_grant`) is recorded in `metadata.grants`, apart from what the deposit
+stated, and the build writes it as a `Grant` at its DOI (else its CORDIS address) with its title and
+acronym, funded by the European Commission, the Organization ROR registers under exactly that name;
+CORDIS states the Commission's contribution to every grant it records. Otherwise ROR is asked for the
+record that registers exactly the declared name, as an affiliation is matched. One that does gives the
+ROR ID to the Organization the crate holds under that ID or under the declared name, or to a new one,
+with the declared name as an `alternateName` where it goes by another; the build then writes the funder
+as the Organization that holds the ROR ID. A funder neither answers, such as a national programme, is
+written by name only, and the profile recommends a ROR ID for it rather than requiring one.
 
 **The people and organisations a deposit identifies are read the same way, for their identifiers
 alone.** `extract_deposit_people` reads the name and the ORCID of each person a record names and the
@@ -3400,7 +3413,7 @@ vitro-crate/
 │   └── docs/
 ├── lookups/                     External API clients
 │   ├── cellosaurus.py, pubchem.py, comptox.py, aopwiki.py, bao.py
-│   └── orcid.py, ror.py, crossref.py, iuclid.py, _http.py
+│   └── orcid.py, ror.py, crossref.py, cordis.py, iuclid.py, _http.py
 ├── mit/invitro_tox.yaml         Minimal Information Table
 ├── fair/                        FAIR indicators (RDA FDMM + FAIRplus DSM, vendored)
 ├── air/                         Bridge2AI AI-readiness criteria (vendored)

@@ -99,6 +99,13 @@
       "example": "16333295",
       "record": "https://bioregistry.io/registry/pubmed"
     },
+    "cordis.project": {
+      "name": "CORDIS Project",
+      "pattern": "^\\d+$",
+      "uri_format": "https://cordis.europa.eu/project/id/$1",
+      "example": "817732",
+      "record": "https://bioregistry.io/registry/cordis.project"
+    },
     "bao": {
       "name": "BioAssay Ontology",
       "pattern": "^\\d{7}$",

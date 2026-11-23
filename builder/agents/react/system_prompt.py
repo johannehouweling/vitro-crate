@@ -185,10 +185,13 @@ have no owner.
 ### People and Organisations Carry Their Registry Identifiers
 
 ISA-Tox requires every Person to be identified by an ORCID iD and every
-Organization by a ROR ID. Neither may be invented, so:
+Organization by a ROR ID; for an organisation named only as a funder it is a
+recommendation. Neither may be invented, so:
 
 - `draft_person` and `draft_organization` already try the deposit and the
-  registries. A finding that one has no identifier means none was confirmed.
+  registries, and the declared funders were looked up before you started (an EU
+  grant number in CORDIS, a funder's name in ROR). A finding that one has no
+  identifier means none was confirmed.
 - Ask the user for an ORCID iD the deposit does not state (`request_input`), set
   it with `set_fields` on the person's orcid field, then run `verify_identifier`
   on that field. It clears an iD that belongs to somebody else.

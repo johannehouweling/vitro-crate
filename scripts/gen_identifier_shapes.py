@@ -10,7 +10,10 @@ in each is the Bioregistry's record, vendored in
 One shape per question, not one per namespace:
 
 * ``tox:PersonMustBeIdentifiedByOrcid`` and ``tox:OrganizationMustBeIdentifiedByRor``
-  ask whether the ``@id`` is in the namespace at all.
+  ask whether the ``@id`` is in the namespace at all, and
+  ``tox:FunderShouldBeIdentifiedByRor`` asks it, as a recommendation, of an
+  Organization the crate names only as a funder: a funding programme often has no
+  ROR record to give.
 * ``tox:IdentifierMustBeWellFormed`` asks whether an ``@id`` in any checked
   namespace has that namespace's form: an ``sh:or`` with one member per namespace,
   each a pattern beside the record it was derived from.
@@ -22,9 +25,10 @@ The members are plain ``sh:pattern`` constraints on purpose. A SPARQL constraint
 with a branch per namespace says the same thing and is re-parsed and run once per
 entity: 113 s on a 365-entity crate against 3 s for this form.
 
-Every constraint sits at ``sh:Violation`` with its message on the node shape: both
-engines ignore a severity inside a constraint, and a node shape below Violation is
-not loaded under the REQUIRED gate.
+Every constraint has its message and severity on the node shape: both engines
+ignore a severity inside a constraint. The funder shape is the one Warning, and a
+node shape below Violation is not loaded under the REQUIRED gate, which is what a
+recommendation means.
 
 Regenerate with::
 
@@ -53,7 +57,8 @@ _HEADER = """\
 # profiles/identifier_namespaces.py, then run the script.
 #
 # Identifier namespaces: an identifier MUST have the form its registry gives it.
-# Every Person is identified by an ORCID iD and every Organization by a ROR ID;
+# Every Person is identified by an ORCID iD and every Organization by a ROR ID, an
+# Organization named only as a funder SHOULD be (a programme often has none), and
 # any other identifier is checked only where the crate claims its namespace. Each
 # sh:pattern is derived from the record the rdfs:seeAlso beside it names: the
 # Bioregistry's, vendored in profiles/vocabulary/identifier_namespaces.json. An
@@ -83,18 +88,68 @@ def _record(prefix: str) -> str:
 
 
 def _agent_shape(
-    shape: str, name: str, description: str, cls: str, prefix: str, message: str
+    shape: str,
+    name: str,
+    description: str,
+    prefix: str,
+    message: str,
+    *,
+    cls: str | None = None,
+    select: str | None = None,
+    severity: str = "Violation",
 ) -> str:
+    """A shape asking whether an @id is in *prefix*'s namespace at all."""
+    if select is not None:
+        target = f'''sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """{_ttl(select)}""" ;
+    ] ;'''
+    else:
+        target = f"sh:targetClass schema:{cls} ;"
     return f"""
 tox:{shape} a sh:NodeShape ;
     sh:name "{name}" ;
     sh:description "{description}" ;
-    sh:targetClass schema:{cls} ;
+    {target}
     rdfs:seeAlso <{_record(prefix)}> ;
     sh:pattern "{_ttl(ns.namespace_pattern(prefix))}" ;
     sh:message "{message}" ;
-    sh:severity sh:Violation .
+    sh:severity sh:{severity} .
 """
+
+
+# An Organization the crate names only as a funder: nothing refers to it but a
+# `funder` (or its super-property `sponsor`, which an engine that infers
+# sub-properties adds beside it). Such an organisation is often a funding
+# programme ROR has no record for and never will, so a missing ROR ID there is a
+# recommendation; everywhere else it is required. The node itself is excluded as a
+# referrer, since OWL RL states every node `owl:sameAs` itself.
+_FUNDING_LINKS = "<http://schema.org/funder>, <http://schema.org/sponsor>"
+_ONLY_A_FUNDER = f"""
+                ?funded <http://schema.org/funder> ?this .
+                FILTER NOT EXISTS {{
+                    ?other ?link ?this .
+                    FILTER (?other != ?this && ?link NOT IN ({_FUNDING_LINKS}))
+                }}"""
+_ORGANIZATIONS = """
+            SELECT DISTINCT ?this WHERE {{
+                ?this a <http://schema.org/Organization> .{condition}
+            }}
+        """
+
+
+def _organizations(condition: str) -> str:
+    return _ORGANIZATIONS.format(condition=condition)
+
+
+_NOT_ONLY_A_FUNDER = f"""
+                FILTER (
+                    NOT EXISTS {{ ?funded <http://schema.org/funder> ?this }}
+                    || EXISTS {{
+                        ?other ?link ?this .
+                        FILTER (?other != ?this && ?link NOT IN ({_FUNDING_LINKS}))
+                    }}
+                )"""
 
 
 _NAMESPACE_DESCRIPTION = (
@@ -199,19 +254,31 @@ def render() -> str:
                 "PersonMustBeIdentifiedByOrcid",
                 "A person MUST be identified by an ORCID iD",
                 "A Person's @id MUST be the address of the person's ORCID iD.",
-                "Person",
                 "orcid",
                 f"A Person {ns.PERSON_NEEDS_ORCID}: its @id is "
                 f"{ns.uri_prefix('orcid')} followed by the iD",
+                cls="Person",
             ),
             _agent_shape(
                 "OrganizationMustBeIdentifiedByRor",
                 "An organization MUST be identified by a ROR ID",
-                "An Organization's @id MUST be the address of the organization's ROR ID.",
-                "Organization",
+                "An Organization's @id MUST be the address of the organization's ROR ID, "
+                "unless the crate names it only as a funder.",
                 "ror",
                 f"An Organization {ns.ORGANIZATION_NEEDS_ROR}: its @id is "
                 f"{ns.uri_prefix('ror')} followed by the ID",
+                select=_organizations(_NOT_ONLY_A_FUNDER),
+            ),
+            _agent_shape(
+                "FunderShouldBeIdentifiedByRor",
+                "A funder SHOULD be identified by a ROR ID",
+                "An Organization the crate names only as a funder SHOULD be identified by "
+                "a ROR ID. A funding programme often has none.",
+                "ror",
+                f"An Organization named only as a funder {ns.FUNDER_SHOULD_HAVE_ROR}: its "
+                f"@id is {ns.uri_prefix('ror')} followed by the ID",
+                select=_organizations(_ONLY_A_FUNDER),
+                severity="Warning",
             ),
             _namespace_shape(),
             _value_shape(),
