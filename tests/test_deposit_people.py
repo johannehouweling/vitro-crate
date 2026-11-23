@@ -1023,11 +1023,10 @@ class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
         assert len(state.list_entities("Organization")) == 1
         assert [n["@id"] for n in _typed(_graph(state), "Organization")] == [VU["ror"]]
 
-    @pytest.mark.parametrize("path", ["drafter", "tool", "composite", "pipeline"])
+    @pytest.mark.parametrize("path", ["drafter", "tool", "composite"])
     def test_every_path_that_creates_an_organisation_takes_it(
         self, monkeypatch: pytest.MonkeyPatch, path: str
     ) -> None:
-        from builder.agents.pipeline import pipeline
         from builder.tools import composites
 
         _ror(monkeypatch, {VU["ror"]: VU_RECORD})
@@ -1039,7 +1038,6 @@ class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
                 engine.run_tool("draft_organization", name=VU["name"], hints={}).entity_id
             ),
             "composite": lambda: composites._find_or_draft_organization(engine.state, VU["name"]),
-            "pipeline": lambda: pipeline._find_or_draft_organization(engine, VU["name"]),
         }[path]
         organisation = engine.state.get_entity(str(create()))
         assert organisation is not None
@@ -1144,27 +1142,19 @@ class TestAnAmendWritesWhatADraftWrites:
 
 
 class TestTheCrateSaysWhatTheDepositStates:
-    def test_the_pipeline_names_people_and_their_organisations_by_the_stated_ids(
+    def test_the_tools_name_people_and_their_organisations_by_the_stated_ids(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """S-VHPS22 states an ORCID for every author and a ROR id for both organisations.
-        ROR answers as recorded for those two ids, and stand-ins answer for the ORCID
+        The agent drafts each person and organisation by name, as the tools let it; ROR
+        answers as recorded for those two ids, and stand-ins answer for the ORCID
         records, since no test asks a registry."""
         import responses
 
-        from builder.agents.pipeline import pipeline
         from lookups import ror
         from lookups._http import reset_circuit_breaker, reset_host_throttle
 
         engine = _initialised(tmp_path)
-        plan = {
-            "people": [
-                {"name": "Nathalie Dierichs", "affiliation_name": RIVM["name"]},
-                {"name": "Robin Peeters", "affiliation_name": ERASMUS_MC["name"]},
-            ]
-        }
-        monkeypatch.setattr(pipeline, "get_provider", lambda: "openai")
-        monkeypatch.setattr(pipeline, "extract_plan", lambda context, **kwargs: plan)
         records = {
             "0009-0000-5074-6239": ("Nathalie", "Dierichs"),
             "0000-0001-7732-9371": ("Robin", "Peeters"),
@@ -1181,8 +1171,25 @@ class TestTheCrateSaysWhatTheDepositStates:
             ):
                 body = json.loads((FIXTURES / recorded).read_text(encoding="utf-8"))
                 answers.get(f"https://api.ror.org/organizations/{bare}", json=body)
-            pipeline._scaffold_backbone(engine)
-            pipeline._materialize_plan(engine)
+            engine.run_tool(
+                "scaffold_isa_backbone",
+                investigation={"name": "Investigation"},
+                study={"name": "Study"},
+                assay={"name": "Assay"},
+            )
+            for name, organisation in (
+                ("Nathalie Dierichs", RIVM),
+                ("Robin Peeters", ERASMUS_MC),
+            ):
+                person = engine.run_tool("draft_person", name=name, hints={})
+                drafted = engine.run_tool(
+                    "draft_organization", name=organisation["name"], hints={}
+                )
+                engine.run_tool(
+                    "set_fields",
+                    entity_id=person.entity_id,
+                    fields={"affiliation": drafted.entity_id},
+                )
 
         graph = _graph(engine.state)
         people = {n["name"]: n for n in _typed(graph, "Person")}

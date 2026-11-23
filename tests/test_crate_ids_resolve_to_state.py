@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import pytest
 
-from builder.engine import AgentEngine
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.drafters import draft_process
-from builder.tools.gap_analysis import Gap
 from builder.tools.management import resolve_entity_id, set_fields
 from builder.tools.provenance import attach_files, find_or_create_file, link
 from builder.tools.repair import _resolve_state_entity
@@ -138,29 +136,6 @@ class TestTheRepairLoopAndTheGapEngine:
         state, _with_folder, _without = _deposit()
 
         assert _resolve_state_entity(state, "./") is None
-
-    def test_an_answer_about_the_assay_is_not_taken_for_one_about_the_crate(self) -> None:
-        """A gap whose entity does not resolve is read as a gap on the root, and a
-        creator named for it is then recorded as the crate's own."""
-        from builder.agents.pipeline import guidance
-
-        state, with_folder, _without = _deposit()
-        engine = AgentEngine(state=state)
-        gap = Gap(
-            tier="SHOULD",
-            source="shacl",
-            entity_id="./" + ASSAY_ID,
-            entity_type="Assay",
-            property="http://schema.org/creator",
-            message="Assay entity SHOULD have a creator",
-            suggestion=None,
-            fix_hint="ask-user",
-            auto_fixable=False,
-        )
-
-        assert guidance._resolve_entity_id(engine, gap) == with_folder.entity_id
-        assert guidance._gap_is_root(engine, gap) is False
-
 
 class TestTheToolsTakeTheCrateId:
     def test_set_fields_writes_to_the_assay_named_by_its_folder(self) -> None:
@@ -331,24 +306,6 @@ class TestTheIdsOfACrateWithoutItsFiles:
         )
         link(state, "./#LabProcess_proc_readout", "result", "./#" + PLATE_ID)
         assert readout.fields["result"] == plate.entity_id
-
-    def test_an_answer_about_the_assay_is_given_to_the_assay(self) -> None:
-        from builder.agents.pipeline import guidance
-
-        state, with_folder, _without = _deposit()
-        gap = Gap(
-            tier="SHOULD",
-            source="shacl",
-            entity_id="./#" + ASSAY_ID,
-            entity_type="Assay",
-            property="http://schema.org/creator",
-            message="Assay entity SHOULD have a creator",
-            suggestion=None,
-            fix_hint="ask-user",
-            auto_fixable=False,
-        )
-
-        assert guidance._resolve_entity_id(AgentEngine(state=state), gap) == with_folder.entity_id
 
     def test_a_finding_on_one_is_the_agents_to_fix(self) -> None:
         from builder.agents.react.agent_loop import _issue_targets_own_entity
