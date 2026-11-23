@@ -1,10 +1,10 @@
-"""Agent-agnostic A/B evaluation harness for vitro-crate (Issue #179, task 6).
+"""Agent-agnostic evaluation harness for vitro-crate (Issue #179, task 6).
 
 This package measures a crate-building *agent* against a fixed corpus of cases,
 recording success, token cost, latency, iteration / tool-call counts, and a
-determinism signal. The same harness runs the current ReAct engine today and a
-future deterministic pipeline tomorrow — the only thing that changes is the
-zero-arg ``agent_factory`` passed to :func:`eval.runner.run_eval`.
+determinism signal. The live agent is the ReAct build; the harness only sees the
+zero-arg ``agent_factory`` passed to :func:`eval.runner.run_eval`, and labeled
+runs diff with :func:`eval.report.compare_reports`.
 
 CI / unit tests stay strictly offline (mock agent factory); a *live* run makes
 real LLM calls and is triggered by a human with credentials (``python -m eval``).

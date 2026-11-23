@@ -207,8 +207,7 @@ _NAMESPACE_STARTS: dict[str, str] = {"cellosaurus": "https://www.cellosaurus.org
 
 # The identifier PropertyValues whose ``value`` is checked, by the ``name`` that
 # states their scheme: the names the builder writes (`_crate_mapping._identifier_pv`,
-# `drafters.draft_property_value`). `field_kinds.IDENTIFIER_VALUE_NAMES` is this
-# table's keys, so what is checked and what may not be typed are one list.
+# `drafters.draft_property_value`).
 VALUE_CHECKS: dict[str, str] = {
     "ORCID": "orcid",
     "CAS": "cas",
@@ -221,9 +220,9 @@ VALUE_CHECKS: dict[str, str] = {
 
 # The words a finding of these shapes is recognised by. The shapes' messages are
 # built from them and the tooling reads them back (`validation` for the fix hint,
-# `remediation` for the report's instruction, `build` and `agent_loop` for who
-# still needs an identifier), so no second copy of a message can drift from the
-# shape that speaks it.
+# `remediation` for the report's instruction, `agent_loop` for who still needs an
+# identifier), so no second copy of a message can drift from the shape that
+# speaks it.
 MALFORMED = "MUST have the form its registry gives it"
 PERSON_NEEDS_ORCID = "MUST be identified by an ORCID iD"
 ORGANIZATION_NEEDS_ROR = "MUST be identified by a ROR ID"

@@ -228,7 +228,7 @@ def _load_cratestate(session_id: str) -> dict[str, Any] | None:
 def format_mit_coverage(overall_score: float | None, *, assessed: bool) -> tuple[str, str]:
     """Format an MIT coverage score for display — the single source of truth
     shared by the profiler dashboard panel and the interactive UI
-    (:mod:`builder.agents.ui`) so both build arms render coverage identically
+    (:mod:`builder.agents.ui`) so the two render coverage identically
     (issue #355).
 
     ``overall_score`` is a fraction in ``[0.0, 1.0]`` (see

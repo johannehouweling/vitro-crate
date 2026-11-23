@@ -1,15 +1,13 @@
-"""What KIND of value a field takes — the single vocabulary both arms share (#375).
+"""What KIND of value a field takes — the single vocabulary the toolbox shares (#375).
 
-Three questions recur across the toolbox and both build arms, and each was
-previously answered by a private copy that could drift from the build's actual
-behaviour:
+Three questions recur across the toolbox, and each was previously answered by a
+private copy that could drift from the build's actual behaviour:
 
 * **Is this field identifier-bearing?** (D5: its value comes from a lookup, never
-  from the model's or the user's prose.) Two byte-identical definitions existed —
-  ``guidance._IDENTIFIER_FIELDS`` and ``leaves._IDENTIFIER_SCALAR_FIELDS`` — the
-  first kept local only to spare the offline path an import of the
-  langchain-importing ``leaves`` module. A ``builder/tools/`` module solves that
-  properly: it is dependency-light and importable from anywhere.
+  from the model's or the user's prose.) Two byte-identical definitions existed,
+  one kept local only to spare an offline path a langchain import. A
+  ``builder/tools/`` module solves that properly: it is dependency-light and
+  importable from anywhere.
 * **Is this field reference-only?** A property that must hold an entity reference,
   never a literal. :data:`builder.tools._crate_mapping._REF_FIELDS` is the source
   of truth; this module is its single reader.
@@ -18,8 +16,8 @@ behaviour:
   a caller cannot believe it committed a reference the build will discard.
 
 The third question is the one that made #375 a *correctness* bug rather than a
-tidiness one: the guidance loop stored free text on a reference-only property,
-reported success, and the builder then silently dropped it —
+tidiness one: a caller stored free text on a reference-only property, reported
+success, and the builder then silently dropped it —
 ``_scalar_props`` strips every ``_REF_FIELDS`` key, and ``_wire_reference``
 (``keep_literal=False``) emits nothing for a non-resolvable literal. Asking the
 same question here and in the build keeps the two sides from disagreeing.
@@ -31,17 +29,14 @@ from typing import Any
 
 from builder.state import CrateState
 from builder.tools._crate_mapping import _REF_FIELDS, TERM_FIELDS, draft_hints_schema
-from profiles.identifier_namespaces import VALUE_CHECKS
 
 __all__ = [
     "CITATION_FIELDS",
     "IDENTIFIER_FIELDS",
-    "IDENTIFIER_VALUE_NAMES",
     "PERSON_FIELDS",
     "drafter_visible_fields",
     "is_citation_field",
     "is_identifier_field",
-    "is_identifier_value",
     "is_person_field",
     "is_reference_field",
     "is_resolvable_reference",
@@ -76,9 +71,8 @@ def is_citation_field(field: str) -> bool:
 # from a lookup and must NEVER be taken from prose — the model's or the user's.
 #
 # NB (#377): membership is exact, so a camelCase property local name (``inChIKey``)
-# does not match the snake_case entry (``inchikey``). That mismatch is a real
-# defect, but fixing it changes which gaps are refused and is therefore #377's
-# scope, not this module's.
+# does not match the snake_case entry (``inchikey``). :func:`is_identifier_field`
+# normalises both sides, so ask it rather than test membership here.
 IDENTIFIER_FIELDS: frozenset[str] = frozenset(
     {
         # generic identifier slot (CAS / accession / DOI, per entity type)
@@ -108,20 +102,18 @@ IDENTIFIER_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Fields pruned from the schema the drafter model sees AND stripped from its
-# output (D5): identifiers it must never invent, plus entity references, which
-# are wired deterministically by ``link`` / the resolver rather than extracted
-# as free text. The leaf aliases this rather than redefining it, so the schema
-# the model is bound to and the spine's "can this call help?" test cannot drift.
+# Fields kept out of what a model is offered to draft (D5): identifiers it must
+# never invent, plus entity references, which are wired deterministically by
+# ``link`` / the resolver rather than extracted as free text.
 _EXCLUDED_DRAFT_FIELDS: frozenset[str] = IDENTIFIER_FIELDS | _REF_FIELDS
 
 
 def normalise_field_name(field: str | None) -> str:
     """Reduce a property name to a spelling-insensitive comparison key.
 
-    A field reaches these predicates from three places that spell it
-    differently: ``CrateState`` fields and the draft-hint schemas are snake_case
-    (``inchikey``, ``molecular_formula``); a SHACL gap carries a schema.org
+    A field is spelled differently in three places: ``CrateState`` fields and
+    the draft-hint schemas are snake_case (``inchikey``, ``molecular_formula``);
+    a SHACL finding carries a schema.org
     property IRI whose local name is camelCase
     (``http://schema.org/inChIKey``); and MIT ``crate_slot`` values are plain
     field names. Without normalising, the D5 guard matched ``identifier`` and
@@ -157,29 +149,6 @@ def is_identifier_field(field: str) -> bool:
     return normalise_field_name(field) in _IDENTIFIER_KEYS
 
 
-# The PropertyValues whose `value` IS an identifier, named by the scheme they state:
-# the ones the build writes for people, chemicals and publications. They are the
-# ones whose form the ISA-Tox shapes check, so this is that table's keys and not a
-# second list. `value` is no identifier field in general (a passage number is a
-# value too), so whether it is one depends on the entity, not the field name.
-IDENTIFIER_VALUE_NAMES: frozenset[str] = frozenset(VALUE_CHECKS)
-
-
-def is_identifier_value(entity: Any, field: str | None) -> bool:
-    """Whether ``field`` of ``entity`` holds an identifier because of what the entity is.
-
-    True for the ``value`` of a PropertyValue named after an identifier scheme
-    (:data:`IDENTIFIER_VALUE_NAMES`). D5 then applies as it does to an identifier
-    field: the value comes from a lookup, never from prose.
-    """
-    if entity is None or normalise_field_name(field) != "value":
-        return False
-    if getattr(entity, "type", None) != "PropertyValue":
-        return False
-    name = (getattr(entity, "fields", None) or {}).get("name")
-    return str(name or "").strip() in IDENTIFIER_VALUE_NAMES
-
-
 def is_reference_field(field: str) -> bool:
     """Whether ``field`` must hold an entity reference rather than a literal.
 
@@ -190,24 +159,15 @@ def is_reference_field(field: str) -> bool:
 
 
 def drafter_visible_fields(entity_type: str) -> frozenset[str]:
-    """The fields the drafter model is actually offered for ``entity_type``.
+    """The fields a model may be offered to draft for ``entity_type``.
 
     :func:`builder.tools._crate_mapping.draft_hints_schema` minus every
     identifier-bearing and reference field (D5 — the model is never *asked* for
-    an identifier). This is the exact property set of the structured-output
-    schema the leaf binds the model to.
-
-    It lives here, not in the leaf, because two callers need it and only one of
-    them may import ``langchain``: the leaf builds its structured-output schema
-    from it, and the pipeline spine uses it to decide whether a drafter call can
-    accomplish anything at all before paying for one (#423). Deriving both from
-    this single function is what stops the spine's skip rule from drifting away
-    from what the model can really return.
+    an identifier).
 
     Note the schema stays open (``additionalProperties: true``), so a model MAY
-    return a field outside this set — the leaf strips identifiers from the result
-    defensively regardless. This is what the model is *offered*, which is the
-    right basis for "could this call possibly help?".
+    return a field outside this set. This is what the model is *offered*, not a
+    bound on what it returns.
     """
     props = draft_hints_schema(entity_type).get("properties", {})
     return frozenset(key for key in props if key not in _EXCLUDED_DRAFT_FIELDS)

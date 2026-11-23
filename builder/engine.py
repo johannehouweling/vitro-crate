@@ -171,8 +171,8 @@ def _validation_input_hash(state: CrateState) -> str:
     """Hash the inputs ``build_and_validate`` consumes: entities + crate metadata.
 
     Thin delegation to :meth:`builder.state.CrateState.validation_fingerprint`,
-    which is where the definition lives so both build arms can reach it without
-    importing the engine (#380). Kept as a module-level name because the debounce
+    which is where the definition lives so a caller holding only the state can
+    reach it without importing the engine (#380). Kept as a module-level name because the debounce
     key below and ``tests/test_validation_debounce.py`` both import it.
     """
     return state.validation_fingerprint()
@@ -291,14 +291,10 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     readable scientific documentation (SOPs, protocols, publications, metadata files,
     data dictionaries, sample sheets, assay/process docs) and ranks them by content
     signals, filename clues, and directory depth. The formatted context is stored on
-    ``engine.state.documents`` for both arms:
+    ``engine.state.documents``: the ReAct state brief includes a ``Documents: N``
+    line and the context is appended as a document-context SystemMessage block.
 
-    - **ReAct**: the state brief includes a ``Documents: N`` line and the context is
-      appended as a document-context SystemMessage block.
-    - **Pipeline**: :func:`builder.agents.pipeline.pipeline._gather_context` folds
-      the discovered documents into the drafter/extraction leaf context.
-
-    Discovery is best-effort and bounded (``_MAX_CONTEXT_CHARS`` caps preview text).
+    Discovery is best-effort and bounded (each preview is capped).
     A failure never breaks initialization — it just leaves ``state.documents`` empty.
     """
     from builder.tools.document_discovery import (
@@ -369,7 +365,8 @@ def _read_declared_licence(engine: AgentEngine) -> None:
     one direction that suppresses reuse of openly-licensed data.
 
     Runs beside document discovery, for the same reason: it is deterministic,
-    bounded, and independent of which arm is driving, so both get the fact. Only
+    bounded, and independent of the model, so the build has the fact whatever
+    the agent does. Only
     a licence nobody has set yet is filled — a resumed session that already
     carries one is left alone — and the value is marked as read from the deposit
     so a later draft cannot overwrite it.
@@ -454,7 +451,7 @@ def _read_declared_identity(engine: AgentEngine) -> None:
     """Read the title and accession the deposit declares, as the DOI is read (#722).
 
     DSM-1-R0 asks for an identifiable dataset descriptor, which the session title is,
-    and nothing wrote it on a pipeline build: every one sat at level 0 under the
+    and nothing wrote it on a build from a folder: every one sat at level 0 under the
     scaffold's placeholder name. A value already set is left alone.
     """
     from builder.tools.file_readers import extract_deposit_identity
@@ -569,11 +566,8 @@ class AgentEngine:
         self.profiler: ProfilingLogger | None = None
         # Optional tool-event observer (#266): invoked at the start and end of
         # every ``run_tool`` call with ``(tool_name, "start"|"end")``. Default
-        # ``None`` is a strict no-op (no behavior change). The deterministic
-        # pipeline runs tools via ``run_tool`` (not LangChain), so this is the
-        # single hook the interactive build's progress spinner subscribes to in
-        # order to show the currently-running tool. A callback that raises must
-        # never break ``run_tool`` (it is UI chrome).
+        # ``None`` is a strict no-op (no behavior change). A callback that raises
+        # must never break ``run_tool`` (it is UI chrome).
         # Optional observer for tool execution lifecycle (Issue #266). Fired with
         # ``(tool_name, phase, kwargs_str)`` — the third argument is a compact
         # representation of the tool's arguments so UI chrome can show e.g.
@@ -629,8 +623,7 @@ class AgentEngine:
                 # After the file inventory is built, run the deterministic,
                 # bounded document discovery to rank SOPs, protocols, publications,
                 # metadata files, and other scientific documentation. The result
-                # is stored in CrateState and consumed by both the ReAct state
-                # brief and the pipeline's _gather_context.
+                # is stored in CrateState and consumed by the ReAct state brief.
                 if self.state.scanned_files and approved:
                     try:
                         _run_document_discovery(self)
@@ -1096,6 +1089,17 @@ class AgentEngine:
                 exc_info=True,
             )
 
+    def _keep_unanswered(self, question: str) -> None:
+        """Keep a question nobody could answer, for a later interactive session.
+
+        Only a run nobody answers keeps it: a person who skips a question has
+        answered it, by choosing not to.
+        """
+        from builder.tools.hitl import is_interactive
+
+        if not is_interactive(self.human_interface):
+            self.state.record_unanswered_question(question)
+
     def _ask_each(self, context: str, questions: list[Any]) -> dict[str, Any]:
         """Ask ``questions`` one at a time through the HITL door (#596).
 
@@ -1131,10 +1135,13 @@ class AgentEngine:
                 answer = str(decision.get("comments") or decision.get("action") or "")
                 if decision.get("action") != "skipped":
                     self.state.record_user_answer(question, answer)
+                else:
+                    self._keep_unanswered(question)
             else:
                 response = self.human_interface.request_input(shown, "text")
                 if response.get("skipped"):
                     answer = "skipped"
+                    self._keep_unanswered(question)
                 else:
                     answer = str(response.get("value") or "")
                     self.state.record_user_answer(question, answer)
@@ -1299,6 +1306,8 @@ class AgentEngine:
                 if isinstance(result, dict) and result.get("action") != "skipped":
                     spoken = result.get("comments") or result.get("action") or ""
                     self.state.record_user_answer(kwargs.get("context", ""), str(spoken))
+                elif isinstance(result, dict):
+                    self._keep_unanswered(kwargs.get("context", ""))
         elif tool_name == "request_input":
             if self.profiler is not None:
                 self.profiler.log_event(event="hitl_wait", tool=tool_name)
@@ -1309,6 +1318,8 @@ class AgentEngine:
                 self.state.record_user_answer(
                     kwargs.get("prompt", ""), str(result.get("value") or "")
                 )
+            elif isinstance(result, dict):
+                self._keep_unanswered(kwargs.get("prompt", ""))
         elif tool_name in scanner_tools:
             tool_fn = scanner_tools[tool_name]
             # Prompt-once, children-only approval for a user-submitted folder

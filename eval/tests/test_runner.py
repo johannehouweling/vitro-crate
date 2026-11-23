@@ -215,11 +215,10 @@ class _FlakyMockAgent:
 class TestSuccessAcrossRepeats:
     """#405 — validity must be measured on every repeat, not just the first.
 
-    ``success_rate`` was the headline validity claim of the whole A/B and it was
+    ``success_rate`` was the headline validity claim of the harness and it was
     computed from repeat #1 alone, so a case that conformed once in three
-    contributed a full 1.0 and its two failures left no trace. It skews
-    asymmetrically: the deterministic pipeline genuinely is represented by one
-    draw, the stochastic ReAct arm is not, and intermittent conformance is exactly
+    contributed a full 1.0 and its two failures left no trace. A stochastic
+    build is not represented by one draw, and intermittent conformance is exactly
     ReAct's failure mode worth measuring.
     """
 
@@ -306,10 +305,10 @@ class TestScoringIsMemoisedOnTheCrateHash:
     disagree about conformance, so the verdict is computed once per DISTINCT crate.
     """
 
-    def test_a_deterministic_arm_validates_once_regardless_of_repeats(
+    def test_identical_crates_validate_once_regardless_of_repeats(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The pipeline arm returns the same crate every time — one validation."""
+        """Repeats that return the same crate validate once."""
         import eval.runner as runner_mod
 
         calls = {"n": 0}
@@ -371,10 +370,10 @@ class TestScoringIsMemoisedOnTheCrateHash:
         monkeypatch.setattr(runner_mod, "reaches_isa_tox_conformance", counting)
         return calls
 
-    def test_a_deterministic_arm_validates_once_regardless_of_repeats(
+    def test_identical_crates_validate_once_regardless_of_repeats(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The pipeline arm returns the same crate every time — one validation."""
+        """Repeats that return the same crate validate once."""
         calls = self._count_predicate(monkeypatch)
         report = run_eval(_clean_factory, DEFAULT_CORPUS[:1], repeats=3)
 

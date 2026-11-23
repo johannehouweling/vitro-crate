@@ -378,7 +378,7 @@ class TestContactDetailsBecomeAnEntity:
         assert contact["email"] == "ada@example.org"
 
     def test_the_answer_to_a_contact_point_gap_lands(self):
-        """Guidance commits the gap's own field name, so it must work too."""
+        """An answer committed under the finding's own field name (``contactPoint``) lands too."""
         state = CrateState()
         _add(state, "org_uu", "Organization", name="Utrecht", contactPoint="info@uu.nl")
         doc = _doc(state)

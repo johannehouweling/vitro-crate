@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from builder.state import CrateState
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -354,38 +354,6 @@ def _compose_message(
     return f"{prefix}{note}{cell_str}"
 
 
-def csvw_to_frictionless(columns: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
-    """Convert CSVW column descriptors into a Frictionless table schema.
-
-    The condition table's typed columns are authored once as CSVW
-    (``_crate_mapping._CONDITION_TABLE_COLUMNS``: ``titles`` + ``datatype`` +
-    ``propertyUrl``; #94). This bridges them into the Frictionless
-    ``{"fields": [{"name", "type"}, ...]}`` shape so :func:`validate_table` can
-    check the populated CSV without a separately hand-authored schema — keeping
-    the #94 CSVW typing the single source of truth for both layers (#144).
-
-    Args:
-        columns: An iterable of CSVW column dicts, each with at least a
-            ``titles`` (the column name) and optionally a ``datatype``.
-
-    Returns:
-        A Frictionless table schema descriptor ``{"fields": [...]}``.
-    """
-    fields: list[dict[str, Any]] = []
-    for col in columns:
-        name = col.get("titles") or col.get("name")
-        if not name:
-            continue
-        datatype = str(col.get("datatype", "string"))
-        fields.append(
-            {
-                "name": str(name),
-                "type": _CSVW_TO_FRICTIONLESS_TYPE.get(datatype, "string"),
-            }
-        )
-    return {"fields": fields}
-
-
 def project_condition_rows(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -616,34 +584,9 @@ def condition_table_multivalued_columns_from_rows(
     return {column for column, values in seen.items() if len(values) > 1}
 
 
-def reference_cell_allowlist(state: CrateState, entity_type: str) -> list[str]:
-    """Allowed cell values for a condition-table reference column.
-
-    The table's ``compound`` / ``cell_line`` cells carry entity **names**, not
-    entity ids — :func:`propose_condition_rows` writes ``name`` and only falls
-    back to ``entity_id`` for an entity that has none, and a depositor's own
-    plate map names compounds the way a bench scientist writes them. Allowing
-    both is therefore the check working as intended, not a loosening: an
-    id-only allow-list would flag every row of a correct table, and a check
-    that always fires is a check nobody reads.
-
-    Matching is **exact** (whitespace-stripped, case-preserved) — the same
-    strictness the Frictionless foreign-key validation applies, so the build's
-    payload verdict and the eval scorer (#474) can never disagree about the
-    same cell.
-    """
-    allowed: list[str] = []
-    for entity in state.list_entities(entity_type):
-        name = str(entity.fields.get("name") or "").strip()
-        if name:
-            allowed.append(name)
-        allowed.append(entity.entity_id)
-    return allowed
-
-
 # --- plate-map intake (#422) ------------------------------------------------
 # `populate_condition_table` accepted any string path and opened it as UTF-8
-# text. The pipeline picks the design table by its rows, not its extension, so
+# text. The design table was picked by its rows, not its extension, so
 # the real deposit's `.xlsx` plate map hit `csv.DictReader` and raised
 # UnicodeDecodeError on the first ZIP byte. Dispatch on the suffix so a
 # binary never reaches a text decode, and refuse formats there is no reader for
@@ -654,9 +597,9 @@ _TEXT_TABLE_SUFFIXES: dict[str, str] = {".csv": ",", ".tsv": "\t", ".tab": "\t"}
 # A workbook that opened fine and simply holds no per-condition sheet. Reported
 # through the same `error` channel as a genuine read failure because
 # `populate_condition_table`'s caller asked for ONE named file and either way got
-# nothing — but the two are not the same fact, and #594's search over every
-# scanned table has to tell them apart or it calls a deposit's whole workbook
-# collection unreadable (20 of svhps22's tables, every one of them fine).
+# nothing — but the two are not the same fact, and the message says which one
+# happened: reading one as the other calls a deposit's whole workbook collection
+# unreadable (20 of svhps22's tables, every one of them fine).
 _NO_QUALIFYING_SHEET = "no sheet has both a mapped condition-table column and a well_id"
 _EXCEL_SUFFIXES: frozenset[str] = frozenset({".xlsx", ".xlsm"})
 
@@ -699,7 +642,7 @@ def condition_table_fit(rows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
     # `well_id` among them, so any table carrying a well-ish header qualified: on
     # S-VHPS22 a qPCR protocol sheet keyed on `Well Position` and a gamma-counter
     # export keyed on `Run ID` both did, giving three candidates where there is
-    # one design table — and the spine refuses when several qualify, so the crate
+    # one design table — so the build refused to choose, and the crate
     # shipped four header-only tables while 1048 rows of real design sat in the
     # deposit. Knowing WHICH WELLS EXIST says nothing about WHAT WAS DONE to
     # them, which is the same rule already stated for the other side of the pair.
@@ -710,31 +653,6 @@ def condition_table_fit(rows: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
     if not (set(projection["mapped_columns"]) - {"well_id"}):
         return (0, 0)
     return (wells, mapped) if wells and mapped else (0, 0)
-
-
-def condition_table_fit_of(src: Path) -> tuple[int, int, str | None]:
-    """:func:`condition_table_fit` for a file on disk, plus any READ error.
-
-    Returns ``(wells, mapped, error)``. The error is reported separately from the
-    fit because the two are different facts about a deposit: a table that reads
-    fine and simply is not per-condition is the ordinary case — most tables in a
-    submission are measurements — while one that cannot be OPENED is a problem
-    the depositor should hear about, and #422 exists because those two used to be
-    indistinguishable.
-
-    Never raises: a deposit holds workbooks no reader can open, and one of them
-    must not stop the search.
-    """
-    try:
-        rows, _reader, error, _sheet = _rows_from_file(src)
-    except Exception as exc:  # noqa: BLE001 - an unreadable file is not the table
-        return (0, 0, str(exc))
-    if error:
-        # "Opened fine, holds no per-condition sheet" is an ordinary answer to
-        # this search, not a failure to report — most tables in a submission are
-        # measurements.
-        return (0, 0, None) if error.startswith(_NO_QUALIFYING_SHEET) else (0, 0, error)
-    return (*condition_table_fit(rows), None) if rows else (0, 0, None)
 
 
 def _rows_from_file(
@@ -880,7 +798,7 @@ def populate_condition_table(
         read_rows, reader_name, read_error, sheet_used = _rows_from_file(src)
         if read_error is not None:
             # #422: this used to be an unguarded UTF-8 text decode, so a real
-            # .xlsx plate map raised UnicodeDecodeError, the spine swallowed it
+            # .xlsx plate map raised UnicodeDecodeError, the build swallowed it
             # into a `reason:` string, and the crate shipped a header-only table
             # with nothing said about why. Name the file AND the reader.
             logger.warning(
@@ -1015,147 +933,3 @@ def _ref_id(value: Any) -> str | None:
     if isinstance(value, dict):
         value = value.get("@id")
     return str(value).lstrip("#") if value else None
-
-
-def propose_condition_rows(state: Any, exposure_id: str) -> dict[str, Any]:
-    """Propose per-well design rows for an Exposure from what the crate knows.
-
-    Deterministic and side-effect-free: it reads state and returns a proposal —
-    the caller decides whether to write it (``populate_condition_table``) after
-    the human has confirmed.
-
-    Fills, without asking, what is already an entity in the crate: one row per
-    compound wired to the Exposure, the cell line consumed by the TestSystemPreparation,
-    the parent Assay's name, and the Exposure's duration when it carries one.
-    Leaves a cell BLANK whenever the crate does not state its value.
-
-    Raises no questions for a blank the crate simply never mentions in any form;
-    raises a specific, answerable question when the crate states a value for SOME
-    compounds and not others, because applying one compound's dose to another is
-    extrapolation rather than capture.
-
-    Args:
-        state: The crate state to read.
-        exposure_id: ``entity_id`` of the Exposure LabProcess.
-
-    Returns:
-        ``{"ok": bool, "rows": [...], "known": [...], "blank": [...],
-        "questions": [...]}``. Each question is
-        ``{"id", "column", "question", "options"}`` — specific enough to answer
-        without re-reading the crate. ``{"ok": False, "error": ...}`` when the
-        Exposure cannot be resolved.
-    """
-    exposure = state.get_entity(exposure_id)
-    if exposure is None:
-        return {"ok": False, "error": f"Exposure not found: {exposure_id!r}"}
-
-    compound_ids = exposure.fields.get("chemicals")
-    compound_ids = compound_ids if isinstance(compound_ids, list) else [compound_ids]
-    compounds = [
-        c for c in (state.get_entity(_ref_id(cid)) for cid in compound_ids if cid) if c
-    ]
-    if not compounds:
-        return {
-            "ok": False,
-            "error": (
-                "the Exposure references no compounds — wire them with "
-                "`chemicals` before proposing a design table"
-            ),
-        }
-
-    # Cell line: whatever the TestSystemPreparation consumed, else the single declared one.
-    cell_line_name: str | None = None
-    for proc in state.list_entities("LabProcess"):
-        if str(proc.fields.get("process_type") or "") != "TestSystemPreparation":
-            continue
-        target = state.get_entity(_ref_id(proc.fields.get("cell_line")) or "")
-        if target is not None:
-            cell_line_name = _first_field(target, ("name",))
-            break
-    if cell_line_name is None:
-        lines = state.list_entities("CellLineSample")
-        if len(lines) == 1:
-            cell_line_name = _first_field(lines[0], ("name",))
-
-    assay_name: str | None = None
-    assays = state.list_entities("Assay")
-    if len(assays) == 1:
-        assay_name = _first_field(assays[0], ("name",))
-
-    duration = _first_field(exposure, ("duration", "exposure_duration"))
-
-    # Doses, per compound — captured only where the crate states one.
-    doses: dict[str, tuple[str, str | None]] = {}
-    for compound in compounds:
-        value = _first_field(compound, _DOSE_FIELD_HINTS)
-        if value:
-            doses[compound.entity_id] = (
-                value,
-                _first_field(compound, _DOSE_UNIT_HINTS)
-                or _first_field(exposure, _DOSE_UNIT_HINTS),
-            )
-
-    rows: list[dict[str, str]] = []
-    for index, compound in enumerate(compounds, start=1):
-        dose_value, dose_unit = doses.get(compound.entity_id, ("", None))
-        rows.append(
-            {
-                "well_id": str(index),
-                "assay": assay_name or "",
-                "cell_line": cell_line_name or "",
-                "compound": _first_field(compound, ("name",)) or compound.entity_id,
-                "concentration_value": dose_value,
-                "concentration_unit": dose_unit or "",
-                "exposure_duration": duration or "",
-                "experiment": "",
-                "technical_replicate": "",
-                "control": "",
-            }
-        )
-
-    known = [
-        column
-        for column in ("compound", "assay", "cell_line", "exposure_duration")
-        if any(row[column] for row in rows)
-    ]
-    blank = [c for c in rows[0] if not any(row[c] for row in rows)] if rows else []
-
-    questions: list[dict[str, Any]] = []
-    if doses and len(doses) < len(compounds):
-        # The sharp case: a dose is stated for some compounds and not others.
-        # Copying it across would assert a concentration the crate never claimed.
-        # Name the compounds that DO carry a dose — the question is about them,
-        # and listing three arbitrary others makes it unanswerable.
-        dosed = sorted(
-            _first_field(c, ("name",)) or c.entity_id
-            for c in compounds
-            if c.entity_id in doses
-        )
-        named = ", ".join(dosed[:3]) + ("…" if len(dosed) > 3 else "")
-        questions.append(
-            {
-                "id": "partial_dose",
-                "column": "concentration_value",
-                "question": (
-                    f"The crate states a concentration for {len(doses)} of "
-                    f"{len(compounds)} compounds ({named}). Apply the same "
-                    "concentration to the rest, or leave theirs blank?"
-                ),
-                "options": ["apply to all", "leave the rest blank", "let me supply them"],
-            }
-        )
-    elif not doses:
-        questions.append(
-            {
-                "id": "no_dose",
-                "column": "concentration_value",
-                "question": (
-                    f"No concentration appears anywhere in this crate, so the "
-                    f"{len(compounds)} rows are proposed without one. Supply the "
-                    "concentrations, or leave the column blank?"
-                ),
-                "options": ["leave blank", "let me supply them"],
-            }
-        )
-
-    return {"ok": True, "rows": rows, "known": known, "blank": blank, "questions": questions}

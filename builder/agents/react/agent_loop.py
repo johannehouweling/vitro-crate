@@ -139,10 +139,10 @@ class _ToolSpinnerCallback(BaseCallbackHandler):
     """Forward LangChain tool-start/end events to the shared progress spinner.
 
     The spinner is :class:`builder.agents.progress_spinner.ProgressSpinner`, the
-    SAME live spinner the deterministic pipeline drives (#344) — here it is fed the
-    per-tool signal the ReAct loop gets from LangChain callbacks (the pipeline
-    feeds the same spinner from ``engine.on_tool_event``). Clearing on tool-end
-    returns the line to the rotating thinking phrase.
+    one live spinner of the build (#344) — here it is fed the per-tool signal the
+    ReAct loop gets from LangChain callbacks (the finish backstop, which calls
+    ``engine.run_tool`` directly, feeds it from ``engine.on_tool_event`` instead).
+    Clearing on tool-end returns the line to the rotating thinking phrase.
     """
 
     def __init__(self, spinner: ProgressSpinner) -> None:
@@ -304,17 +304,30 @@ _EXPORTED_FLAG = "_crate_exported_this_session"
 
 # Attribute holding the CONTENT fingerprint of the last in-loop auto-export
 # (#287 Fix A; #380). A completed build auto-exports the crate to disk so the
-# user always gets a crate (the deterministic pipeline already exports on every
-# completed build, #233); this fingerprint makes the auto-export idempotent —
+# user always gets a crate (#233); this fingerprint makes the auto-export idempotent —
 # it re-exports only when the crate has changed since the last auto-export
 # (so the *latest* crate always lands), never twice for the same build.
 # It is `CrateState.export_fingerprint()`, NOT an entity count: a count is
-# invariant under every field-level tool this arm is told to use for the rest of
+# invariant under every field-level tool the agent is told to use for the rest of
 # the session (`set_fields`, `set_crate_metadata`, `fix_required_issues`,
 # `link`), so counting silently kept all of that work off disk.
 _AUTO_EXPORT_FINGERPRINT_FLAG = "_crate_auto_export_fingerprint"
 # Where the last successful export landed, so a suppressed repeat can name it.
 _EXPORT_PATH_FLAG = "_crate_last_export_path"
+
+
+def mark_crate_written(engine: Any, crate_path: Any) -> None:
+    """Record that this session wrote its crate, and where."""
+    setattr(engine, _EXPORTED_FLAG, True)
+    setattr(engine, _EXPORT_PATH_FLAG, str(crate_path) if crate_path else None)
+
+
+def crate_written(engine: Any) -> str | None:
+    """Where this session wrote its crate, ``""`` when the path is unknown, or
+    ``None`` when it wrote none."""
+    if not getattr(engine, _EXPORTED_FLAG, False):
+        return None
+    return getattr(engine, _EXPORT_PATH_FLAG, None) or ""
 
 # Attribute holding the optional single-arg console sink the loop installs so an
 # in-loop auto-export can surface the absolute crate path to the user (#287 Fix
@@ -1211,15 +1224,14 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
     Issue #287 Fix A: the ReAct loop only wrote a crate via the finish
     backstop, which runs on the EXIT path (quit/EOF). In a live run the user kept
     the session alive, the weak model never called ``export_crate``, and a fully
-    built, base-VALID crate (70+ entities) was NEVER written. The deterministic
-    pipeline already exports on every completed build (#233); this brings the
-    ReAct loop in line.
+    built, base-VALID crate (70+ entities) was NEVER written. Every completed
+    build now lands its crate on disk (#233).
 
     Fires when, and only when:
       * the crate has entities (an empty crate has nothing to write), AND
       * the build passed BASE conformance (``build_result["conformance"]["base"]``
-        — the same gate the pipeline uses; ISA/Tox may still have gaps but a
-        base-valid crate is worth landing), AND
+        — ISA/Tox may still have gaps but a base-valid crate is worth landing),
+        AND
       * the crate has changed since the last auto-export (a CONTENT
         fingerprint over entities + metadata + the scanned-file inventory) — so
         the *latest* crate always lands and an unchanged repeat build never
@@ -1267,6 +1279,7 @@ def _auto_export_after_build(engine: AgentEngine, build_result: Any) -> None:
         setattr(engine, _EXPORTED_FLAG, True)
         setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, fingerprint)
         crate_path = result.get("crate_path")
+        mark_crate_written(engine, crate_path)
         try:
             from pathlib import Path
 
@@ -2531,7 +2544,7 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                         and result.get("success")
                     ):
                         setattr(engine, _EXPORTED_FLAG, True)
-                        setattr(engine, _EXPORT_PATH_FLAG, result.get("crate_path"))
+                        mark_crate_written(engine, result.get("crate_path"))
                         try:
                             setattr(
                                 engine,
@@ -2543,8 +2556,8 @@ def _build_langchain_tools(engine: AgentEngine) -> list[Any]:
                     # Auto-export on every completed in-loop build (#287 Fix A):
                     # the user kept the session alive and the weak model never
                     # called export_crate, so a base-valid 70+-entity crate never
-                    # landed. Mirror the deterministic pipeline (#233) — write the
-                    # crate whenever build_and_validate passes base conformance.
+                    # landed. Write the crate whenever build_and_validate passes
+                    # base conformance (#233).
                     elif tool_name == "build_and_validate":
                         _auto_export_after_build(engine, result)
                         severity = kwargs.get("severity") or "required"
@@ -3511,6 +3524,22 @@ def _format_user_answers(engine: AgentEngine, *, limit: int = 8) -> str:
     )
 
 
+def _format_unanswered_questions(engine: AgentEngine, *, limit: int = 8) -> str:
+    """The questions a run nobody answered could not put to a person (``--unattended``).
+
+    Kept on the state, so a session resumed with a person at the keyboard asks
+    them; an answer closes each one (:meth:`CrateState.record_user_answer`).
+    """
+    questions = getattr(engine.state, "unanswered_questions", None) or []
+    if not questions:
+        return ""
+    lines = [f"- {question[:200]}" for question in questions[-limit:]]
+    return (
+        "\n[Asked in an earlier run nobody answered — put these to the user when a "
+        "person can answer]\n" + "\n".join(lines)
+    )
+
+
 def _will_self_continue(engine: AgentEngine, self_continues: int) -> bool:
     """Whether a guard-stopped turn is about to resume without asking the user.
 
@@ -4121,6 +4150,7 @@ def _build_agent_graph(
                 _format_compact_state_summary(engine)
                 + _format_open_items(engine)
                 + _format_user_answers(engine)
+                + _format_unanswered_questions(engine)
                 + "\n"
                 + _format_document_evidence(engine)
             ),
@@ -4233,7 +4263,7 @@ def _finish_backstop(
 
         say("Finalizing: building and exporting the crate before exit…")
         # Build + validate in memory first so the written crate is the validated
-        # one (mirrors the deterministic pipeline's finish, §14.5/§14.6.1).
+        # one.
         try:
             engine.run_tool("build_and_validate")
         except (ValueError, KeyError, TypeError, RuntimeError) as exc:
@@ -4256,6 +4286,7 @@ def _finish_backstop(
             setattr(engine, _EXPORTED_FLAG, True)
             setattr(engine, _AUTO_EXPORT_FINGERPRINT_FLAG, fingerprint)
             crate_path = result.get("crate_path")
+            mark_crate_written(engine, crate_path)
             try:
                 from pathlib import Path
 
@@ -4279,17 +4310,53 @@ def _finish_backstop(
         return None
 
 
+# The ISA-Tox findings about a person or organisation with no registry identifier
+# (profiles/shapes/tox/14_identifier_namespaces.ttl), and what each one lacks.
+_UNIDENTIFIED = (
+    (PERSON_NEEDS_ORCID, "ORCID iD", "person", "people"),
+    (ORGANIZATION_NEEDS_ROR, "ROR ID", "organisation", "organisations"),
+)
+
+
+def format_unidentified_agents(verdict: dict[str, Any] | None) -> str | None:
+    """One line naming the people and organisations with no registry identifier, or ``None``.
+
+    ISA-Tox requires every Person to be identified by an ORCID iD and every
+    Organization by a ROR ID. The build never invents one (D5), so a person the
+    deposit names without one, and no lookup confirmed, stays an open MUST. The
+    finding names no field, so nothing asks for it on its own; without this line
+    the reason the crate fails ISA-Tox is a count, not a list of who.
+    """
+    issues = (verdict or {}).get("issues") or []
+    parts = []
+    for words, scheme, one, many in _UNIDENTIFIED:
+        ids = sorted(
+            {
+                str(issue.get("entity_id") or "").removeprefix("./")
+                for issue in issues
+                if isinstance(issue, dict) and words in str(issue.get("message") or "")
+            }
+        )
+        if ids:
+            noun = one if len(ids) == 1 else many
+            parts.append(f"{len(ids)} {noun} with no {scheme} ({', '.join(ids)})")
+    if not parts:
+        return None
+    return (
+        "no registry identifier: "
+        + "; ".join(parts)
+        + " — ISA-Tox requires one and no lookup confirmed it, so ask the depositor"
+    )
+
+
 def _say_who_lacks_an_identifier(engine: AgentEngine, emit: Any) -> None:
     """Name the people and organisations with no registry identifier, on the way out.
 
-    The line the pipeline prints in its summary (``build.format_unidentified_agents``),
-    read from this session's last verdict. Without it a ReAct session ends on a
-    crate that fails ISA-Tox with only a count to say why. Never raises: it runs
-    on the exit path.
+    Read from this session's last verdict (:func:`format_unidentified_agents`).
+    Without it a session ends on a crate that fails ISA-Tox with only a count to
+    say why. Never raises: it runs on the exit path.
     """
     try:
-        from builder.agents.build import format_unidentified_agents
-
         line = format_unidentified_agents({"issues": engine.state.validation.issue_records})
         if line:
             emit(f"[dim]{line}[/dim]")
@@ -4364,7 +4431,7 @@ def run_interactive_agent(
     With ``interactive=False`` the banner, the greeting model call and the stdin
     read are all skipped: *initial_prompt* and its autonomous continuation are the
     whole session, which then ends as Ctrl+D does — backstop included. That is
-    what lets the A/B eval measure this arm with the budget it actually ships
+    what lets the A/B eval measure the loop with the budget it actually ships
     with, instead of a single bare graph invocation (#609).
     """
     from langchain_core.messages import AIMessage, HumanMessage
@@ -4493,8 +4560,8 @@ def run_interactive_agent(
     # ── Session banner + greeting ───────────────────────────────────────
     # Only for a session someone is watching. The greeting costs a model call and
     # produces one thing: a welcome message. Headless (the A/B eval, batch), that
-    # is a token bill for politeness nobody reads, charged to this arm alone —
-    # so a run with no human present goes straight to work (#609).
+    # is a token bill for politeness nobody reads — so a run with no human
+    # present goes straight to work (#609).
     #
     # `resumed` is the caller's fact (--resume), never a guess from how populated
     # the state looks: initialize(--input) scans files before the loop starts, so
@@ -4959,7 +5026,7 @@ def run_interactive_agent(
                     console.print(f"[bold cyan]❯[/bold cyan] {user_input}")
                 elif answers_are_synthetic(engine.human_interface):
                     # Nobody is at the keyboard (--smoke-test). This ONE read is
-                    # the reason the mode used to refuse this arm: every other
+                    # the reason the mode used to refuse the ReAct loop: every other
                     # prompt already goes through the HumanInterface, but the
                     # conversation was read straight off stdin, so a synthetic
                     # interface had nothing to answer and the run sat on an empty

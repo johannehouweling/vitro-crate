@@ -220,20 +220,6 @@ class TestTheGuidanceAsksNoArchive:
         assert [i for i in issues if str(i["entity_id"]).endswith(LDH_ID)], "nothing was found"
         assert not [i for i in issues if str(i["property"]).endswith("/distribution")]
 
-    def test_the_folder_of_an_assay_is_asked_its_description_and_not_its_archive(self) -> None:
-        from builder.tools.gap_analysis import REPORT_ONLY, assess_gaps
-
-        state, _graph = _two_assay_folders()
-
-        on_the_folder = [g for g in assess_gaps(state).gaps if g.entity_id == "./" + LDH_ID]
-        archive = [g for g in on_the_folder if str(g.property).endswith("/distribution")]
-        description = [g for g in on_the_folder if str(g.property).endswith("/description")]
-
-        assert archive and {g.fix_hint for g in archive} == {REPORT_ONLY}
-        assert description and {g.fix_hint for g in description} == {"ask-user"}
-        assert {g.entity_type for g in on_the_folder} == {"Assay"}
-
-
 # What an export writes itself, beside the deposit's files.
 GENERATED = {"ro-crate-metadata.json", "ro-crate-preview.html", "ro-crate-metadata-maturity.html"}
 ASSAY = "Assay MCT8-MDCK1"

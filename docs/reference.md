@@ -108,20 +108,12 @@ export VITRO_ANTHROPIC_DRAFTER_MODEL="claude-haiku-4"
 
 ### Interactive build mode
 
-`--interactive` offers **two supported build architectures over the same toolbox**.
-Both are maintained — pick the one that fits how you want to work:
-
-| Variant | Flag | What it does | When to pick it |
-| --- | --- | --- | --- |
-| **Conversational ReAct agent** (default) | `--interactive` | An LLM agent decides the order of tool calls turn by turn, reading the folder's files on demand. | You want **flexible, conversational exploration** and to let the model drive. |
-| **Deterministic pipeline + HITL guidance** | `--interactive --pipeline` | Code drives the known step ordering (scaffold the ISA backbone, draft and materialize entities, validate, auto-fix REQUIRED issues), then walks you through any remaining gaps it can't close on its own. | You want a **deterministic, cheaper, reproducible** build: on the shared-corpus A/B both arms reach full ISA-Tox conformance, but the pipeline gets there substantially cheaper and faster, self-terminating every case where the ReAct loop repeatedly runs to its recursion cap. (The published figures are being re-measured — the harness that produced them handed the two arms different environments; see AGENTS.md D15.) |
-
-Both variants are first-class and actively maintained — this is an ongoing
-exploration, not a one-way migration. See the architecture docs (`AGENTS.md` §14)
-for the full comparison.
+`--interactive` runs the build: a **conversational ReAct agent** that decides the
+order of tool calls turn by turn, reading the folder's files on demand (see
+`AGENTS.md` §4.4 and D15).
 
 ```bash
-# Default — the ReAct agent, on a research data folder: it starts building at once.
+# On a research data folder: it starts building at once.
 uv run python -m main --interactive -i /path/to/experiment/
 
 # Without --input it starts with an empty crate and waits for an instruction.
@@ -130,38 +122,46 @@ uv run python -m main --interactive
 # Specify provider / model / endpoint:
 uv run python -m main --interactive --provider openai --model gpt-4o-mini
 uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
-
-# The deterministic pipeline + HITL guidance (supported alternative):
-uv run python -m main --interactive --pipeline -i /path/to/experiment/
-
-# The pipeline arm is folder-driven: with no --input there is nothing to scan, so
-# it prints a notice and exits.
-#
-# The pipeline fills metadata from the folder's own documents. A value the folder
-# states once is recorded without a question. It asks only about required fields:
-# you pick from what the folder states, each option naming its file, or type your
-# own. Esc skips a question; Ctrl+D stops the questions and builds the crate.
-# Recommended and optional fields the folder does not settle are left for the report.
 ```
+
+### Unattended build mode
+
+`--unattended` runs the same build with nobody at the keyboard. A question the
+agent asks gets no answer: nothing is approved or chosen on anyone's behalf, what
+the deposit and the lookups do not state stays empty, and the maturity report lists
+it. The crate is exported and the run ends. It exits 1 when no crate was written.
+
+```bash
+uv run python -m main --unattended -i /path/to/experiment/ -o /path/to/crate/
+```
+
+The questions nobody answered are kept in the session. The run ends by naming them
+and the command that puts them to a person:
+
+```bash
+uv run python -m main --resume <session-id> --interactive
+```
+
+It needs `--input` or `--resume`, and is not combined with `--interactive` or
+`--smoke-test`.
 
 **Smoke-testing the interactive path (`--smoke-test`).** For **testing**, not for
 producing a crate you would keep. It runs the same interactive build with nobody at
 the keyboard: every choice prompt confirms its **pre-selected** option and every
 open field is answered with the literal string `"yes, continue"`. That is how the
-HITL path — including the guidance tail, which only runs behind a real interactive
-frontend — can be exercised end to end in CI or a scripted check. It takes an
-optional wall-clock budget in minutes (`--smoke-test 20`): the run winds down at its
-next question once the time is spent and exports what it has; without one it
-drives a few turns and stops.
+HITL path, which only asks behind a real interactive frontend, can be exercised end
+to end in CI or a scripted check. It takes an optional wall-clock budget in minutes
+(`--smoke-test 20`): the run winds down at its next question once the time is spent
+and exports what it has; without one it drives a few turns and stops.
 
 ```bash
 uv run python -m main --smoke-test -i /path/to/experiment/
 ```
 
 - It **implies `--interactive`** (on its own it would have nothing to answer) and
-  **drives both arms**: on the ReAct arm (the default) it also answers the agent's conversational
-  "what next?" prompts for a bounded number of turns (or, with `--smoke-test
-  MINUTES`, until the budget is spent), then ends the session the way Ctrl+D would.
+  also answers the agent's conversational "what next?" prompts for a bounded number
+  of turns (or, with `--smoke-test MINUTES`, until the budget is spent), then ends
+  the session the way Ctrl+D would.
 - The run prints a prominent notice that the answers are synthetic — once at the
   start, and again next to the exported crate path. Nothing is written *into* the
   crate: `"yes, continue"` lands in prose fields (a name, a description), so the
@@ -173,7 +173,7 @@ uv run python -m main --smoke-test -i /path/to/experiment/
 **Starting the ReAct agent.** Given an input folder, the agent starts building and
 checks back only when it genuinely needs you; `--prompt/-P` replaces that first
 instruction with your own. Without a folder it waits for one. The session stays
-interactive throughout. The --pipeline build runs unprompted.
+interactive throughout.
 
 **Looking at a crate you already have.** `--graph` writes the entity explorer for
 any crate and opens it — no LLM configuration needed:
@@ -341,21 +341,20 @@ Options:
                          --resume needs no flag
   -r, --resume SESSION   Resume a previous session by ID (--session is an
                          accepted alias)
-  -I, --interactive      Run in interactive build mode: the ReAct agent loop, or
-                         with --pipeline the deterministic pipeline + HITL
-                         guidance tail (requires LangChain + API key)
-      --react            With --interactive, the ReAct agent loop (the LLM
-                         orchestrates the tool calls). The default, named so a
-                         choice reads as one
-      --pipeline         With --interactive, use the deterministic pipeline +
-                         HITL guidance build (code owns the step ordering, the
-                         LLM is confined to bounded leaves) instead of the
-                         default ReAct loop
+  -I, --interactive      Run in interactive build mode: the ReAct agent loop,
+                         where the LLM orchestrates the tool calls (requires
+                         LangChain + API key)
+      --unattended       Build from --input (or a --resume session) with nobody
+                         at the keyboard: a question gets no answer, what the
+                         deposit and the lookups do not state stays empty and is
+                         reported, and the crate is exported. Unanswered
+                         questions are kept in the session for a later --resume
+                         --interactive. Exits 1 when no crate was written
       --smoke-test [MINUTES]
                          TESTING: drive the interactive build with nobody at the
                          keyboard — confirm every pre-selected choice, answer
-                         every open field "yes, continue". Implies --interactive;
-                         works on both arms. Takes an optional wall-clock budget
+                         every open field "yes, continue". Implies --interactive.
+                         Takes an optional wall-clock budget
                          in minutes (--smoke-test 20): the run winds down at its
                          next question once the time is spent and exports what it
                          has; without one it drives a few turns and stops. The
@@ -365,8 +364,7 @@ Options:
                          place of the default it gets with an input folder
                          ("Build the crate and validate it."). Without a folder
                          it waits for one. The session stays interactive
-                         afterwards. Ignored by the --pipeline build, which runs
-                         unprompted
+                         afterwards
   -p, --provider STR     LLM provider: 'openai' or 'anthropic' (auto-detected from env)
   -m, --model STR        Model name override (e.g. gpt-4o-mini, llama3.2, claude-sonnet-4)
   -b, --api-base URL     Custom API base URL for OpenAI-compatible providers
@@ -505,7 +503,7 @@ does not exist is rejected with an error rather than silently ignored.
 | `VITRO_MAX_RETRIES` | No | `3` | Max retry attempts for LLM API calls (configurable via ``[_global]`` in config file) |
 | `VITRO_MAX_ITERATIONS` | No | `100` | Max tool-calling iterations per request before the agent stops to avoid endless loops. Set in `[agent]` section of config file. |
 | `VITRO_MAX_HISTORY_TOKENS` | No | `12000` | Approximate token budget for the message history replayed to the model each turn. The transcript is trimmed/pruned before every call so verbose tool outputs aren't replayed verbatim and per-turn input stays bounded. Set in `[agent]` section of config file. |
-| `VITRO_TEMPERATURE` | No | `0` | Sampling temperature, applied identically to both providers and both build arms. A non-numeric value fails loudly rather than resolving to `0`. Never sent to a reasoning model. |
+| `VITRO_TEMPERATURE` | No | `0` | Sampling temperature, applied identically to both providers and both model tiers. A non-numeric value fails loudly rather than resolving to `0`. Never sent to a reasoning model. |
 | `VITRO_REQUEST_TIMEOUT` | No | `600` | Per-request wall-clock timeout (seconds) for the chat model. A non-positive or unparseable value falls back to the default — the model is never built without a finite timeout. |
 | `VITRO_NO_STREAM` | No | — (off) | `1`/`true`/`yes`/`on` forces response streaming off everywhere. |
 | `VITRO_TIMEZONE` | No | `Europe/Amsterdam` | IANA timezone name for timestamps (config file `[display] timezone` is the fallback). An unknown name falls back to UTC. |

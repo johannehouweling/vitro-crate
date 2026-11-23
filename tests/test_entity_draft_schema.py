@@ -119,7 +119,7 @@ def test_technical_replicate_is_advertised():
 
     `_build_process` does `f.get("technical_replicate", "1")`, but the key was
     absent from the advertised scalars — so `Technical replicate = "1"` was
-    unfillable through the advertised vocabulary on BOTH arms.
+    unfillable through the advertised vocabulary.
     """
     assert "technical_replicate" in ENTITY_DRAFT_SCHEMA["LabProcess"].scalar_fields
 
@@ -129,7 +129,7 @@ def test_labprocess_parameter_fields_are_all_advertised():
 
     Non-tautological: both sides are read from the module, so this can only fail
     if someone hand-writes the constant instead of deriving it — which is exactly
-    how the two arms would drift apart again.
+    how the constant and the vocabulary would drift apart again.
     """
     from builder.tools._crate_mapping import LABPROCESS_PARAMETER_FIELDS
 

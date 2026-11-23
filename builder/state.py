@@ -458,7 +458,8 @@ class GeneratorInfo:
         model: Effective orchestrator model name.
         drafter_model: Effective drafter model, when it differs.
         api_host: HOSTNAME of a custom API base, or None for the vendor default.
-        architecture: Which build path ran ("react" / "pipeline").
+        architecture: Which build ran ("react", the ReAct loop), or None for a crate
+            exported from tool calls alone.
         settings: Extra allowlisted, stringified run settings.
     """
 
@@ -1370,7 +1371,7 @@ class CrateState:
 
     # Discovered, ranked scientific documentation (SOPs, protocols, publications,
     # metadata files, data dictionaries, etc.) — populated by the engine after
-    # file scanning, consumed by both the ReAct brief and the pipeline context.
+    # file scanning, consumed by the ReAct brief.
     # Stored as a list of dicts to keep CrateState JSON-serializable without
     # importing the document_discovery module at load time.
     documents: list[dict[str, Any]] = field(default_factory=list)
@@ -1397,6 +1398,9 @@ class CrateState:
     # asked who owns the dataset three times and was answered twice. State is
     # the durable half of the session, so answers belong here.
     user_answers: list[dict[str, str]] = field(default_factory=list)
+    # Questions the agent asked when nobody could answer (an unattended run),
+    # kept so a later interactive session can put them to a person.
+    unanswered_questions: list[str] = field(default_factory=list)
 
     # The DSM verdicts for the deposit AS RECEIVED — the published sheet's
     # The depositor's answers to the DSM indicators no crate can evidence — the twenty
@@ -1506,6 +1510,20 @@ class CrateState:
         self.user_answers = [item for item in self.user_answers if item.get("question") != q]
         self.user_answers.append({"question": q, "answer": a})
         del self.user_answers[:-limit]
+        self.unanswered_questions = [item for item in self.unanswered_questions if item != q]
+
+    def record_unanswered_question(self, question: str, *, limit: int = 20) -> None:
+        """Keep a question nobody could answer, for a person to answer later.
+
+        Asked again, it is kept once; bounded to the most recent *limit*, like
+        the answers. An answer given later (:meth:`record_user_answer`) closes it.
+        """
+        q = " ".join(str(question).split())[:300]
+        if not q:
+            return
+        self.unanswered_questions = [item for item in self.unanswered_questions if item != q]
+        self.unanswered_questions.append(q)
+        del self.unanswered_questions[:-limit]
 
     def stamp_generator(self) -> GeneratorInfo:
         """Finalise the generator record for export: identity, timing, cost.
@@ -1525,7 +1543,7 @@ class CrateState:
         temperature that a Responses-API reasoning model never receives must not
         appear here (#769). ``max_history_tokens`` is on the same footing: only
         the ReAct loop trims history against it, so it is recorded only for a run
-        known to be ReAct rather than naming a budget a pipeline run never read.
+        known to be the loop rather than naming a budget a tool-call export never read.
         """
         prior = self.generator
         arm = prior.architecture
@@ -1739,8 +1757,8 @@ def _migrate_documents(documents: list[Any]) -> list[Any]:
     Document discovery labelled each candidate ``role``; it now answers with the
     one file ``classification``. ``--resume`` bypasses ``initialize()``, so
     discovery never re-runs and the saved dicts are what the readers see for the
-    rest of the session — and one reader is not cosmetic: the ReAct gap engine
-    counts assay folders by the documents classified ``metadata`` or
+    rest of the session — and one reader is not cosmetic: the ReAct loop's
+    ``open_items`` counts assay folders by the documents classified ``metadata`` or
     ``protocol``, so an old session produced none and the "N assay folders, M
     Assays" item stopped appearing.
 
@@ -1829,6 +1847,7 @@ class StateSerializer:
             "checkpoint": cls._encode(state.checkpoint),
             "validation_preferences": dict(state.validation_preferences),
             "user_answers": [dict(a) for a in state.user_answers],
+            "unanswered_questions": list(state.unanswered_questions),
             "dsm_answers": dict(state.dsm_answers),
             "deposit_structure": state.deposit_structure,
             "iteration_count": state.iteration_count,
@@ -1887,6 +1906,9 @@ class StateSerializer:
                 {"question": str(a.get("question", "")), "answer": str(a.get("answer", ""))}
                 for a in (data.get("user_answers") or [])
                 if isinstance(a, dict)
+            ],
+            unanswered_questions=[
+                str(q) for q in (data.get("unanswered_questions") or []) if str(q).strip()
             ],
             # bool only: a hand-edited session must not smuggle "yes" in as a pass.
             dsm_answers={

@@ -214,9 +214,7 @@ class TestResolveCompoundHappyPath:
 class TestResolveCompoundDtxsid:
     """resolve_compound enriches the MolecularEntity with its EPA DTXSID (#179).
 
-    DTXSID is a first-class ISA-Tox chemical identifier that the deterministic
-    pipeline previously never produced — ``lookup_dtxsid`` had NO pipeline caller
-    (it was reachable only from the ReAct loop). resolve_compound now does
+    DTXSID is a first-class ISA-Tox chemical identifier, so resolve_compound does
     a best-effort CompTox lookup after the primary resolution and stores the
     DTXSID on the entity, so the build's identifier-PV path emits it alongside
     CAS + PubChem CID. D5-safe: the value comes straight from CompTox (the
@@ -239,7 +237,7 @@ class TestResolveCompoundDtxsid:
         assert mol.fields.get("dtxsid") == "DTXSID7020182"
         # Queried by the strongest exact key available — the looked-up CAS.
         assert seen and seen[0] == "33889-69-9"
-        # Surfaced in the return for pipeline provenance/logging.
+        # Surfaced in the return for provenance/logging.
         assert result["identifiers"].get("dtxsid") == "DTXSID7020182"
 
     def test_dtxsid_miss_leaves_no_field(self, offline_lookup, monkeypatch):

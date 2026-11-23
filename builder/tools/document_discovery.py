@@ -1,8 +1,8 @@
 """Deterministic, bounded discovery of scientific documentation.
 
-Discovery is deliberately independent of either agent architecture.  It uses
-the scanner inventory, reads only small previews inside approved roots, and
-returns ranked evidence for ReAct and the deterministic pipeline to consume.
+Discovery is deliberately independent of the agent.  It uses the scanner
+inventory, reads only small previews inside approved roots, and returns ranked
+evidence for the ReAct loop to consume.
 Filenames are signals, never requirements.
 """
 
@@ -24,15 +24,14 @@ _DOCUMENT_SUFFIXES = {
 }
 _TEXT_MIMES = ("text/", "application/json", "application/xml", "application/pdf")
 # How many ranked candidates the agent is told exist. The cap belongs HERE and
-# nowhere else: both arms used to slice `documents[:20]` on their way to the
-# model, silently halving it and throwing away the allocation #595 had just made
-# across the four classes (#675).
+# nowhere else: a `documents[:20]` slice on the way to the model once halved it
+# and threw away the allocation #595 makes across the four classes (#675).
 MAX_DOCUMENT_CANDIDATES = 40
 
 _MAX_PREVIEW_CHARS = 3_000
-_MAX_CONTEXT_CHARS = 18_000
 _JOINER = "\n\n"
 _TRUNCATED = " […]"
+
 
 @dataclass
 class DocumentationCandidate:
@@ -219,8 +218,8 @@ def _tabular_signals(preview: str) -> tuple[list[str], float]:
 #
 # What a file IS, in four values, answered once for every scanned file and read
 # by everything downstream. It replaces four competing vocabularies — a
-# discovery `role`, the pipeline plan's raw/processed/condition_table, the
-# spine's raw_data/processed_data, and the process chain's raw/processed folder
+# discovery `role`, a build plan's raw/processed/condition_table, the
+# build's raw_data/processed_data, and the process chain's raw/processed folder
 # tier — which disagreed because two of them labelled FORM ("this is a table")
 # and two labelled FUNCTION ("this is metadata"), so a tabular metadata workbook
 # could only be one and lost the other.
@@ -350,8 +349,8 @@ def looks_like_publication(filename: str) -> bool:
     """Whether *filename* reads as a journal article.
 
     Publications classify as ``metadata`` — they describe the study rather than
-    measure it — so the class alone cannot tell the ReAct gap engine that an
-    article was deposited and never recorded. This names that signal once,
+    measure it — so the class alone cannot tell the ReAct loop's ``open_items``
+    that an article was deposited and never recorded. This names that signal once,
     beside the classification that consumes it.
 
     The NAME only, deliberately. Contents mention these words without being an
@@ -731,7 +730,6 @@ def discover_documents(
     input_root: str,
     approved_roots: set[str],
     max_candidates: int = MAX_DOCUMENT_CANDIDATES,
-    max_context_chars: int = _MAX_CONTEXT_CHARS,
     previews: dict[str, str] | None = None,
 ) -> list[DocumentationCandidate]:
     """Screen and rank readable scientific documentation deterministically.
@@ -861,28 +859,6 @@ def _allocate_slots(
     return chosen
 
 
-def _context_body(candidate: DocumentationCandidate) -> str:
-    """What a file contributes to the model's context.
-
-    Descriptive files contribute their text: the model is deciding what the
-    STUDY is, and prose is where that is written. A data table contributes only
-    its shape — the header and how many rows sit under it — because its rows are
-    for the deterministic readers, not for a language model. Measured on the
-    S-VHPS22 fixture, one CSV preview took 3080 characters, a quarter of the
-    whole budget, to say what its header says in one line; the protocols that
-    describe how the experiment was run were then cut for lack of room.
-
-    The file is still ranked, still named, and still says what it holds, so the
-    agent can read it deliberately when it needs the values.
-    """
-    if candidate.kind != KIND_TABULAR:
-        return candidate.preview.strip() or "(preview unavailable; read this file if relevant)"
-    rows, cols, header = _table_shape(candidate.preview)
-    columns = " ".join(header.split())[:300]
-    shape = f"{rows} row(s) x {cols} column(s)" if rows or cols else "shape unread"
-    return f"(data table — {shape}" + (f"; columns: {columns})" if columns else ")")
-
-
 def _fair_shares(needs: list[int], budget: int) -> list[int]:
     """Split *budget* over *needs* so no one entry can crowd out the others.
 
@@ -909,25 +885,6 @@ def _fair_shares(needs: list[int], budget: int) -> list[int]:
     return shares
 
 
-# How many folders the shape lists before it elides the rest. A pathological
-# deposit must not spend the context describing itself, and what is left out is
-# stated rather than trailing off — the same rule the candidate cap follows
-# (#587).
-_MAX_SHAPE_FOLDERS = 10
-
-# What everything OUTSIDE the listed folders is called. That is the files at the
-# branch point and the files above it — a deposit keeps its descriptor at the
-# root, which is above the trunk the listing descends to, and dropping it lost
-# the one file that states the study's own identity. The rows must sum to the
-# total, or the shape is a picture of a different deposit.
-_OUTSIDE_THE_FOLDERS = "(top level)"
-
-# A tree needs at least this many branches to say anything the class census has
-# not. The trimmed fixtures are a single chain of directories, and #599 is
-# explicit that a census must never be longer than the file list it summarises.
-_MIN_SHAPE_BRANCHES = 2
-
-
 def _class_tally(files: Sequence[FileClassification]) -> str:
     """``1358 raw data, 74 processed data, 22 metadata, 14 protocol``, biggest first."""
     counts = Counter(f.classification or CLASS_RAW_DATA for f in files)
@@ -935,150 +892,3 @@ def _class_tally(files: Sequence[FileClassification]) -> str:
         f"{n} {name.replace('_data_file', ' data').replace('_', ' ').strip()}"
         for name, n in counts.most_common()
     )
-
-
-def _branch_point(relatives: Sequence[str]) -> PurePosixPath:
-    """The directory where the deposit actually branches.
-
-    A submission is routinely one folder deep before anything differs —
-    svhps22 puts all 1468 files under `study_01_TH-DNT_Tier1_NeuralCellLines/`,
-    so listing the top level reports one folder holding everything and tells the
-    agent nothing. Descend while there is exactly one child DIRECTORY, whatever
-    files sit beside it (a deposit keeps its descriptor at the root).
-    """
-    prefix = PurePosixPath()
-    while True:
-        children = {
-            rest.parts[0]
-            for relative in relatives
-            if (rest := _below(prefix, relative)) is not None and len(rest.parts) > 1
-        }
-        if len(children) != 1:
-            return prefix
-        prefix = prefix / next(iter(children))
-
-
-def _below(prefix: PurePosixPath, relative: str) -> PurePosixPath | None:
-    """*relative* re-rooted at *prefix*, or ``None`` when it does not live there."""
-    path = PurePosixPath(str(relative).replace("\\", "/"))
-    try:
-        return path.relative_to(prefix)
-    except ValueError:
-        return None
-
-
-def summarise_deposit(
-    files: Sequence[FileClassification], *, input_root: str, max_folders: int = _MAX_SHAPE_FOLDERS
-) -> str:
-    """The deposit's shape: what it holds, and how its folders are weighted (#599).
-
-    The ranking shows a bounded sample and used to say only "1428 not surfaced" —
-    a bare number, from which a deposit whose tail is 1352 instrument printouts
-    reads exactly like one hiding 16 unread protocols. Every scanned file has
-    carried a classification since #591, so the census is free and complete; it
-    was simply discarded in favour of the count.
-
-    The folder tree is listed from :func:`_branch_point` and bounded to
-    *max_folders*, with the remainder stated. It is omitted entirely when the
-    deposit does not branch — a tree of one limb repeats the tally above it.
-    """
-    if not files:
-        return ""
-    relatives = [_relative(f.path, input_root).replace("\\", "/") for f in files]
-    by_relative = dict(zip(relatives, files))
-    header = f"Deposit: {len(files)} file{'s' if len(files) != 1 else ''} — {_class_tally(files)}."
-
-    prefix = _branch_point(relatives)
-    groups: dict[str, list[FileClassification]] = {}
-    for relative in relatives:
-        rest = _below(prefix, relative)
-        key = (
-            rest.parts[0] + "/"
-            if rest is not None and len(rest.parts) > 1
-            else _OUTSIDE_THE_FOLDERS
-        )
-        groups.setdefault(key, []).append(by_relative[relative])
-    if len(groups) < _MIN_SHAPE_BRANCHES:
-        return header
-
-    ordered = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    lines = [f"Shape ({prefix}/):" if str(prefix) != "." else "Shape:"]
-    for name, members in ordered[:max_folders]:
-        lines.append(f"  {name:<44.44s} {len(members):5d} — {_class_tally(members)}")
-    if (rest_folders := ordered[max_folders:]) :
-        hidden = sum(len(members) for _, members in rest_folders)
-        lines.append(f"  + {len(rest_folders)} more folders, {hidden} files")
-    return header + "\n" + "\n".join(lines)
-
-
-def format_document_context(
-    candidates: list[DocumentationCandidate],
-    *,
-    max_chars: int = _MAX_CONTEXT_CHARS,
-    total_scanned: int | None = None,
-    deposit: Sequence[FileClassification] | None = None,
-    input_root: str = "",
-) -> str:
-    """Format ranked candidates as bounded, kind-labelled agent context.
-
-    When *total_scanned* is given and the ranking showed fewer files than were
-    scanned, the context says so. A silent cap reads as "this is everything" —
-    the same reason the maturity report names the findings it hid rather than
-    trailing off (#587).
-
-    Given the whole *deposit* inventory, the context LEADS with its shape
-    (:func:`summarise_deposit`) and breaks the hidden tail down by class rather
-    than reporting a bare count (#599). The sample is only meaningful against
-    what it is a sample OF: 40 files of 1468 is 2.7% of a submission whose
-    remaining 1428 could be all instrument printouts or could hide sixteen
-    unread protocols, and "1428 not surfaced" cannot tell those apart.
-
-    The shape is charged to the same budget as the entries, and taken off the
-    top: it is bounded by construction (:data:`_MAX_SHAPE_FOLDERS`), so it
-    cannot crowd out the documents it exists to introduce — the failure
-    :func:`_fair_shares` prevents one layer down.
-    """
-    shape = summarise_deposit(deposit, input_root=input_root) if deposit else ""
-    if shape:
-        max_chars = max(0, max_chars - len(shape) - len(_JOINER))
-    if total_scanned is None and deposit is not None:
-        total_scanned = len(deposit)
-    headers = [f"[{c.kind}/{c.classification}] {c.relative_path}\n" for c in candidates]
-    bodies = [_context_body(c) for c in candidates]
-    blocks = [header + body for header, body in zip(headers, bodies)]
-    # Each block's share has to cover the separator that follows it, or the
-    # emitted total overruns the ceiling by two characters per candidate.
-    needs = [len(block) + len(_JOINER) for block in blocks]
-    parts: list[str] = []
-    shares = _fair_shares(needs, max_chars)
-    for header, body, block, allowed in zip(headers, bodies, blocks, shares):
-        room = allowed - len(_JOINER)
-        if room >= len(block):
-            parts.append(block)
-        # Only the BODY is truncated, and only once the header is paid for in
-        # full. An equal share of a small enough budget otherwise lands inside
-        # the header, and the listing becomes a column of `[nar […]` naming
-        # nothing — twenty entries worse than the rank-order spend this replaced,
-        # which at least bought one readable one. The agent cannot read a file it
-        # was not told the name of, so a block that cannot carry its own header
-        # is not written and its share goes to the candidates that can use it.
-        elif room >= len(header) + len(_TRUNCATED):
-            kept = body[: room - len(header) - len(_TRUNCATED)].rstrip()
-            parts.append(header + kept + _TRUNCATED)
-    context = _JOINER.join(parts)
-    if shape:
-        context = shape + _JOINER + context
-    if total_scanned is not None and total_scanned > len(candidates):
-        hidden = total_scanned - len(candidates)
-        # Broken down by class where the inventory is in hand: a tail that is
-        # all instrument output is not worth opening, and one holding unread
-        # protocols is, and a bare count says neither (#599).
-        named = {c.path for c in candidates}
-        rest = [f for f in deposit if f.path not in named] if deposit else []
-        breakdown = f": {_class_tally(rest)}" if rest else ""
-        context += (
-            f"\n\n({len(candidates)} of {total_scanned} scanned files shown; "
-            f"{hidden} not surfaced{breakdown} — read any of them directly if "
-            "this list does not cover what you need.)"
-        )
-    return context

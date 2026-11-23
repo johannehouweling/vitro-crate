@@ -40,7 +40,7 @@ _READOUT_FIELDS = (
 
 
 def _assay_with_chain(state: CrateState, *steps: str):
-    """An Assay with a process chain, in the order the pipeline builds it."""
+    """An Assay with a process chain, in the order a build drafts it."""
     investigation = draft_investigation(state, {"name": "Investigation"})
     study = draft_study(state, investigation.entity_id, {"name": "Thyroid study"})
     assay = draft_assay(state, study.entity_id, {"name": "Deiodinase activity assay"})

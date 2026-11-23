@@ -575,8 +575,8 @@ class TestLiveRefresh:
 class TestFormatMitCoverage:
     """format_mit_coverage() — the shared MIT-tile formatter (issue #355).
 
-    One source of truth for the dashboard panel and the interactive UI so both
-    build arms render MIT coverage identically. ``overall_score`` is a 0.0-1.0
+    One source of truth for the dashboard panel and the interactive UI so the
+    two render MIT coverage identically. ``overall_score`` is a 0.0-1.0
     fraction; the formatter returns ``(text, rich_color)``.
     """
 

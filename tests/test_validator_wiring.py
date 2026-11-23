@@ -21,7 +21,7 @@ from profiles.validator import SHAPES_DIR, validate_crate
 # slower still, so it does not fit the CI-wide `--timeout=30`. That, not any
 # network access, is why it was excluded from CI; the headroom brings it back.
 # Same budget every other SHACL/export-heavy module takes (test_export_smoke,
-# test_readers, test_pipeline_e2e, test_csvw_payload, …).
+# test_readers, test_csvw_payload, …).
 pytestmark = pytest.mark.timeout(120)
 
 

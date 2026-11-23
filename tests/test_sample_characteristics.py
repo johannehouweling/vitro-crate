@@ -3,7 +3,7 @@
 The specification lists them (Sample - Source Cells): the supplier, the catalogue
 and lot number of commercially sourced material, and the donor of primary cells.
 A crate kept such a value only as a bare PropertyValue named after its field,
-with no term saying what it is, and neither build arm was told it could state one.
+with no term saying what it is, and the build was not told it could state one.
 """
 
 from __future__ import annotations

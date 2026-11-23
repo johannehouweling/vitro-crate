@@ -1,14 +1,14 @@
 """Tests for builder/agents/progress_spinner.py — the shared build spinner (#266, #344).
 
-The DEFAULT ``--interactive`` (deterministic pipeline) build only printed static
-phase lines (#253), so the ~tens-of-seconds spine looked frozen. :class:`ProgressSpinner`
-gives it a live Rich spinner: an animated dots spinner with a rotating funny
-toxicology-themed phrase, the currently running tool/phase, and elapsed seconds,
-updating in place. Both build arms drive this one spinner (#344) — the pipeline from
-``engine.on_tool_event``, the ReAct loop from LangChain tool-event callbacks.
+Static phase lines (#253) look frozen through a step that runs for tens of
+seconds. :class:`ProgressSpinner` gives the build a live Rich spinner: an animated
+dots spinner with a rotating funny toxicology-themed phrase, the currently running
+tool/phase, and elapsed seconds, updating in place. The build has this one spinner
+(#344) — the ReAct loop drives it from LangChain tool-event callbacks, its finish
+backstop from ``engine.on_tool_event``.
 
 The spinner registers itself as the active console animation (``register_console_animation``)
-so a guidance HITL prompt (which calls ``suspend_console_animation``) can pause it and
+so a HITL prompt (which calls ``suspend_console_animation``) can pause it and
 own the terminal. These tests use a fake console/status (no real terminal).
 """
 

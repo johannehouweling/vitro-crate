@@ -294,7 +294,7 @@ class TestHeaderAndCards:
         return state
 
     def test_a_named_root_headlines_over_an_empty_state(self) -> None:
-        """The pipeline never writes ``state.metadata``; the crate's root carries
+        """``state.metadata`` may be empty; the crate's root carries
         the name and the identifier, and the writer is handed that graph (#719).
         The name headlines and the tab; the identifier sits in the study card."""
         graph = {"@graph": [

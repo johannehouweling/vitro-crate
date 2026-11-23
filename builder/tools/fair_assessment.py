@@ -1067,8 +1067,8 @@ def _check_study_summary(state: CrateState, graph: Graph = None) -> Verdict | No
     however good the investigation's abstract.
 
     The old check was ``bool(state.metadata.title and state.metadata.description)``.
-    ``state.metadata.title`` is ``None`` on 29 of 32 real sessions because the pipeline
-    never writes it, while the assembled root has carried a real abstract all along —
+    ``state.metadata.title`` is ``None`` on 29 of 32 real sessions, while the
+    assembled root has carried a real abstract all along —
     the #535 defect, an instrument pointed at the wrong object.
 
     **What the first limb actually tests, stated plainly.** It is string inequality and

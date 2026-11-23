@@ -81,7 +81,7 @@ timeout_method = "thread"
 # signal — line coverage does not measure it (a fully-covered suite can kill a
 # fraction of injected bugs). Seeded on a small, fast-tested module so the nightly
 # job (.github/workflows/mutation.yml) is tractable; expand `source_paths` to the
-# crate-build producer modules (builder/agents/pipeline/pipeline.py,
+# crate-build producer modules (builder/tools/composites.py,
 # builder/tools/_crate_mapping.py, builder/tools/validation.py) with a curated fast
 # test subset as the CI budget allows. See CONTRIBUTING.md "Mutation testing".
 source_paths = ["builder/tools/profiler.py"]

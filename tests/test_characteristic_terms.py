@@ -525,54 +525,6 @@ class TestATermIsNeverTakenFromProse:
         assert field not in drafter_visible_fields("CellLineSample")
 
 
-class TestThePipeline:
-    def _engine(self, monkeypatch, provider: str | None):
-        import builder.agents.pipeline.pipeline as pipeline_mod
-        from builder.engine import AgentEngine
-        from builder.tools.hitl import SimulatedHumanInterface
-
-        monkeypatch.setattr(pipeline_mod, "get_provider", lambda: provider)
-        monkeypatch.setattr(pipeline_mod, "extract_plan", lambda *a, **k: None)
-        monkeypatch.setattr(pipeline_mod, "draft_entity_fields", lambda *a, **k: {})
-        state = CrateState()
-        state.metadata.title = "Thyroid hormone transport in brain cells"
-        _source(state, organ="Brain")
-        engine = AgentEngine(state=state, human_interface=SimulatedHumanInterface())
-        engine.initialize()
-        return engine
-
-    @pytest.mark.timeout(600)
-    def test_the_spine_looks_the_terms_up_before_it_validates(self, monkeypatch) -> None:
-        from builder.agents.pipeline.pipeline import run_pipeline
-
-        asked = _known(monkeypatch, {("brain", "uberon"): BRAIN})
-        engine = self._engine(monkeypatch, "openai")
-        run_pipeline(engine)
-        assert asked == [("Brain", "uberon")]
-        (cells,) = engine.state.list_entities("CellLineSample")
-        assert cells.fields["organ_term"] == _for(BRAIN, "Brain")
-
-    @pytest.mark.timeout(600)
-    def test_the_spine_without_a_provider_asks_nothing(self, monkeypatch) -> None:
-        from builder.agents.pipeline.pipeline import run_pipeline
-
-        asked = _known(monkeypatch, {("brain", "uberon"): BRAIN})
-        engine = self._engine(monkeypatch, None)
-        run_pipeline(engine)
-        assert asked == []
-
-    @pytest.mark.timeout(600)
-    def test_a_failing_term_lookup_does_not_break_the_spine(self, monkeypatch) -> None:
-        from builder.agents.pipeline.pipeline import run_pipeline
-
-        def broken(label: str, ontology: str) -> dict[str, Any]:
-            raise RuntimeError("the term service fell over")
-
-        engine = self._engine(monkeypatch, "openai")
-        monkeypatch.setattr(composites, "lookup_exact_term", broken)
-        assert "ok" in run_pipeline(engine)
-
-
 class _SilentHuman:
     """Answers nothing: every question is skipped."""
 
@@ -583,22 +535,6 @@ class _SilentHuman:
 
     def request_input(self, prompt: str, field_type: str = "text") -> InputResponse:
         return {"value": None, "skipped": True}
-
-
-@pytest.mark.timeout(600)
-def test_the_question_round_ends_by_looking_the_terms_up(monkeypatch) -> None:
-    """What a person answers there is stated after the spine asked, so the round asks again."""
-    from builder.agents.pipeline.guidance import run_guidance
-    from builder.engine import AgentEngine
-
-    asked = _known(monkeypatch, {("brain", "uberon"): BRAIN})
-    state = CrateState()
-    state.metadata.title = "Thyroid hormone transport in brain cells"
-    cells = _source(state, organ="Brain")
-    human = _SilentHuman()
-    run_guidance(AgentEngine(state=state, human_interface=human), human, max_rounds=2)
-    assert asked == [("Brain", "uberon")]
-    assert cells.fields["organ_term"] == _for(BRAIN, "Brain")
 
 
 def test_the_agent_can_ask_for_the_terms_itself() -> None:

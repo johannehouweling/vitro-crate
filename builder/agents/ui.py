@@ -1,10 +1,9 @@
-"""Shared interactive terminal UI for both build arms (pipeline + ReAct).
+"""Shared interactive terminal UI for the build.
 
 Single source of truth for the interactive chrome — the shared Rich
 ``Console``, the one-line status bar, agent-reply rendering, the resume
-summary and goodbye panels, and the boxed ``❯`` prompt — so the
-deterministic pipeline and the ReAct arm render *identically*.
-Both arms import from here; neither keeps a private copy (harmonization,
+summary and goodbye panels, and the boxed ``❯`` prompt. The ReAct loop and
+``main.py`` import from here; neither keeps a private copy (harmonization,
 GitHub #344).
 
 Design contract:
@@ -15,7 +14,7 @@ Design contract:
 * :func:`snapshot_from_engine` is the single impure adapter: it reads engine
   state and, best-effort, ``profile.ndjson`` for cumulative token/cost totals.
 * This module imports ``rich`` / ``prompt_toolkit`` / ``builder.pricing`` /
-  ``builder.config`` and **neither build arm** — depending on an arm here
+  ``builder.config`` and **never the ReAct loop** — depending on the loop here
   would create an ``agents → agents`` import cycle. ``engine`` is duck-typed
   through :func:`snapshot_from_engine`'s parameter, never imported.
 """
@@ -68,7 +67,7 @@ _console: Console | None = None
 def get_console() -> Console:
     """Return the process-wide shared Rich :class:`Console` (memoized).
 
-    Both arms render through one console so styling, width, and the
+    The build renders through one console so styling, width, and the
     console-animation registry stay consistent.
     """
     global _console
@@ -203,12 +202,10 @@ class UiSnapshot:
     """A flat, render-ready view of session state.
 
     Decoupling the renderers from the live engine keeps them pure and
-    unit-testable. Token/cost comes from ONE source in both arms:
+    unit-testable. Token/cost comes from ONE source:
     :func:`snapshot_from_engine` reads the session's ``profile.ndjson`` and
-    nothing else. (It never reads the pipeline's returned ``usage`` dict — an
-    earlier version of this docstring claimed it did, which is what made it easy
-    to believe the pipeline's guidance tail was accounted when its calls simply
-    never reached the profile, #384.)
+    nothing else, so a model call that never reaches the profile is not counted
+    (#384).
     """
 
     session_id: str
@@ -722,7 +719,7 @@ def render_reply(content: Any) -> RenderableType:
     Accepts raw message ``content`` (str or content-block list) and flattens
     it first, so structured replies never leak (#341). Lighter than a
     full-width panel; continuation lines align under the marker. Includes the
-    surrounding blank lines so both arms space replies identically.
+    surrounding blank lines so every reply is spaced identically.
     """
     text = flatten_message_content(content)
     try:
@@ -1259,7 +1256,7 @@ class TransientReplies:
 
 
 def make_status_footer(engine: AgentEngine, console: Console | None = None) -> PinnedFooter:
-    """A :class:`PinnedFooter` showing *engine*'s live status line (both arms).
+    """A :class:`PinnedFooter` showing *engine*'s live status line.
 
     The provider re-snapshots the engine on every repaint, so entity counts,
     validation dots, tokens and cost track the run without any call site having
@@ -1280,19 +1277,18 @@ def make_status_footer(engine: AgentEngine, console: Console | None = None) -> P
 
 # ---------------------------------------------------------------------------
 # Print-for-engine helpers — the ONE place "snapshot → render → print to the
-# shared console" lives, so both build arms call the same code instead of each
-# inlining its own copy (#344). The pure render_* above stay unit-testable; these
-# thin impure wrappers are what the ReAct loop and the pipeline both invoke.
+# shared console" lives, so no call site inlines its own copy (#344). The pure
+# render_* above stay unit-testable; these thin impure wrappers are what the
+# ReAct loop invokes.
 # ---------------------------------------------------------------------------
 
 
 def print_status_bar(engine: AgentEngine, footer: PinnedFooter | None = None) -> None:
-    """Print the one-line status bar for *engine*'s current state (both arms).
+    """Print the one-line status bar for *engine*'s current state.
 
-    The per-prompt status line the ReAct loop shows before every input and the
-    pipeline shows before every guidance question. ``engine.state.validation`` is
-    authoritative by the time either arm calls this (the pipeline's final
-    ``build_and_validate`` runs via ``engine.run_tool``, whose #153 write-back
+    The per-prompt status line the ReAct loop shows before every input.
+    ``engine.state.validation`` is authoritative by the time the loop calls this
+    (``build_and_validate`` runs via ``engine.run_tool``, whose #153 write-back
     folds conformance into state), so the base/ISA/Tox dots read real values.
 
     When an active *footer* is passed, the same information is already pinned to
@@ -1306,7 +1302,7 @@ def print_status_bar(engine: AgentEngine, footer: PinnedFooter | None = None) ->
 
 
 def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
-    """Print the session summary panel when there is anything to show (both arms).
+    """Print the session summary panel when there is anything to show.
 
     On an empty session (no entities, no scanned files) there is no panel to draw,
     so it degrades to a one-line ``session <id> · model <model>`` header — the
@@ -1335,12 +1331,12 @@ def print_resume_summary(engine: AgentEngine, *, resumed: bool) -> None:
 
 
 def print_goodbye(engine: AgentEngine, *, resumable: bool | None = None) -> None:
-    """Print the goodbye panel for *engine*'s session, with breathing room (both arms).
+    """Print the goodbye panel for *engine*'s session, with breathing room.
 
     Args:
         engine: The engine whose ``state`` (session id + entity breakdown) is shown.
         resumable: Whether to include the ``--resume`` hint. Defaults to *None* →
-            shown when a ``sessions/`` directory exists (the check both arms used);
+            shown when a ``sessions/`` directory exists;
             pass an explicit bool to override.
     """
     if resumable is None:
@@ -1699,199 +1695,3 @@ def select_option(
     return int(chosen)
 
 
-def select_options(
-    console: Console,
-    options: list[str],
-    *,
-    hint: str | None = None,
-    on_render: Callable[[], None] | None = None,
-) -> list[int] | None:
-    """Choose ANY NUMBER of *options*; return their indices (``None`` = cancel).
-
-    The many-of-N sibling of :func:`select_option`, for questions whose honest
-    answer is several of the choices at once — "which entities are affiliated
-    with this organization?" is not a one-of-N question, and asking it as one
-    forces a wrong answer or none at all.
-
-    Space toggles the highlighted row, Enter confirms the whole set, and ``a``
-    toggles everything. Confirming with nothing ticked is a valid answer: it
-    means "none of these", which is different from cancelling.
-
-    Same fallback ladder as :func:`select_option` — a non-TTY stdin or a missing
-    ``prompt_toolkit`` degrades to a numbered list read through ``input()``,
-    accepting comma- or space-separated numbers, so piped and CI runs work.
-    """
-    if not options:
-        return None
-
-    def _fallback() -> list[int] | None:
-        if hint:
-            console.print(f"[bold]{hint}[/bold]")
-        for index, option in enumerate(options, start=1):
-            console.print(f"   [cyan]{index}[/cyan]. {option}")
-        try:
-            raw = console.input(
-                f"[bold cyan]Select[/bold cyan] [dim][1-{len(options)}, "
-                f"comma-separated; Enter = none][/dim] "
-            )
-        except EOFError:
-            return None
-        picked: list[int] = []
-        for token in raw.replace(",", " ").split():
-            if token.isdigit() and 1 <= int(token) <= len(options):
-                position = int(token) - 1
-                if position not in picked:
-                    picked.append(position)
-        return picked
-
-    if not sys.stdin.isatty():
-        return _fallback()
-    try:
-        from prompt_toolkit import Application
-        from prompt_toolkit.application.current import get_app
-        from prompt_toolkit.output import create_output
-
-        output = create_output()
-        if not getattr(output, "responds_to_cpr", True):
-            return _fallback()
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.layout import HSplit, Layout, Window
-        from prompt_toolkit.layout.controls import FormattedTextControl
-        from prompt_toolkit.styles import Style
-    except Exception:
-        return _fallback()
-
-    cursor = {"index": 0}
-    ticked: set[int] = set()
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _(event: Any) -> None:
-        cursor["index"] = (cursor["index"] - 1) % len(options)
-
-    @kb.add("down")
-    @kb.add("j")
-    def _(event: Any) -> None:
-        cursor["index"] = (cursor["index"] + 1) % len(options)
-
-    @kb.add("space")
-    def _(event: Any) -> None:
-        position = cursor["index"]
-        ticked.symmetric_difference_update({position})
-
-    @kb.add("a")
-    def _(event: Any) -> None:
-        if len(ticked) == len(options):
-            ticked.clear()
-        else:
-            ticked.update(range(len(options)))
-
-    @kb.add("enter")
-    def _(event: Any) -> None:
-        event.app.exit(result=sorted(ticked))
-
-    @kb.add("c-c")
-    @kb.add("escape", eager=True)
-    def _(event: Any) -> None:
-        event.app.exit(result=None)
-
-    for position in range(min(len(options), 9)):
-
-        @kb.add(str(position + 1))
-        def _(event: Any, position: int = position) -> None:
-            cursor["index"] = position
-            ticked.symmetric_difference_update({position})
-
-    def _hline(left: str, right: str):
-        def _get() -> list[tuple[str, str]]:
-            width = get_app().output.get_size().columns
-            return [("class:box", left + "─" * max(0, width - 2) + right)]
-
-        return _get
-
-    def _rows() -> list[tuple[str, str]]:
-        width = get_app().output.get_size().columns
-        inner = max(0, width - 4)
-        fragments: list[tuple[str, str]] = []
-        for index, option in enumerate(options):
-            focused = index == cursor["index"]
-            marker = "❯ " if focused else "  "
-            box = "[x]" if index in ticked else "[ ]"
-            body = f"{marker}{box} {index + 1}. {option}"[:inner].ljust(inner)
-            fragments.append(("class:box", "│ "))
-            fragments.append(("class:selected" if focused else "class:option", body))
-            fragments.append(("class:box", " │"))
-            fragments.append(("", "\n"))
-        return fragments
-
-    def _hint_row() -> list[tuple[str, str]]:
-        width = get_app().output.get_size().columns
-        inner = max(0, width - 4)
-        return [
-            ("class:box", "│ "),
-            ("class:hint", str(hint)[:inner].ljust(inner)),
-            ("class:box", " │"),
-        ]
-
-    header = [Window(FormattedTextControl(_hint_row), height=1)] if hint else []
-    root = HSplit(
-        [
-            Window(FormattedTextControl(_hline("╭", "╮")), height=1),
-            *header,
-            Window(FormattedTextControl(_rows), height=len(options)),
-            Window(FormattedTextControl(_hline("╰", "╯")), height=1),
-            Window(
-                FormattedTextControl(
-                    [
-                        (
-                            "class:help",
-                            "  ↑/↓ move · space toggle · a all · enter confirm · esc cancel",
-                        )
-                    ]
-                ),
-                height=1,
-            ),
-        ]
-    )
-    style = Style.from_dict(
-        {
-            "box": "fg:#5f5f5f",
-            "hint": "bold",
-            "option": "",
-            "selected": "bold ansicyan",
-            "help": "fg:#5f5f5f",
-        }
-    )
-
-    def _after_render(_app: Any) -> None:
-        if on_render is None:
-            return
-        try:
-            on_render()
-        except Exception:  # noqa: BLE001 — chrome must never break the prompt
-            logger.debug("select_options: on_render failed", exc_info=True)
-
-    app: Any = Application(
-        layout=Layout(root),
-        key_bindings=kb,
-        style=style,
-        full_screen=False,
-        output=output,
-        after_render=_after_render,
-        erase_when_done=True,
-    )
-    try:
-        chosen = app.run()
-    except Exception:
-        return _fallback()
-
-    if chosen is None:
-        return None
-    picked = [int(index) for index in chosen]
-    # The box was ephemeral — echo the set so the transcript records it.
-    console.print(
-        f"[bold cyan]❯[/bold cyan] {', '.join(options[i] for i in picked) if picked else 'none'}"
-    )
-    return picked

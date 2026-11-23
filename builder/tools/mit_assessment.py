@@ -31,9 +31,9 @@ from builder.state import CrateState, MITReport
 
 logger = logging.getLogger(__name__)
 
-# Path to the MIT YAML file. THE one constant (#357): `gap_analysis` imports it
-# rather than deriving its own, so the two readers can never point at different
-# checklists.
+# Path to the MIT YAML file. THE one constant (#357): a reader of the checklist
+# imports it rather than deriving its own, so no two readers can point at
+# different checklists.
 MIT_YAML_PATH = Path(__file__).resolve().parent.parent.parent / "mit" / "invitro_tox.yaml"
 
 # Where the checklist is defined. Every parameter in the YAML is one of the
@@ -142,9 +142,8 @@ _SLOT_TYPE_MATCH: dict[str, tuple[frozenset[str], frozenset[str] | None]] = {
 _SLOT_FIELD_ALIAS: dict[str, str] = {"param": "parameter"}
 
 # Values the BUILD synthesizes when the user supplied nothing. Crediting one
-# would be a false pass — and, since the gap engine shares this matcher (#377),
-# would silently stop the loop asking the user for the real value. Same class as
-# the deliberate refusal to alias `conditionsOfAccess` to the default `license`.
+# would be a false pass. Same class as the deliberate refusal to alias
+# `conditionsOfAccess` to the default `license`.
 def _placeholder_values() -> frozenset[str]:
     """The synthesized values, read from the constants the BUILD actually uses.
 
@@ -281,7 +280,7 @@ def _assemble_graph(state: CrateState) -> list[dict[str, Any]]:
     differences changed the score (#377): it skipped ``_apply_root_name`` (#272),
     leaving the root at the literal placeholder name that :func:`_placeholder_values`
     then refuses, and it took ``include_all_scanned``'s default of True, crediting
-    ``File:encodingFormat`` off scanned files the gap engine's document omits. One
+    ``File:encodingFormat`` off scanned files the validated document omits. One
     matcher over two differently-assembled documents is still two answers.
     """
     from builder.tools.builder import assemble_crate
@@ -340,16 +339,14 @@ def iter_scorable_params(
 
     THE single traversal of the checklist (#357): the walk over
     ``sections`` + top-level parameters, the dedup by id, and the skip rule all
-    live here, so the scorer (:func:`_score_modules`) and the gap engine
-    (``gap_analysis._mit_gaps``) cannot drift into disagreeing about which
-    parameters exist or how many there are.
+    live here, so no second reader can drift into disagreeing with the scorer
+    (:func:`_score_modules`) about which parameters exist or how many there are.
 
     A parameter is *scorable* when its ``crate_slot`` parses to at least one
     ``(EntityType, field)`` pair. A parameter with no parseable slot has nothing
     the matcher could ever match, so counting it in the denominator would mark it
-    permanently uncoverable and silently depress every score. The two callers
-    previously disagreed on exactly this: the scorer skipped such a parameter,
-    the gap engine counted it. The skip is live, not theoretical: checklist
+    permanently uncoverable and silently depress every score. The skip is live,
+    not theoretical: checklist
     parameters with no curated slot (the ``crate_slot`` key omitted entirely —
     43 of 220 at the time of writing; an explicit ``crate_slot: null`` parses
     the same) are excluded from every denominator.
@@ -487,27 +484,24 @@ def assess_mit_coverage(
 def scoring_graph(state: CrateState, graph: Any | None = None) -> Any | None:
     """The document to score *state* against: the caller's, else one built here.
 
-    The single place either MIT reader turns a "no graph" into something scorable
-    (#311), so the scorer and the gap engine cannot answer the same question two
-    ways. They used to agree on ``graph=None`` only because both were equally
-    wrong — the ``crate_slot`` vocabulary describes assembled nodes, so the
-    ``CrateState`` fallback scored 0.0 for every real crate. Teaching only the
-    scorer to assemble would have replaced that shared wrong answer with a
-    disagreement, which is worse: two numbers for one crate, and no way to tell
-    which the report meant.
+    The single place a "no graph" is turned into something scorable (#311), so
+    no two readers answer the same question two ways. The ``crate_slot``
+    vocabulary describes assembled nodes, so the ``CrateState`` fallback scored
+    0.0 for every real crate; teaching only one reader to assemble would have
+    replaced that wrong answer with a disagreement, which is worse: two numbers
+    for one crate, and no way to tell which the report meant.
 
     Returns ``None`` when the crate will not assemble. Callers decide what that
-    means for them — the scorer declines to state a number, the gap engine still
-    surfaces what it can from the degraded field match — but neither invents an
-    assembly that failed.
+    means for them — :func:`assess_mit_coverage` declines to state a number —
+    but none invents an assembly that failed.
     """
     if graph is not None:
         return graph
     try:
         return _assemble_graph(state)
     except Exception as exc:  # noqa: BLE001 — any assembly failure, same answer
-        # Never raise: the callers are a pure report writer that must still render
-        # its other axes, and a gap engine the guidance loop runs every round.
+        # Never raise: a caller that cannot score MIT must still answer its other
+        # axes.
         logger.warning("MIT coverage not assessed — crate assembly failed: %s", exc)
         return None
 
@@ -557,18 +551,14 @@ def slot_matcher(
       the node's ``identifier`` PropertyValue, and a ``CellLineSample``'s
       ``accession`` becomes its ``identifier``.
 
-    Exposed publicly so the gap engine consumes it instead of keeping a second,
-    un-migrated copy — the two disagreeing is what made the pipeline ask for
-    identifiers the crate already carried.
+    Public so a reader of the vocabulary uses this matcher instead of keeping a
+    second, un-migrated copy.
 
     With ``graph=None`` it degrades to the legacy ``CrateState`` field match.
     That branch is **not a scoring path** (#311): for the three reasons above it
     credits almost nothing on a real crate, so :func:`assess_mit_coverage`
-    assembles a graph rather than call it. It survives for the gap engine's one
-    genuinely degraded case — a state whose SHACL assembly already failed, where
-    re-assembling here would only fail the same way — and what it returns there
-    is a best-effort guess at which questions to ask, never a coverage figure
-    anyone reports.
+    assembles a graph rather than call it, and what the branch returns is never
+    a coverage figure anyone reports.
     """
     if graph is not None:
         nodes = graph_nodes(graph)
@@ -587,18 +577,6 @@ def slot_matcher(
     return _state_match
 
 
-def slot_type_present(entity_type: str, nodes: list[dict[str, Any]]) -> bool:
-    """Whether any assembled node matches ``entity_type``'s slot-type rule.
-
-    The graph-aware counterpart of "is there an instance of this type?" — the
-    check that decides whether an MIT parameter gets a per-field question or the
-    #257 creation prompt. A ``CrateState`` type scan answers ``False`` for every
-    ``LabProcess*`` subtype (they are not ``EntityType`` members), so a fully
-    parameterised Exposure still produced "No LabProcessExposure recorded yet".
-    """
-    return any(_node_matches_slot_type(n, entity_type) for n in nodes)
-
-
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
@@ -609,6 +587,6 @@ from builder.tools.registry import TOOL_REGISTRY  # noqa: E402
 # ``CrateState`` path when called with no graph (#377); it also carried an
 # ``assemble=False`` opt-out for a cheap in-loop score floor that no caller ever
 # used. Now that :func:`assess_mit_coverage` assembles for itself, the wrapper had
-# nothing left to add, and removing it means the tool, the maturity report and the
-# gap engine cannot report three different numbers for one crate.
+# nothing left to add, and removing it means the tool and the maturity report
+# cannot report two different numbers for one crate.
 TOOL_REGISTRY.register("assess_mit_coverage", assess_mit_coverage, takes_state=True)

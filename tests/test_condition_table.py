@@ -1,9 +1,7 @@
-"""Tests for Exposure condition-table population + Frictionless bridge (Issue #144).
+"""Tests for Exposure condition-table population (Issue #144).
 
 ``populate_condition_table`` writes per-well rows into the Exposure condition
-table CSV (replacing the header-only placeholder from #94). ``csvw_to_frictionless``
-converts the CSVW column descriptors into the Frictionless ``{fields: [...]}``
-shape so ``validate_table`` needs no hand-authored schema.
+table CSV (replacing the header-only placeholder from #94).
 """
 
 from __future__ import annotations
@@ -18,10 +16,8 @@ from builder.tools._crate_mapping import _CONDITION_TABLE_COLUMNS
 from builder.tools.data_content import (
     _UNIT_SUFFIX_RE,
     condition_table_fit,
-    csvw_to_frictionless,
     populate_condition_table,
     project_condition_rows,
-    validate_table,
 )
 
 # Every test here exports a crate, and each export now runs the uncached,
@@ -33,7 +29,7 @@ from builder.tools.data_content import (
 # Headroom, not a licence to grow: no test in this module is changed.
 pytestmark = pytest.mark.timeout(120)
 
-# The committed per-well fixture the pipeline actually meets in the corpus. Anchored
+# The committed per-well fixture the build actually meets in the corpus. Anchored
 # to this file, not the CWD — a test below deliberately chdirs. The fixture is owned
 # by the eval corpus, so ``test_the_corpus_fixture_still_requires_aliasing`` guards
 # against it drifting to canonical column names and quietly making the end-to-end
@@ -75,29 +71,6 @@ def _exposure_state() -> CrateState:
     return state
 
 
-def test_csvw_to_frictionless_maps_columns():
-    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
-    assert "fields" in schema
-    names = [f["name"] for f in schema["fields"]]
-    # The full 10-column condition-table schema (Issue #180, Lane D).
-    assert names == [
-        "well_id",
-        "assay",
-        "cell_line",
-        "compound",
-        "concentration_value",
-        "concentration_unit",
-        "exposure_duration",
-        "experiment",
-        "technical_replicate",
-        "control",
-    ]
-    by_name = {f["name"]: f for f in schema["fields"]}
-    # double -> number, string -> string (Frictionless types)
-    assert by_name["concentration_value"]["type"] == "number"
-    assert by_name["cell_line"]["type"] == "string"
-
-
 def test_populate_condition_table_writes_rows(tmp_path):
     state = _exposure_state()
     # Population fills whatever columns the data provides; the schema describes
@@ -119,45 +92,6 @@ def test_populate_condition_table_writes_rows(tmp_path):
     assert reader[0]["concentration_value"] == "10"
     assert reader[1]["concentration_value"] == "100"
     assert reader[0]["well_id"] == "A1"
-
-
-def test_populated_table_validates_with_inferred_schema(tmp_path):
-    state = _exposure_state()
-    rows = [
-        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
-         "concentration_value": "10", "concentration_unit": "uM",
-         "exposure_duration": "24h"},
-    ]
-    result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
-    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
-    report = validate_table(result["path"], schema)
-    assert report["ok"] is True, report
-
-
-def test_populated_table_rejects_non_numeric_concentration(tmp_path):
-    """The inferred CSVW schema TYPES ``concentration_value`` as a number, so a row
-    whose value is valid-as-string but not-a-number must FAIL content validation with
-    an error routed to that column.
-
-    The happy-path test above would still pass even if the column were typed as a
-    plain string — this negative case is what makes the number-typing meaningful.
-    """
-    state = _exposure_state()
-    rows = [
-        {"well_id": "A1", "cell_line": "HepG2", "compound": "Aspirin",
-         "concentration_value": "abc",  # not a number — must be rejected by the type
-         "concentration_unit": "uM", "exposure_duration": "24h"},
-    ]
-    result = populate_condition_table(state, "proc_exp", rows, output_dir=str(tmp_path))
-    schema = csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)
-    report = validate_table(result["path"], schema)
-
-    assert report["ok"] is False, report
-    assert any(
-        "concentration_value" in str(issue.get("property", ""))
-        or "concentration_value" in str(issue.get("message", ""))
-        for issue in report["issues"]
-    ), report["issues"]
 
 
 class TestProjectConditionRows:
@@ -746,7 +680,7 @@ class TestValueUrlDropsOnMultivaluedColumn:
 
     The Exposure's ``chemicals`` ref field and its cultured-sample ``object`` are
     what feed ``cells``/``chems`` into ``_build_condition_table_schema``, so these
-    build the same wiring ``_materialize_plan`` produces.
+    build that wiring directly.
     """
 
     _REL = Path("data") / "LabProcess_proc_exp_condition_table.csv"
@@ -846,10 +780,10 @@ class TestValueUrlDropsOnMultivaluedColumn:
 class TestPlateMapIntakeByFormat:
     """``populate_condition_table`` dispatches on the file's format (#422).
 
-    The spine picks the design table by its rows, not its extension, so the
+    The design table was picked by its rows, not its extension, so the
     real deposit's ``.xlsx`` plate map reached a UTF-8
     ``csv.DictReader`` and raised ``UnicodeDecodeError`` on the first ZIP byte.
-    The spine swallowed that into a ``reason:`` string and the crate shipped a
+    The build swallowed that into a ``reason:`` string and the crate shipped a
     header-only table with nothing said about why.
     """
 
@@ -927,7 +861,7 @@ class TestPlateMapIntakeByFormat:
         assert populate_condition_table(state, exposure_id, str(tsv))["ok"]
 
     def test_unreadable_format_is_refused_by_name(self, tmp_path) -> None:
-        # Previously a UnicodeDecodeError escaped into the spine's generic
+        # Previously a UnicodeDecodeError escaped into the build's generic
         # handler; now it names the file and the reader that could not take it.
         from builder.tools.data_content import populate_condition_table
 
@@ -959,243 +893,6 @@ class TestPlateMapIntakeByFormat:
         assert "Notes" in out["error"]
 
 
-class TestPayloadLayerRunsOnThePipelineArm:
-    """The Frictionless data-content layer is REQUIRED and used to never run (#409).
-
-    AGENTS.md lists it as REQUIRED, but the spine only ever called
-    `build_and_validate(profile="all")`, and `DATA_CONTENT_PROFILE = "data"` sits
-    deliberately outside the `all|base|isa|tox` set (#95). A crate could ship a
-    CSV contradicting its own declared `tableSchema` and every pass reported
-    clean. These cover the invocation, not the primitive — `validate_table`
-    itself is already exercised above.
-    """
-
-    @staticmethod
-    def _state_with(tmp_path, compounds=("Thyroxine",), cell_lines=("CHO-K1",)):
-        state = CrateState()
-        state.metadata.output_path = str(tmp_path)
-        for i, name in enumerate(compounds, 1):
-            state.add_entity(
-                Entity(
-                    entity_id=f"chem_{i:03d}",
-                    type="MolecularEntity",
-                    fields={"name": name},
-                    _provenance=EntityProvenance(created_by="llm"),
-                )
-            )
-        for i, name in enumerate(cell_lines, 1):
-            state.add_entity(
-                Entity(
-                    entity_id=f"cell_{i:03d}",
-                    type="CellLineSample",
-                    fields={"name": name},
-                    _provenance=EntityProvenance(created_by="llm"),
-                )
-            )
-        return state
-
-    @staticmethod
-    def _engine(state):
-        class _Engine:
-            def __init__(self, s):
-                self.state = s
-
-        return _Engine(state)
-
-    @staticmethod
-    def _write(tmp_path, rows: list[str]) -> str:
-        path = tmp_path / "condition_table.csv"
-        header = ",".join(c["titles"] for c in _CONDITION_TABLE_COLUMNS)
-        path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
-        return str(path)
-
-    def test_a_bad_cell_is_reported(self, tmp_path):
-        """The exact defect the missing layer let through: a non-numeric dose."""
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        path = self._write(tmp_path, ["1,Uptake,CHO-K1,Thyroxine,not-a-number,uM,24h,,,"])
-        issues = _validate_populated_tables(
-            self._engine(self._state_with(tmp_path)),
-            {"condition_table": {"populated": True, "rows": 1, "path": path}},
-        )
-
-        assert issues, "a non-numeric concentration_value must be reported"
-        assert any("concentration_value" in str(i.get("property") or "") for i in issues)
-        assert all(i["profile"] == "data" for i in issues)
-
-    def test_an_unknown_compound_is_reported(self, tmp_path):
-        """A cell naming no entity in the crate — the foreign-key half of the layer."""
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        path = self._write(tmp_path, ["1,Uptake,CHO-K1,Mystery Compound,10,uM,24h,,,"])
-        issues = _validate_populated_tables(
-            self._engine(self._state_with(tmp_path)),
-            {"condition_table": {"populated": True, "rows": 1, "path": path}},
-        )
-
-        assert any("Mystery Compound" in i["message"] for i in issues), issues
-
-    def test_a_correct_table_is_clean(self, tmp_path):
-        """Guards the failure mode that makes a checker worthless: firing on good data.
-
-        The `compound`/`cell_line` cells carry entity NAMES, so an id-only
-        allow-list would flag every row of a perfectly correct table.
-        """
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        path = self._write(
-            tmp_path,
-            [
-                "1,Uptake,CHO-K1,Thyroxine,10,uM,24h,,,",
-                "2,Uptake,CHO-K1,Silychristin,2.5,uM,24h,,,",
-            ],
-        )
-        issues = _validate_populated_tables(
-            self._engine(self._state_with(tmp_path, compounds=("Thyroxine", "Silychristin"))),
-            {"condition_table": {"populated": True, "rows": 2, "path": path}},
-        )
-
-        assert issues == [], issues
-
-    def test_a_blank_optional_cell_is_not_an_issue(self, tmp_path):
-        """`propose_condition_rows` leaves a cell blank when the crate never states it.
-
-        D5 requires that blank; flagging it would punish the honest behaviour.
-        """
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        path = self._write(tmp_path, ["1,Uptake,,Thyroxine,,,,,,"])
-        issues = _validate_populated_tables(
-            self._engine(self._state_with(tmp_path)),
-            {"condition_table": {"populated": True, "rows": 1, "path": path}},
-        )
-
-        assert issues == [], issues
-
-    def test_an_entity_id_is_accepted_as_well_as_a_name(self, tmp_path):
-        """`propose_condition_rows` falls back to entity_id for an unnamed compound."""
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        path = self._write(tmp_path, ["1,Uptake,CHO-K1,chem_001,10,uM,24h,,,"])
-        issues = _validate_populated_tables(
-            self._engine(self._state_with(tmp_path)),
-            {"condition_table": {"populated": True, "rows": 1, "path": path}},
-        )
-
-        assert issues == [], issues
-
-    @pytest.mark.parametrize(
-        "materialized",
-        [
-            {},
-            {"condition_table": {"populated": False, "reason": "no plate map"}},
-            {"condition_table": {"populated": True, "rows": 0, "path": "x.csv"}},
-            {"condition_table": {"populated": True, "rows": 3, "path": ""}},
-        ],
-        ids=["absent", "not-populated", "zero-rows", "no-path"],
-    )
-    def test_it_stays_silent_when_no_rows_landed(self, materialized):
-        """The header-only placeholder is valid by construction; validating it is cost."""
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        assert _validate_populated_tables(self._engine(CrateState()), materialized) == []
-
-    def test_a_missing_table_never_breaks_the_build(self, tmp_path):
-        """The payload layer is additive — it must not fail a build whose metadata is fine."""
-        from builder.agents.pipeline.pipeline import _validate_populated_tables
-
-        issues = _validate_populated_tables(
-            self._engine(self._state_with(tmp_path)),
-            {"condition_table": {"populated": True, "rows": 2, "path": str(tmp_path / "gone.csv")}},
-        )
-
-        assert issues == []
-
-    def test_data_issues_are_not_folded_into_conformance(self, tmp_path):
-        """A data-cell defect is not a SHACL failure; the two keys must stay apart.
-
-        Collapsing them would make `success` in the eval harness mean two
-        different things (#409, AGENTS.md §6).
-        """
-        from builder.agents.pipeline import pipeline as mod
-
-        path = self._write(tmp_path, ["1,Uptake,CHO-K1,Thyroxine,not-a-number,uM,24h,,,"])
-        issues = mod._validate_populated_tables(
-            self._engine(self._state_with(tmp_path)),
-            {"condition_table": {"populated": True, "rows": 1, "path": path}},
-        )
-
-        assert issues
-        assert all(i["profile"] == "data" for i in issues)
-        assert all(i["profile"] not in {"base", "isa", "tox"} for i in issues)
-
-
-class TestAWorkbookThatIsSimplyNotTheDesignTable:
-    """"Opened fine, holds no per-condition sheet" is not a read failure (#594).
-
-    ``_rows_from_file`` reports both through its ``error`` channel, which was
-    harmless while a caller named ONE file and either way got nothing. Searching
-    every scanned table for the design table makes the difference load-bearing:
-    read as failures, svhps22's twenty perfectly good workbooks would fire the
-    #422 "could not READ" warning and put a false ``read_failed`` on the result.
-    """
-
-    @staticmethod
-    def _measurements(path) -> None:
-        import openpyxl
-
-        book = openpyxl.Workbook()
-        sheet = book.active
-        sheet.title = "Readings"
-        sheet.append(["timepoint", "absorbance", "operator"])
-        sheet.append([0, 0.412, "AB"])
-        sheet.append([30, 0.688, "AB"])
-        book.save(path)
-
-    def test_it_reports_no_error(self, tmp_path) -> None:
-        from builder.tools.data_content import condition_table_fit_of
-
-        book = tmp_path / "readings.xlsx"
-        self._measurements(book)
-
-        wells, mapped, error = condition_table_fit_of(book)
-
-        assert (wells, mapped) == (0, 0), "a measurement sheet is not a design table"
-        assert error is None, f"a readable workbook must not be reported as failed: {error}"
-
-    def test_a_workbook_that_cannot_be_opened_still_does(self, tmp_path) -> None:
-        """The control: the #422 signal must survive the distinction above."""
-        from builder.tools.data_content import condition_table_fit_of
-
-        broken = tmp_path / "plate_map.xlsx"
-        broken.write_text("this is not a workbook", encoding="utf-8")
-
-        wells, mapped, error = condition_table_fit_of(broken)
-
-        assert (wells, mapped) == (0, 0)
-        assert error, "an unopenable workbook must still be reported"
-
-    def test_a_real_plate_map_still_wins(self, tmp_path) -> None:
-        """The other control: the predicate still finds the design table."""
-        import openpyxl
-
-        from builder.tools.data_content import condition_table_fit_of
-
-        book = tmp_path / "design.xlsx"
-        wb = openpyxl.Workbook()
-        wb.active.title = "Cover"
-        wb.active.append(["Depositor", "Lab X"])
-        plate = wb.create_sheet("Plate map")
-        plate.append(["well_id", "compound", "concentration_value", "concentration_unit"])
-        plate.append(["A1", "BPA", 10.0, "uM"])
-        wb.save(book)
-
-        wells, mapped, error = condition_table_fit_of(book)
-
-        assert error is None
-        assert wells == 1 and mapped >= 3
-
-
 class TestAKeyOnItsOwnDescribesNothing:
     """#669 — a well key and no condition column is a list of wells, not a design.
 
@@ -1203,8 +900,8 @@ class TestAKeyOnItsOwnDescribesNothing:
     any table carrying a well-ish header qualified. On S-VHPS22 that admitted two
     files that describe no conditions at all — a qPCR protocol sheet whose first
     column is ``Well Position``, and a gamma-counter export keyed on ``Run ID`` —
-    giving three candidates where there is one design table. The pipeline refuses
-    when several qualify, so **the crate shipped four header-only tables while
+    giving three candidates where there is one design table. The build refused
+    to choose when several qualified, so **the crate shipped four header-only tables while
     1048 rows of real design sat in the deposit**.
 
     The rule already stated for the other side of the pair — "a table with wells

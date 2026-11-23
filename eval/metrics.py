@@ -38,9 +38,9 @@ def _drop_run_provenance(graph: list[Any]) -> list[Any]:
     ``CreateAction`` carrying start/end times plus ``PropertyValue`` nodes for the
     run's tokens and cost, whose ``@id``s embed the values themselves. Every one
     of those differs between two runs by construction, so leaving them in makes
-    each build hash uniquely: the determinism signal would report even the
-    deterministic pipeline arm as stochastic, and the scoring memoisation keyed on
-    this hash would never hit again (3x the SHACL cost at ``--repeats 3``).
+    each build hash uniquely: the determinism signal would report even two
+    identical crates as different, and the scoring memoisation keyed on this hash
+    would never hit again (3x the SHACL cost at ``--repeats 3``).
 
     This is the same reasoning that already strips ``datePublished`` — provenance
     about the run is not content of the crate. The record still ships in every

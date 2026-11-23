@@ -548,7 +548,7 @@ def _file_class(entity: Entity) -> str:
     same classifier rather than a second rule.
 
     Only a role the classifier itself emits is taken as a class. ``role`` is free
-    text — ``draft_file`` stamps whatever the agent passes, and the spine stamped
+    text — ``draft_file`` stamps whatever the agent passes, and older builds stamped
     ``raw_data``/``processed_data`` before the classification existed, which a
     resumed session carries forever. Read as classes those match neither tier, so
     a crate whose data was all present reported having none.
