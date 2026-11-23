@@ -990,7 +990,7 @@ draft_molecular_entity(name: str, hints: dict) → Entity
 draft_cell_line_sample(name: str, hints: dict) → Entity
 draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
-draft_protocol(hints: dict) → Entity                     # LabProtocol a step's protocol record can be based on
+draft_protocol(hints: dict) → Entity                     # what the lab states about a step's protocol: written on the documents the step executes, or on its protocol record (D17)
 draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). Without an orcid hint it takes the ORCID the deposit states for exactly that name, else a single strong name-search hit, once ORCID confirms it (D5)
 draft_organization(name: str, hints: dict) → Entity      # without a ror hint it takes the ROR id the deposit states for exactly that name, once ROR returns that record (D5)
 draft_publication(doi: str, hints: dict) → Entity
@@ -3736,17 +3736,17 @@ INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Gui
   using the canonical ISA-Tox reference fields: each resolved `MolecularEntity` →
   the **Exposure** LabProcess via `chemicals` (ISA forbids a MolecularEntity as a
   process object — objects MUST be File/Sample/BioSample — so the build makes each
-  compound a `reagent` of the Exposure's protocol record;
-  `_crate_mapping._build_process`);
+  compound a `reagent` of what the Exposure executes: its deposited documents, or
+  else its protocol record (D17; `_crate_mapping._build_process`);
   the resolved `CellLineSample` → the
   **TestSystemPreparation** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
   scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
   `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
   compounds alike — is reachable from the backbone at a glance (orphan count → 0).
   Idempotent: `set_fields` writes the same deterministic ids, so re-running mints
-  no duplicates. The Exposure's protocol record is the primary link, since the
+  no duplicates. What the Exposure executes is the primary link, since the
   compounds are what the exposure applied. The Study `mentions` edge is a backstop
-  for a compound no record can reach (one resolved with no Exposure in the chain).
+  for a compound no protocol can reach (one resolved with no Exposure in the chain).
   **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
   and stop, so the crate listed a pathway's key events without ever saying which one
   the assay measures. Each `aops[]` item now also carries `measured_event_name` — a
