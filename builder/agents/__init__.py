@@ -1,15 +1,11 @@
 """LLM build modes for the ISA-Tox RO-Crate Builder.
 
-Two build variants share one toolbox (``builder.tools``), engine
-(``builder.engine``), and LLM layer (:mod:`builder.agents.llm`); only the
-orchestration differs (Issue #309):
-
-- :mod:`builder.agents.pipeline` — the deterministic, code-orchestrated spine
-  (``--interactive`` default): ``pipeline``, ``guidance``, ``leaves``.
-- :mod:`builder.agents.react` — the LLM-orchestrated ReAct StateGraph
-  (``--react``): ``agent_loop``, ``system_prompt``, ``tools_spec``.
-
-:mod:`builder.agents.build` dispatches to the selected mode.
+The build is the LLM-orchestrated ReAct StateGraph (:mod:`builder.agents.react`:
+``agent_loop``, ``system_prompt``, ``tools_spec``) over the toolbox
+(``builder.tools``), the engine (``builder.engine``) and the LLM layer
+(:mod:`builder.agents.llm`). :mod:`builder.agents.build` is its entrypoint, and
+:mod:`builder.agents.structure` reads a deposit's studies and assays from its
+folder tree.
 """
 
 from __future__ import annotations

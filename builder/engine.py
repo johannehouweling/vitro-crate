@@ -291,12 +291,8 @@ def _run_document_discovery(engine: AgentEngine) -> None:
     readable scientific documentation (SOPs, protocols, publications, metadata files,
     data dictionaries, sample sheets, assay/process docs) and ranks them by content
     signals, filename clues, and directory depth. The formatted context is stored on
-    ``engine.state.documents`` for both arms:
-
-    - **ReAct**: the state brief includes a ``Documents: N`` line and the context is
-      appended as a document-context SystemMessage block.
-    - **Pipeline**: :func:`builder.agents.pipeline.pipeline._gather_context` folds
-      the discovered documents into the drafter/extraction leaf context.
+    ``engine.state.documents``: the ReAct state brief includes a ``Documents: N``
+    line and the context is appended as a document-context SystemMessage block.
 
     Discovery is best-effort and bounded (``_MAX_CONTEXT_CHARS`` caps preview text).
     A failure never breaks initialization — it just leaves ``state.documents`` empty.
@@ -454,7 +450,7 @@ def _read_declared_identity(engine: AgentEngine) -> None:
     """Read the title and accession the deposit declares, as the DOI is read (#722).
 
     DSM-1-R0 asks for an identifiable dataset descriptor, which the session title is,
-    and nothing wrote it on a pipeline build: every one sat at level 0 under the
+    and nothing wrote it on a build from a folder: every one sat at level 0 under the
     scaffold's placeholder name. A value already set is left alone.
     """
     from builder.tools.file_readers import extract_deposit_identity
@@ -569,11 +565,8 @@ class AgentEngine:
         self.profiler: ProfilingLogger | None = None
         # Optional tool-event observer (#266): invoked at the start and end of
         # every ``run_tool`` call with ``(tool_name, "start"|"end")``. Default
-        # ``None`` is a strict no-op (no behavior change). The deterministic
-        # pipeline runs tools via ``run_tool`` (not LangChain), so this is the
-        # single hook the interactive build's progress spinner subscribes to in
-        # order to show the currently-running tool. A callback that raises must
-        # never break ``run_tool`` (it is UI chrome).
+        # ``None`` is a strict no-op (no behavior change). A callback that raises
+        # must never break ``run_tool`` (it is UI chrome).
         # Optional observer for tool execution lifecycle (Issue #266). Fired with
         # ``(tool_name, phase, kwargs_str)`` — the third argument is a compact
         # representation of the tool's arguments so UI chrome can show e.g.
@@ -629,8 +622,7 @@ class AgentEngine:
                 # After the file inventory is built, run the deterministic,
                 # bounded document discovery to rank SOPs, protocols, publications,
                 # metadata files, and other scientific documentation. The result
-                # is stored in CrateState and consumed by both the ReAct state
-                # brief and the pipeline's _gather_context.
+                # is stored in CrateState and consumed by the ReAct state brief.
                 if self.state.scanned_files and approved:
                     try:
                         _run_document_discovery(self)

@@ -458,7 +458,8 @@ class GeneratorInfo:
         model: Effective orchestrator model name.
         drafter_model: Effective drafter model, when it differs.
         api_host: HOSTNAME of a custom API base, or None for the vendor default.
-        architecture: Which build path ran ("react" / "pipeline").
+        architecture: Which build ran ("react", the ReAct loop), or None for a crate
+            exported from tool calls alone.
         settings: Extra allowlisted, stringified run settings.
     """
 
@@ -1370,7 +1371,7 @@ class CrateState:
 
     # Discovered, ranked scientific documentation (SOPs, protocols, publications,
     # metadata files, data dictionaries, etc.) — populated by the engine after
-    # file scanning, consumed by both the ReAct brief and the pipeline context.
+    # file scanning, consumed by the ReAct brief.
     # Stored as a list of dicts to keep CrateState JSON-serializable without
     # importing the document_discovery module at load time.
     documents: list[dict[str, Any]] = field(default_factory=list)
@@ -1525,7 +1526,7 @@ class CrateState:
         temperature that a Responses-API reasoning model never receives must not
         appear here (#769). ``max_history_tokens`` is on the same footing: only
         the ReAct loop trims history against it, so it is recorded only for a run
-        known to be ReAct rather than naming a budget a pipeline run never read.
+        known to be the loop rather than naming a budget a tool-call export never read.
         """
         prior = self.generator
         arm = prior.architecture

@@ -141,11 +141,10 @@ class HumanInterface(Protocol):
     (CLI prompt, Streamlit widget, FastAPI round-trip, test double, …).
 
     An **optional** ``is_interactive: bool`` attribute is the single signal the
-    interactive build path uses to decide whether to run the HITL guidance tail
-    after the automated pipeline (AGENTS.md §14.6.1): a frontend backed by a REAL
+    build reads to decide whether a person can answer: a frontend backed by a REAL
     user sets it ``True``; the headless :class:`SimulatedHumanInterface` (and the
-    A/B eval, batch runs, and tests that use it) leaves it ``False`` so guidance is
-    never invoked non-interactively. It is **deliberately NOT a required Protocol
+    eval, batch runs, and tests that use it) leaves it ``False`` so nothing waits
+    on an answer nobody can give. It is **deliberately NOT a required Protocol
     member** — making it required would force every existing adapter / test double
     to declare it. Read it via the fail-closed :func:`is_interactive` helper, which
     treats an interface that omits it (or no interface at all) as non-interactive.
@@ -416,9 +415,9 @@ class ConsoleHumanInterface:
     terminal I/O so this module never imports the UI layer (avoiding an
     ``agents → tools → agents`` cycle); the CLI injects
     :func:`builder.agents.ui.boxed_input` for the box and
-    :func:`builder.agents.ui.render_reply` for the question, so the pipeline's HITL
-    prompt renders through the SAME rounded box and green-● styling the ReAct arm
-    uses (#344).
+    :func:`builder.agents.ui.render_reply` for the question, so a question asked
+    through the interface renders through the SAME rounded box and green-● styling
+    the ReAct loop uses (#344).
 
     A scan-root escalation still routes through the user — they are the only
     legitimate approver for widening filesystem access (#197); a non-affirmative
@@ -663,15 +662,14 @@ SYNTHETIC_ANSWER_NOTICE = (
 class SmokeTestHumanInterface:
     """Drives the INTERACTIVE build with nobody at the keyboard (``--smoke-test``).
 
-    A test harness, not a curation frontend: it exists so the HITL path — the
-    guidance tail included — can be exercised end to end unattended. The crate it
+    A test harness, not a curation frontend: it exists so the HITL path can be
+    exercised end to end unattended. The crate it
     produces is a by-product; its prose fields hold :data:`SMOKE_TEST_ANSWER`.
 
-    * ``is_interactive`` is ``True``, and that is the whole point. The tail is
-      gated on this one signal (AGENTS.md §14.6.1), which is exactly why
+    * ``is_interactive`` is ``True``, and that is the whole point. The loop's
+      questions are gated on this one signal, which is exactly why
       :class:`SimulatedHumanInterface` — ``is_interactive = False`` — cannot be
-      used to exercise it: behind the simulator ``run_interactive_build`` degrades
-      to ``run_pipeline`` + export and ``run_guidance`` is never called.
+      used to exercise them.
     * ``synthesizes_answers`` is ``True`` so the build can SAY so next to the
       crate it wrote (see :func:`answers_are_synthetic`). Nothing about the
       run is marked inside the crate itself — writing "this was a smoke test"
@@ -928,8 +926,7 @@ def select_many(
 def is_interactive(human: HumanInterface | None) -> bool:
     """Whether *human* is a REAL interactive frontend (vs headless/simulated).
 
-    The single gate the interactive build path uses to decide whether to run the
-    HITL guidance tail after the automated pipeline (AGENTS.md §14.6). Reads the
+    The single gate the build uses to decide whether a person can answer. Reads the
     optional :attr:`HumanInterface.is_interactive` signal **fail-closed**: a
     ``None`` interface (a headless engine), an interface that does not declare the
     attribute, or one that declares it falsy is treated as **non-interactive**.
