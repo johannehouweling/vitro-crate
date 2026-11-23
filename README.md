@@ -32,8 +32,8 @@ The configuration is stored in `~/.config/vitro-crate/config.toml`.
 uv run python -m main --interactive -i path/to/data
 ```
 
-The default build mode is a ReAct agent: a language model selects each next tool call
-from the current state of the crate. During a build it:
+The build is a ReAct agent: a language model selects each next tool call from the
+current state of the crate. During a build it:
 
 1. reads the folder's documentation, protocols, metadata sheets and data files;
 2. drafts the investigation, studies, assays, samples, chemicals and process steps;
@@ -60,15 +60,6 @@ contains:
   otherwise;
 - `ro-crate-metadata-maturity.html`: a self-contained report on profile conformance,
   FAIR maturity and MIT coverage, with an entity explorer. It needs no network access.
-
-## Build modes
-
-| Mode | Command | Description |
-|---|---|---|
-| ReAct agent (default) | `--interactive` | The model chooses each step. |
-| Deterministic pipeline | `--interactive --pipeline` | Code runs a fixed sequence of steps and the model fills bounded parts. Lower cost and reproducible; it asks only for required fields the folder does not state. |
-
-Both modes use the same tools and are maintained in parallel.
 
 ## Commands
 
