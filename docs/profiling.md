@@ -12,7 +12,7 @@ the `-v` / `-vv` flags:
 
 - **Default (no flag):** WARNING and above — quiet, no per-file timing. Under
   `--interactive` with no `-v`/`-vv` this is raised to INFO automatically so that
-  pipeline progress is visible; an explicitly requested verbosity is never downgraded.
+  build progress is visible; an explicitly requested verbosity is never downgraded.
 - **`-v`:** INFO level — ensures you see summary timing (e.g. "Scan complete: 150 files in 2.34s").
 - **`-vv`:** DEBUG level — per-file scan timing, read timing, and scan progress every
   100 files. Recommended for troubleshooting slow operations. Profiler events are never

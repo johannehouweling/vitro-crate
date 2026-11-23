@@ -52,9 +52,10 @@ hand-builds the expected `CrateState` (or hard-codes values from the golden spec
 asserts them back, bypassing the producer entirely. Guard against it:
 
 - **Drive the real entry point over real/recorded input** — for build-path coverage,
-  scan a real fixture and run `run_pipeline` (see `tests/test_pipeline_real_input.py`),
-  don't assert back a hand-built state. Prefer real recorded fixtures over hand-built
-  intermediate state.
+  scan a real fixture through `AgentEngine.initialize` and drive the build's own entry
+  point (`run_build`, the ReAct loop, or the tools it calls) on what that produced (see
+  `tests/test_discovery_context_reaches_the_agent.py`); don't assert back a hand-built
+  state. Prefer real recorded fixtures over hand-built intermediate state.
 - **Avoid mocks; test observable state at the public entry point.** When you must
   stand in for a non-deterministic seam (LLM/network), gate the stub on **content-only
   tokens** from the real input so a scan/extraction regression still reddens the test.

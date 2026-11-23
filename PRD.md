@@ -51,9 +51,8 @@ The system:
 21. As a developer extending the system, I want field-level completion metadata on every entity, so that I can build custom UIs that show exactly what's missing.
 ## Implementation Decisions
 
-> **Status: describes the ReAct arm.** The shipped default is the deterministic, code-orchestrated
-> pipeline (`BuildMode.PIPELINE`, the `--interactive` default); the LLM-ordered loop below is the
-> `--react` opt-in. Both arms are first-class and permanently co-maintained — see AGENTS.md §14 and D15.
+> **Status: describes the shipped build.** `main.py --interactive` runs the LLM-ordered ReAct
+> loop below, the one build — see AGENTS.md D15.
 
 ### Architecture: Toolbox, Not Graph
 The LLM agent is given a set of tools (file scanning, entity drafting, lookups, validation, assessment, session management) and decides the order of calls based on the current `CrateState`. No predefined workflow graph. Validation failures and HITL feedback can route the agent to any earlier stage. Max iterations and HITL escalation prevent infinite loops.

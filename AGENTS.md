@@ -42,23 +42,18 @@ one crate come to disagree.
 - [11. Key Design Decisions](#11-key-design-decisions)
 - [12. Project Structure](#12-project-structure)
 - [13. Future Considerations](#13-future-considerations)
-- [14. The Deterministic Pipeline & Guidance Loop](#14-the-deterministic-pipeline--guidance-loop)
 
 ## 1. Architecture Overview
 
 The ISA-Tox RO-Crate Builder is a **toolbox-based agent system** that assists researchers in creating profile-conformant RO-Crates for *in vitro* toxicology data.
 
-> **Two first-class build variants.** The builder ships **two supported,
-> actively-explored architectures over the same toolbox** (see §14): the
-> **ReAct agent loop** (the `--interactive` default — the LLM orchestrates tool
-> calls and reads the deposit on demand) and a **deterministic pipeline + HITL
-> guidance tail** (`--pipeline` — code owns the step ordering, the LLM is confined
-> to bounded leaves). Both are maintained; this is an ongoing A/B exploration,
-> **not** a migration that ends in deleting either. The rest of §1–§4 describes
-> the ReAct loop; §14 describes the deterministic pipeline and the relationship
-> between the two.
+> **One build: the ReAct agent loop.** `main.py --interactive` runs the ReAct loop
+> over the toolbox (D15): the LLM orchestrates the tool calls and reads the deposit
+> on demand. Its entrypoint, `run_build` (`builder/agents/build.py`, §4.4.6), first
+> reads the deposit's studies and assays from its folder tree once
+> (`builder/agents/structure.py`, §4.2.8) and then hands the engine to the loop.
 
-The ReAct variant gives an LLM agent a set of tools and lets it decide the order of operations based on the current state, rather than following a rigid pipeline with predefined steps.
+The builder gives an LLM agent a set of tools and lets it decide the order of operations based on the current state, rather than following a rigid pipeline with predefined steps.
 
 ### High-Level Flow
 
@@ -107,7 +102,7 @@ Fixed initialization runs before the agent loop, in order:
 2. Document discovery — stamps **every** scanned file with one classification (`metadata` / `protocol` / `raw_data_file` / `processed_data_file`), decided from content, and ranks the readable scientific documentation into `state.documents`. Classification reads content, so it stays a step beside the scanner and is never folded back into `scan_files`.
 3. The declared-metadata read — the licence, DOI, title, accession and funding the deposit itself states, and the ORCID and ROR id it states for its people and organisations, are recorded on `metadata` (the licence with `license_from_deposit` set) before anything drafts one; the shallowest declaring document wins and a value already set is kept. The title is what DSM-1-R0 asks for (#722).
 
-Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title, accession, funding, ORCID and ROR id — it never has to bootstrap those itself. Before either arm starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§14.4, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
+Steps 2 and 3 are best-effort: a failure leaves their state empty rather than aborting initialization. What the loop is handed is therefore the inventory, a classification per file, the ranked document context, and any declared licence, DOI, title, accession, funding, ORCID and ROR id — it never has to bootstrap those itself. Before the loop starts, `run_build` also reads the deposit's structure from its folder tree into `state.deposit_structure` (§4.2.8, #852); a resumed session keeps the one it saved. The agent uses the inventory during entity drafting to bind files to `LabProcess` instances as annotations emerge. The crate's output layout is not scaffolded upfront — it is produced by `export_crate` once entity annotations are complete.
 
 ### Guard Rails: Approved Scan Roots
 The agent's `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set that records user-confirmed paths. The guard **fails closed** (#197): with no approved roots, *nothing* is scannable. When the agent calls `scan_files(path)`:
@@ -215,7 +210,7 @@ CrateState {
     # `api_host` is the hostname alone, because the crate is shareable
     generator: {
         name, version, url, provider, model, drafter_model, api_host,
-        architecture: "react" | "pipeline", settings, usage/cost fields,
+        architecture: "react" | None, settings, usage/cost fields,
     },
     entities: {
         investigations: [Entity], studies: [Entity], assays: [Entity],
@@ -227,7 +222,7 @@ CrateState {
     scanned_files: [{ path, filename, size, mime_type, first_rows,
         reviewed_by_user, classification }],
     approved_scan_roots: set[str],  # user-approved directory roots for file scanning
-    # scientific documentation ranked at initialization, read by both arms
+    # scientific documentation ranked at initialization, read by the ReAct brief
     documents: [{ kind, classification, filename, relative_path, score,
                   reasons, preview }],
     # bounded content captured from documents that were successfully read,
@@ -326,7 +321,7 @@ fixing ISA-Tox issues until the crate builds. The agent should:
 1. Call `build_and_validate` early, even with minimal entities — it assembles
    and validates **in memory** and writes nothing, so it is safe every iteration
    (`export_crate`/`build_crate` is the only disk-writing step; see §5 for how
-   often each arm calls it)
+   often the loop calls it)
 2. Fix base RO-Crate issues first (structural integrity)
 3. Then iterate on ISA issues
 4. Then iterate on ISA-Tox issues
@@ -335,11 +330,10 @@ fixing ISA-Tox issues until the crate builds. The agent should:
 This avoids the common pitfall of perfecting one entity type before verifying
 the crate can assemble at all.
 
-### 4.2 Core Components (shared by both build arms)
+### 4.2 Core Components
 
-The components both build arms drive. ("Pipeline" is reserved for the
-deterministic build arm and its composition, §14 — these modules are shared, not
-arm-specific.)
+The components the ReAct loop drives, through the toolbox (§5) and the
+initialization that runs before it (§1).
 
 #### 4.2.1 Scanner (`builder/tools/scanner.py`)
 Examines an input directory (or zip archive) and builds a raw file inventory
@@ -406,7 +400,7 @@ retry never trip it.
 Two questions about the same file, answered once and read by everything. The
 line-level rules and the fixture measurements behind them live in the module's
 docstrings (`classify_file`, `classify_scanned_files`, `_allocate_slots`,
-`_fair_shares`, `_context_body`); what follows is what must hold.
+`_fair_shares`); what follows is what must hold.
 
 **What a file IS — one classification, four values** (#591). `classify_file`
 returns exactly one of `metadata` / `protocol` / `raw_data_file` /
@@ -456,90 +450,45 @@ extension or directory sets it apart.
 Which file is the design table is **not** what a file IS, and is deliberately not
 folded into the classification: the same content is `metadata` as
 `plate_map.csv`, `raw_data_file` as `conditions.csv`, and `processed_data_file`
-when it carries the measured value alongside the design. The spine asks the rows
+when it carries the measured value alongside the design. The rows are asked
 instead, through `data_content.condition_table_fit` — a well key AND columns that
-map onto the canonical schema. That is the same predicate
-`populate_condition_table` must satisfy to write anything, so what is detected and
-what is writable cannot disagree.
+map onto the canonical schema. That is the predicate `populate_condition_table`
+must satisfy to write anything.
 
 Consumers: `composites._deposited_outputs` / `_deposit_evidences` (§5, *Derivation
 Chain Tools*), `provenance.attach_files` (which stamps it as the File's `role`
-unless the caller names one), the pipeline spine's `_attach_scanned_files`, the
-ReAct gap engine, and the maturity report's "data files included" row.
+unless the caller names one), the ReAct loop's `open_items`, and the maturity
+report's "data files included" row.
 
 `File.role` is the *stamp*, not the classification. It is free text — `draft_file`
-records whatever the agent passes, and the spine stamps `raw_data`/`processed_data`
-labels that a resumed session then carries for the rest of its life. A reader
+records whatever the agent passes, and a resumed session carries whatever was
+stamped for the rest of its life. A reader
 deriving a class from it therefore accepts only a value in `FILE_CLASSES` and
 classifies the file otherwise; **nothing may take the field at its word.** The role
 never reaches the crate in any case — `_crate_mapping` drops it, as it is absent
 from the RO-Crate `@context`.
 
 **What reaches the prompt — ranking.** `discover_documents` screens and ranks
-readable documentation into a bounded context, reusing the previews classification
-already read. It reports `kind` (descriptor / tabular / narrative / opaque)
-alongside the classification, because form decides how a file is *rendered* — a
-data table contributes its shape, prose contributes its text — and the two
-questions have different answers for the same file. The cap is stated in the
-context rather than applied silently (#587).
+readable documentation, reusing the previews classification already read. It
+reports `kind` (descriptor / tabular / narrative / opaque) alongside the
+classification, because form and function are two questions with different
+answers for the same file. `MAX_DOCUMENT_CANDIDATES` is the only cap on the ranking
+(#675): the ReAct loop lists every ranked candidate — its class, its path relative
+to the input root and its score — as a numbered markdown list, which is also the
+user-facing reply, and takes its membership from the ranking rather than
+re-deciding what fits. A file the agent is not told exists is a file it cannot read.
 
-Both the character budget and the slot cap are split **max-min fair**
-(`_fair_shares`), not spent in rank order: rank order lets a few long READMEs
-consume the whole ceiling and delete every cheaper entry behind them, and a file
-that is never named is a file the agent cannot read. A share too small to carry
-even the entry's `[kind/class] path` header buys nothing, so that entry is dropped
-and its share returned rather than emitted as a fragment.
-
-**The context leads with the deposit's SHAPE, then the sample (#599).** A ranked sample is only
-meaningful against what it is a sample of: 40 files of 1468 is 2.7% of a submission, and
-"1428 not surfaced" cannot tell a tail of 1352 instrument printouts apart from one hiding sixteen
-unread protocols. Since #591 every scanned file carries a classification, so the census is free and
-complete — it was simply discarded in favour of the count. `summarise_deposit` states the tally per
-class, then the folders that hold the files with their own tallies, and the "not surfaced" line is
-broken down the same way.
-
-The folder listing starts at `_branch_point` rather than the top: a submission is routinely one
-folder deep before anything differs (svhps22 puts all 1468 files under
-`study_01_TH-DNT_Tier1_NeuralCellLines/`), so listing the root reports one folder holding everything.
-Descend while there is exactly one child DIRECTORY, whatever files sit beside it. Everything not
-inside a listed folder — at the trunk and *above* it — is counted under `(top level)`, because the
-descent otherwise walks straight past the root descriptor, the one file that states the study's own
-identity: svhps22 showed 1467 of its 1468 files and said nothing about the one it dropped. The rows
-sum to the total, or the shape is a picture of a different deposit. A deposit that does not branch
-at all — flat, or a single deep chain — gets the tally and no tree. The tree is bounded to `_MAX_SHAPE_FOLDERS` with the remainder stated,
-and is omitted entirely below `_MIN_SHAPE_BRANCHES`: a tree of one limb repeats the tally above it,
-and a census must never be longer than the file list it summarises. It is charged to the same
-character budget, taken off the top, and bounded by construction so it cannot crowd out the
-documents it exists to introduce.
-
-**Both arms render through `format_document_context`, and the cap has one home (#675).**
-None of the above reached a model for a while: the engine built the bounded context and
-used the string for its LENGTH in a log line, while each arm re-rolled its own from
-`state.documents` and sliced it to a hardcoded `[:20]`. Measured on S-VHPS22, discovery
-produced 40 candidates balanced 13 metadata / 13 processed / 12 protocol / 2 raw and the
-pipeline sent 26 587 characters — against an 18 000 budget — carrying 4 / 13 / **1** / 2.
-The budget, the header guard and #595's allocation all stopped at the engine. So
-`MAX_DOCUMENT_CANDIDATES` is the only cap, `DocumentationCandidate.from_dict` turns the
-stored dicts back into candidates, and a renderer that wants a different PRESENTATION
-(the ReAct arm's numbered markdown list, which is also the user-facing reply) still takes
-its membership from the same ranking rather than re-deciding what fits.
-
-**The slots are allocated the same way, over the classification (#595).** The cap is
+**The slots are allocated over the classification (#595).** The cap is
 the agent's whole view of the submission, and it used to be spent on one axis — "how
 document-like is this?" — over a population #591 can classify into four, so whole
 tiers vanished: svhps26 named 14 interchangeable plate readouts and *none* of its 8
 GraphPad analysis files, each carrying a kilobyte of readable content. Every class
-present now takes a floor, so a tier is never wholly absent, and the surplus goes
-through the same `_fair_shares`. `raw_data_file` takes its floor and stands out of
-the redistribution — #598 established it is the one tier whose members are
+present now takes a floor, so a tier is never wholly absent, and the surplus is
+split **max-min fair** (`_fair_shares`), not spent in rank order.
+`raw_data_file` takes its floor and stands out of the redistribution — #598 established it is the one tier whose members are
 interchangeable, so a sixth gamma-counter printout says nothing the first five did,
 while a sixth protocol is a different experiment — but it still absorbs whatever the
 other classes leave unspent, because an empty slot helps nobody.
-
-The 40 slots and the 18 000-character budget are one trade, not two: at 40 slots a
-smaller budget squeezes every entry down to "more files named, each saying less",
-and the class floor is what stops the extra slots going to more of the same
-instrument output.
 
 #### 4.2.3 Entity Drafters (`builder/tools/drafters.py`)
 Generate metadata entities from files, conversation, or existing metadata.
@@ -765,6 +714,83 @@ score — porting DSM-1-C1 and DSM-1-R0 as-is lifts twelve crates a level for fr
 so **a migration ships with a real crate that fails it, and published scores are
 expected to go down** (#670).
 
+#### 4.2.7 Build-Path Wiring Contracts (`builder/tools/_crate_mapping.py`)
+
+A single `scaffold_isa_backbone(...)` call yields a crate that passes base and ISA
+with zero issues. It fails ISA-Tox on one finding: the Investigation MUST include an
+Exposure its root reaches (#781), and only the deposit's evidence can supply one. The
+finding names no property, so no field answers it.
+A richer build must additionally honour three **conditional Violation traps** — the
+build-path *wiring contract* — which fire only when the relevant entities exist
+(document for callers):
+
+1. A `PropertyValue` named `DOI`/`PubMedID` is SHACL-duck-typed and MUST carry
+   `propertyID` as an **`@id` IRI node** (the OBI IRI: `DOI`→`OBI_0002110`,
+   `PubMedID`→`OBI_0001617`). `draft_property_value` defaults the IRI by name and
+   `@id`-wraps it — a bare string literal is a Violation.
+2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
+   (unlike TestSystemPreparation/Exposure); a process with no explicit output fires a Violation.
+   `draft_process_chain` closes it from the DEPOSIT (raw files → the readout,
+   processed → the analysis), and `attach_files` completes any step still unwired.
+   When the deposit holds no such file the Violation is **left to fire** (#592):
+   this trap is closed with evidence or reported, never with a manufactured file.
+   A step nothing evidences at all — neither data nor a procedure document — is
+   not drafted: a crate with no evidenced Exposure fails ISA-Tox (#781) rather
+   than asserting an experiment it cannot show.
+3. What an `Exposure` executes MUST name at least one test or control compound
+   (`MolecularEntity`) as a `reagent` (D17). The build writes the reagents from the
+   step's `chemicals`, so the finding is answered there: its fix hint names
+   `chemicals` (`validation.answering_field`), never the `executesLabProtocol`
+   SHACL reports. No code can supply a compound the deposit does not name, so an
+   Exposure whose chemicals were never recorded is **left to fire**.
+
+The first two are code-fixable; the third is the user's to answer.
+
+**Fidelity beyond validity — deterministic build-path wiring, not new LLM tools.**
+Reproducing the richer structure of a real gold crate is done through `_crate_mapping`
+wiring rather than LLM tools (D5 — identifiers come from lookups or the value is
+dropped, never fabricated):
+
+- **Identifier PropertyValues** — Person `orcid` → ORCID PV; MolecularEntity
+  `cas`/`pubchem_cid` → `[CAS, PubChem CID]`; DOI/PubMed `propertyID` as OBI `@id`
+  IRIs; `Person.affiliation` / `Publication.author` resolved as `{@id}` references.
+- **Reference wiring** — root `funder` → Organization, root `about` → the DataAnalysis
+  LabProcess, Assay `measurementMethod` → BAO `DefinedTerm`, and the hasPart-family
+  aliases re-emitted as resolved File refs nested under the assay.
+- **CSVW payload** — the full Exposure condition table. Nothing is appended to an
+  EndpointReadout: its result is the deposit's raw tier (#589), never a manufactured
+  table standing beside it.
+- **Characteristics/properties** — CellLineSample `organ`/`tissue` and LabProcess
+  `additionalProperty` as PropertyValue characteristics, and source-code co-typing
+  (`@type:[File, SoftwareSourceCode, LabProtocol]`, from the extension;
+  `schema:programmingLanguage` when the caller names it).
+
+AOP pathways and publications-with-authors are drafted by their own composites
+(`resolve_aop`, `draft_publication_with_authors`). Root
+`releaseDate` / `dateModified` are set through `set_crate_metadata` and emitted
+**only when explicitly supplied** — never guessed (D5); `datePublished` is auto-set
+by ro-crate-py at crate construction, so the builder never sets or fabricates it.
+
+#### 4.2.8 Deposit Structure (`builder/tools/deposit_structure.py`, `builder/agents/structure.py`)
+
+The deposit's studies and assays, read from its folder tree once, before the loop
+starts (`build.read_deposit_structure`, #852). The tree is summarised
+deterministically (one line per folder to depth 4, files counted by classification,
+document and data names, the README excerpt the ranking read), one drafter-tier call
+labels it as studies of assays (`structure.derive_deposit_structure`, §4.4.5), and
+the labelling is kept only when fixed checks accept it: every named folder holds a
+scanned file, no assay lies inside another, every assay lies inside its study, at
+least one assay. A folder of documents alone is still an assay (S-VHPS27 deposits its
+assays with the data to follow). A failed check, a model error or no provider stores
+the fallback — one study, one assay, at the root — and either way one line says what
+the deposit was read as. The call takes the run's `ModelOverrides` and `UsageSink`
+from its caller, so `--model X` pins it and its tokens reach the same profile ledger
+the ReAct model node writes (#399, #608). The structure rides in
+`CrateState.deposit_structure` and the session, so a resumed build keeps it. The
+build reads it for the folder a Study or an Assay is identified by (D13), so the
+validation fingerprint covers it; it mints no Study and no Assay — drafting those is
+the agent's.
+
 ### 4.3 External RO-Crate Packages
 
 This project builds on the existing RO-Crate Python ecosystem rather than reinventing crate assembly, validation, or entity models:
@@ -779,9 +805,8 @@ These packages are imported directly — we do not fork or vendor them. Version 
 
 ### 4.4 Agent Graph (LangGraph / StateGraph)
 
-> This section describes the **ReAct variant** (the `--interactive` default;
-> `--react` names it explicitly), one of the two first-class build paths (§14).
-> The deterministic pipeline (`--pipeline`) is described in §14.
+> This section describes the ReAct loop, the build `main.py --interactive` runs
+> (D15); §4.4.6 describes its entrypoint, `run_build`.
 
 The agent loop uses an **explicitly constructed StateGraph** built by `_build_agent_graph()` in `builder/agents/react/agent_loop.py`. This replaces the earlier `create_agent()` factory pattern (Issue #37), giving us full control over node names, routing logic, and middleware integration.
 
@@ -882,9 +907,10 @@ orchestration node while a cheap model does the bounded drafting work, without
 any change to the graph topology.
 
 Construction is centralised in `_build_chat_model(provider, model, base_url,
-max_retries, role, timeout, streaming)` (`builder/agents/llm.py`) — shared code
-that **both** build arms import, so a change made "for ReAct" also lands on every
-pipeline drafter leaf. An explicit `model` argument wins over role-based
+max_retries, role, timeout, streaming)` (`builder/agents/llm.py`) — shared by the
+ReAct model node and the bounded drafter call that reads the deposit's structure
+(§4.2.8), so a change made "for ReAct" also lands on that call. An explicit `model`
+argument wins over role-based
 resolution; otherwise `role` selects the tier:
 
 - `role="orchestrator"` (default) → the primary model
@@ -903,12 +929,12 @@ construction path.) **Default = single model:** when no drafter model is set,
 `role="drafter"` resolves to the same primary model as the orchestrator, so
 behaviour is identical to a single-model setup — a strict no-op.
 
-The tier is bound in production by the deterministic pipeline: every drafter leaf
-in `builder/agents/pipeline/leaves.py` builds its model with `role="drafter"`
-(§14.4), so setting `VITRO_OPENAI_DRAFTER_MODEL` changes the model behind each
-bounded extraction call. The ReAct arm's `draft_*` tools
-(`builder/tools/drafters.py`) are not on the tier — they are pure state mutations
-(see *Entity Drafters* above), so the ReAct arm spends nothing on it.
+The tier is bound in production by one call: `builder/agents/structure.py` builds
+the model that labels the deposit's folder tree with `role="drafter"` (§4.2.8), so
+setting `VITRO_OPENAI_DRAFTER_MODEL` changes the model behind that bounded call. The
+`draft_*` tools (`builder/tools/drafters.py`) are not on the tier — they are pure
+state mutations (see *Entity Drafters* above), so the loop itself spends nothing on
+it.
 
 **OpenAI reasoning models (`gpt-5.x`, `o`-series).** These reject a non-default
 `temperature` and cannot bind function tools on `/v1/chat/completions` (the API
@@ -925,8 +951,7 @@ back to the standard `temperature=0` path.
 `VITRO_TEMPERATURE` applies to **both** providers, resolved once in
 `_resolve_temperature()` (#402). It previously read on the OpenAI path only while
 the Anthropic branch hard-coded `temperature: 0`, so a temperature sweep on
-Anthropic silently did nothing — and an A/B asked to compare two architectures at
-one temperature was comparing two temperatures. Blank/whitespace reads as unset
+Anthropic silently did nothing. Blank/whitespace reads as unset
 (matching `VITRO_OPENAI_REASONING_EFFORT`); a non-numeric value raises rather than
 resolving to 0, because a silently-ignored control is the defect this fixed. A
 Responses-API reasoning model still receives no temperature at all — "no opinion"
@@ -939,7 +964,113 @@ upgrade the orchestrator only if failures are reasoning/recovery-shaped
 (looping, mis-sequencing), not malformed output (which schemas + SHACL already
 catch). Guardrails are a one-time cost; a stronger model is recurring per token.
 
+#### 4.4.6 The Build Entrypoint (`builder/agents/build.py`)
+
+`run_build(engine, *, provider=None, model=None, base_url=None, output=None,
+resumed=False, initial_prompt=None, verbose=False, interactive=True)` is what
+`main.py --interactive` and the eval harness call (D15). It reads the deposit's
+structure once (§4.2.8), names the build on the generator record
+(`generator.architecture = "react"`, `ARCHITECTURE`, #772) — before the loop starts,
+because the loop exports from inside itself — and hands the engine to
+`run_interactive_agent` (`builder/agents/react/agent_loop.py`), which returns
+`{"stop_reason": ...}`. `interactive=False` is the caller's statement that nobody can
+answer (the eval): the seeded turn and its autonomous continuation are then the whole
+session, ended the way Ctrl+D ends it.
+
+**Session provenance is passed, never inferred (#410).** `resumed` states whether
+the run was loaded from a saved session (`--resume`) or started fresh. Only the CLI
+knows: `engine.initialize(--input)` populates `scanned_files` — and the drafters may
+populate entities — before the loop begins, so a populated `CrateState` is *not*
+evidence of a resume. Anything that branches on resume-ness (the session banner's
+title, the ReAct greeting prompt and its offline fallback) takes this flag;
+`ui.print_resume_summary(engine, *, resumed)` makes it a **required** keyword so no
+call site can quietly re-derive it from state content. Content emptiness still
+decides whether the banner appears at all — that is a separate question from where
+the content came from.
+
+**The loop needs a kickoff (#412).** The ReAct loop's greeting invoke sits *outside*
+the autonomous-continuation loop (§4), which is keyed on a user message — so the
+loop greets and then blocks on stdin having done no work. `initial_prompt` seeds
+that first turn in place of the first stdin read; blank is treated as absent, and
+control passes to the ordinary autonomous loop immediately afterwards. The CLI
+supplies it whenever an input folder is given (`build.DEFAULT_INSTRUCTION`, unless
+`--prompt/-P` says otherwise; #846): a folder on the command line already says what
+to do. Without a folder the session waits for a first message: it is a conversation.
+
+**The on-disk export (#233, #287).** `export_crate` (`builder/tools/builder.py`) is
+the only disk writer, and the loop must never depend on the model *choosing* it.
+`_auto_export_after_build` in `builder/agents/react/agent_loop.py` fires after a
+`build_and_validate` that passes **base** conformance over a non-empty crate, calls
+`export_crate` with no explicit path, stamps `_EXPORTED_FLAG` and surfaces the
+absolute crate path; `_finish_backstop` (#251) builds and exports on the quit/EOF
+exit path. The destination is resolved by `export_crate` from
+`state.metadata.output_path` (the CLI-resolved path, see below) with the session
+`working_crate/` fallback. An export failure is never silently swallowed: it is
+logged and surfaced, and the exit backstop tries again. The auto-export is
+idempotent via `CrateState.export_fingerprint()` — a **content** hash over entities
++ crate metadata + the scanned-file inventory — so it re-exports exactly when the
+crate changed and an unchanged repeat build is a no-op. The fingerprint must be
+content, **never an entity count** (#380): a count is invariant under every
+field-level tool the agent is told to use for the rest of the session
+(`set_fields`, `set_crate_metadata`, `fix_required_issues`, `link`), so counting
+keeps all of that work off disk — see the `export_fingerprint` docstring.
+`export_fingerprint()` is strictly **wider** than `validation_fingerprint()` because
+`export_crate` packages scanned files (`include_all_scanned=True`) the validation
+path never sees, and `validation_fingerprint()` must stay narrow or the #155
+debounce stops hitting. `_finish_backstop` gates on the same fingerprint rather than
+on "something exported this session": it is the last chance to catch a crate that
+changed after its auto-export, and it stamps the fingerprint too so the two exit
+paths (quit and EOF) cannot double-export.
+
+**Console notices are user copy (#813).** An interactive session routes every log
+record at INFO or above to the console as a dim `·` line (`main.py` installs
+`ui.NoticeHandler` at INFO), so such a record is written for the person running the
+build: plain English, with no issue numbers, hedged plurals (`file(s)`) or module
+tags, and a count after a label (`Files attached: 91`). What only a developer needs
+is logged at DEBUG and shown with `-v`. `tests/test_log_lines_are_user_copy.py`
+holds the rule.
+
+**Output location (CLI, `main.py`).** The on-disk destination is resolved at
+dispatch time with this precedence (#233, #315):
+
+1. `--output` / `-o` always wins (sets `state.metadata.output_path`);
+2. `--output` omitted **and** `--input` given => **`output/<name>_crate`**, versioned
+   `_v2`/`_v3`… on re-run (`_default_output_dir`), where `<name>` is the input folder
+   name with a trailing `_extracted` stripped. This keeps builds under a dedicated
+   `output/` tree instead of writing an `<input>-ro-crate` sibling (which polluted a
+   curated input tree like `input/raw/`). Payload is materialized, so each version is
+   self-contained;
+3. no `--input` (conversation mode) => leave `output_path` unset so `export_crate`
+   falls back to the session `working_crate/` directory.
+
+**The interactive signal.** "Interactive vs headless" is read from a single,
+optional `HumanInterface.is_interactive` attribute via the fail-closed helper
+`builder.tools.hitl.is_interactive(human)`: a `None` interface, one that omits the
+attribute, or one that sets it falsy is **non-interactive**; only a frontend
+backed by a real user sets it `True`. The default `SimulatedHumanInterface`
+(used by the eval, batch runs, and the test suite) is `is_interactive = False`, so
+behind it nothing waits on an answer nobody can give: a scan-root escalation is
+denied and the loop's RECOMMENDED/OPTIONAL validation escalation is never offered
+(D9). This gate is also why `--smoke-test` needs its own `SmokeTestHumanInterface`
+(§8) rather than reusing the simulator: to exercise the loop's questions an
+interface must report `is_interactive = True`, and the simulator reports `False` by
+design.
+
 ## 5. The Agent Toolbox
+
+> **Tool-registration contract:** every new LLM tool must be registered in **four**
+> lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
+> catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`). The
+> `TOOL_REGISTRY` ⇄ `TOOL_SPECS` half is enforced automatically (#327): the parity
+> contract in `tools_spec.py` — `expected_tool_spec_names()`, the shared registry plus
+> a small, *documented* set of engine-routed tools (`_LLM_TOOLS_OUTSIDE_REGISTRY`) —
+> is checked at runtime by `assert_tool_spec_parity()` when the ReAct loop builds its
+> tools, and in CI by `tests/test_tools_spec.py`. A registered tool with no schema, or
+> a schema advertising a tool the engine cannot run, fails fast in either direction.
+> A genuinely engine-routed tool (present to the LLM but not in the registry) is
+> declared once, in `_LLM_TOOLS_OUTSIDE_REGISTRY`. That parity assert is also the
+> toolbox's *reachability* guard — an advertised tool is one the model can always
+> reach.
 
 ### File Tools
 *The scanner/sampler triad and the archive tools below are engine-routed — the
@@ -1055,8 +1186,8 @@ available (`cas` → `inchikey` → name) — and stores the EPA **DTXSID** on t
 entity when found, so the build appends it as a third `DTXSID` identifier
 PropertyValue after `[CAS, PubChem CID]`. It is D5-safe (the value comes straight
 from CompTox, never fabricated) and **non-fatal** — a CompTox miss or outage never
-sinks an already-resolved compound. `resolve_compound` is the deterministic arm's
-ONLY producer of DTXSID, so dropping the CompTox call drops the identifier.
+sinks an already-resolved compound. No other composite produces a DTXSID, so
+dropping the CompTox call drops the identifier.
 Looked-up identifier fields win over same-named caller `hints`. **Dedup is
 by resolved chemical IDENTITY, not by name** (Issue #179): after a successful
 lookup it computes an identity key in priority order `pubchem_cid` → `inchikey` →
@@ -1075,7 +1206,7 @@ identifiers; of each later one only the name is written, as an `alternateName`;
 and a reference to either reaches it.
 
 `resolve_cell_line` (Issue #372) is the cell-line counterpart of
-`resolve_compound`, and the deterministic arm's **only** name→Cellosaurus path.
+`resolve_compound`, and the composite name→Cellosaurus path.
 Minting a cell line straight through `draft_cell_line_sample(name=…, hints={})`
 skips the lookup and leaves the crate with no accession at all. Two steps, both
 Cellosaurus: (1)
@@ -1104,11 +1235,7 @@ named cells as a `Sample` that `derives_from` it and states its own `cell_type`,
 `TestSystemPreparation` step of its own from that line: `draft_process_chain`
 lets preparation steps that each name their `cell_line` run side by side and
 hands what all of them made to the next step, and the build writes a Sample's
-characteristics like a cell line's. The pipeline does the same from the plan,
-whose `cell_lines[]` carry `made_from`; two differently named entries that give
-one `catalog_name` are read as two populations of that line, since they cannot
-both be it (`_lines_cells_were_made_from`, `_prepare_populations`). Without
-`made_from`, two names that resolve to one accession are still one line under two
+characteristics like a cell line's. Without `made_from`, two names that resolve to one accession are still one line under two
 names **unless they state different cells** (`cell_type`, `tissue`, `organ`):
 then nothing is merged or overwritten, the second is kept as a source of its own
 without the accession, and the result's `fix` says to resolve both with
@@ -1118,15 +1245,14 @@ line does (`resolve_characteristic_terms`).
 
 **A miss is NOT a failure** — the one deliberate divergence from
 `resolve_compound`, which returns `{ok: False}` and mints nothing. A
-`CellLineSample` with only a name is a valid ISA Sample and is what the arm
-produced before this composite, so returning `{ok: False}` would delete the cell
+`CellLineSample` with only a name is a valid ISA Sample, so returning
+`{ok: False}` would delete the cell
 line from every crate whose line is not catalogued, taking the
 `TestSystemPreparation.cell_line` input and the Study's `cell_lines` mention with it.
 **Always mint; the accession is enrichment** — hence no `ok` key: read
 `accession` / `match`. `name` stays the name **as the source documents word it**;
-the Cellosaurus label goes to `alternateName`. The plan's short `catalog_name`
-(a catalogue *name* is a name, so it is D5-clean and `_strip_plan_identifiers`
-leaves it) is what lets a descriptive phrase such as "FRTL-5 TPO-overexpressing
+the Cellosaurus label goes to `alternateName`. The short `catalog_name`
+(a catalogue *name* is a name, so it is D5-clean) is what lets a descriptive phrase such as "FRTL-5 TPO-overexpressing
 rat thyroid follicular cells" reach CVCL_0265 at all; one shaped like an
 accession is **refused**, as is any identifier-bearing `hints` key, so every id
 it commits came back from Cellosaurus inside the call. Idempotency lives in the
@@ -1172,14 +1298,12 @@ its place the same way, so primary cells state "Homo sapiens" as the term every
 cell line states. Without a confirmed term the word stays.
 An unreachable service is no answer: the word is
 reported `unavailable` and asked about again on a later call. The composite runs
-at the end of `resolve_cell_line`, for what that call was told; once in the
-pipeline spine after the drafter (§14, step 4) and once more when the question
-round ends, for what a person answered; and as a tool of its own for a value the
-agent sets later.
+at the end of `resolve_cell_line`, for what that call was told, and as a tool of
+its own for a value the agent sets later.
 
 `resolve_publication` (Issue #179) is the citation counterpart of
-`resolve_compound`, closing the gap PR #217 deferred: a plan carries a
-publication *title* only (D5 — no DOI), but ISA REQUIRES a `ScholarlyArticle` with
+`resolve_compound`: a source often names a publication by its *title* only
+(D5 — no DOI is guessed from it), but ISA REQUIRES a `ScholarlyArticle` with
 an identifier (and BASE requires the auto-wired root `citation` `@id` to be an
 absolute URI) — both unreachable from a title alone. From the single
 model-supplied `title` it (1) runs a Crossref `query.bibliographic` title-search
@@ -1192,8 +1316,8 @@ normalized-title near-exact match (token-overlap threshold), so a high score on 
 is never fabricated from a title); (3) on a confident match delegates to
 `draft_publication_with_authors(doi=…)`, reusing its DOI→`ScholarlyArticle`+authors
 path (the ORCID cascade is handled there). It is idempotent (keyed by the resolved
-DOI). It is invoked by code (materialize / guidance), not chosen by the weak
-model, but is registered four-place for consistency with `resolve_compound`.
+DOI). It is registered four-place like `resolve_compound`, so the agent calls it
+with the title a source states.
 
 `draft_publication_with_authors` (Issue #180, deferred item) is the citation
 counterpart of the composites above and the **only engine-routed, HITL-capable
@@ -1234,8 +1358,8 @@ Violation): the ORCID record's `affiliation_name` (+ `affiliation_ror`) is
 find-or-drafted into an Organization (preferring the ROR so its `@id` resolves to
 the ROR IRI; D5 — a ROR is set only when the lookup returns one, never fabricated)
 and the Person's `affiliation` is wired to that Organization's `@id`. An
-affiliation that comes without a ROR id — on the ORCID record, on a paper's author
-line, or in the pipeline's plan — takes the id and the displayed name of the ROR
+affiliation that comes without a ROR id — on the ORCID record or on a paper's
+author line — takes the id and the displayed name of the ROR
 record that registers exactly that name (`registered_organization`, over
 `lookups.ror.find_registered`): its displayed name, a label or an alias, compared
 without case, accents, punctuation or connectives, never an acronym, and only when
@@ -1275,7 +1399,7 @@ writes exactly the characteristics the specification lists for source cells, und
 names and terms, and a test holds the two lists to each other. They are characteristics of
 a source of cells only: the same field on a chemical stays that chemical's own. Donor
 `sex` is the BioSample's own property. The hint schema names every one of them, which is
-how the agent and the pipeline's drafter learn that a source can state it. A `LabProcess`'s
+how the agent learns that a source can state it. A `LabProcess`'s
 `additionalProperty` field is likewise resolved to its in-state PropertyValue
 reference(s) at build time (gold `#report_analysis` → `[#pv_repro_score]`) — only
 PropertyValues already present in state (or bare IRIs) are wired; a score is never
@@ -1404,7 +1528,7 @@ step dicts (`process_type` + optional `hints` + optional explicit `object` /
 work) and steps are always wired in the canonical order regardless of input order,
 so a weak model cannot mis-sequence the provenance. Each producing step's output
 is threaded into the next step's input, so the chain is fully connected and
-referenceable. **Its load-bearing job (§14.3):** `EndpointReadout`/`DataAnalysis`
+referenceable. **Its load-bearing job (§4.2.7):** `EndpointReadout`/`DataAnalysis`
 have **no build-time output fallback**, so a process with no explicit `result`
 (and, for DataAnalysis, no `object`) fires a tox REQUIRED Violation. The composite
 closes that trap, but **asks the deposit first** (#589): the scanned files
@@ -1467,11 +1591,7 @@ the EndpointReadout names it under `reagents`: the build lists it as a `reagent`
 the protocol the readout executes, while `substrate` stays the name as stated, the
 step's `Substrate` parameter. `link(readout, input, compound)` lands there
 (`provenance._PROCESS_LINK_HOMES`), and a compound a readout holds is used, so the
-export does not wire it onto the Exposure. The plan marks one with
-`compounds[].role = "substrate"`. An exposure applies something, so where the
-crate has an Exposure, a plan that names no test compound says its substrate is
-what the cells were exposed to: only then does the pipeline keep it the Exposure's
-chemical as well. A substrate that neither step holds is not resolved.
+export does not wire it onto the Exposure.
 **Requires:** an existing `assay_id` + each step's
 `process_type`. **Reads from the deposit (before synthesizing):** the raw /
 processed files that are the step's real output. **Synthesizes:** only a
@@ -1591,12 +1711,10 @@ an unverified per-value mapping (D5, #408). The guard is per-column — a
 single-compound plate keeps its claim; a multi-compound one loses only `compound`.
 Per-value entity mapping is out of scope. It targets the
 exact path the build wires (`_crate_mapping._condition_table_rel`), so the #94
-CSVW typing (`tableSchema`) stays attached to the populated table. The companion
-bridge `data_content.csvw_to_frictionless(_CONDITION_TABLE_COLUMNS)` converts
-those CSVW column descriptors into the Frictionless `{fields:[...]}` shape (the
-single source of truth — `_CONDITION_TABLE_HEADER` is also derived from the
-column constant, so the placeholder header and the typed schema cannot drift),
-so `validate_table` needs no hand-authored schema for the populated table.
+CSVW typing (`tableSchema`) stays attached to the populated table.
+`_CONDITION_TABLE_HEADER` is derived from the same column constant
+(`_CONDITION_TABLE_COLUMNS`), so the placeholder header and the typed schema
+cannot drift.
 
 An `EndpointReadout`'s results are the files it measured, and nothing is appended
 to them. **The deposit decides what a step produced** (#589): `raw_data_file`s
@@ -1654,8 +1772,8 @@ Which pass costs most is crate-dependent and NOT tox by default: on a real
 save time is therefore backwards on a large crate. The three passes mirror
 `profiles/validator.validate_crate`, fed the metadata dict instead of a path.
 
-`fix_required_issues` is the **deterministic repair loop** — the keystone of the
-§14 pipeline, and what maps a routed issue back to a *repair*. It runs
+`fix_required_issues` is the **deterministic repair loop** — what maps a routed
+issue back to a *repair*. It runs
 `build_and_validate`, dispatches each issue through a
 small, ordered table of issue-shape → repair rules (`builder/tools/repair.py`,
 `RepairRule`), then **re-validates** to confirm what actually cleared (it trusts the
@@ -1663,22 +1781,22 @@ validator's verdict, not a rule's optimism). A repair runs **only when the corre
 value is already determined by state**. Two symmetric rules are wired today:
 `missing_process_output` — an `EndpointReadout`/`DataAnalysis` missing its `result`
 where exactly **one** un-wired `File` already exists in state is auto-wired as its
-`result` via `link` (the §14.3 "no output fallback" trap); and
+`result` via `link` (the §4.2.7 "no output fallback" trap); and
 `missing_process_input` — a `DataAnalysis` missing its required `schema:object`
 (input) where exactly **one** free-floating `Sample`/`File` (one wired as no
 process input or output) already exists is auto-wired as its `object`. Anything
 needing **new content, a new entity, or a fabricated identifier — or a genuinely
 ambiguous target (2+ candidates) — is out of scope (D5)** and returned under
-`remaining` for a bounded LLM leaf. It is **idempotent and side-effect-safe**: if nothing is
+`remaining` for the agent. It is **idempotent and side-effect-safe**: if nothing is
 deterministically fixable it mutates nothing and returns every issue in `remaining`.
 It maps a validation focus-node `@id` (e.g. `./#LabProcess_er1`) back to its state
 entity by inverting `_crate_mapping._mint_id`. Each `fixed` item carries
 `{issue, rule, action}`; each `remaining` item `{issue, reason}`.
 
 `export_crate` is the **only** tool that materialises the on-disk RO-Crate
-directory (payload included). The deterministic pipeline calls it **once**, after
-guidance; the ReAct arm calls it **repeatedly** — automatically after every
-base-passing build, and again from the exit backstop — and
+directory (payload included). The ReAct loop calls it **repeatedly** —
+automatically after every base-passing build, and again from the exit backstop
+(§4.4.6) — and
 `state.export_fingerprint()` is what keeps the repeat idempotent. It is not
 the only tool that writes at all: `populate_condition_table` writes the condition
 table's CSV, `unzip_file` extracts an archive, and `save_session` persists the
@@ -1725,7 +1843,11 @@ assess_air_readiness()  → AIRReport
 All three score published instruments and share one shape: a tri-state verdict per
 item carrying the evidence behind it (`builder/tools/assessment_graph.Verdict`), read
 from the assembled `@graph` rather than from `CrateState` — the domain content exists
-only after assembly. An item the tool cannot assess from a crate is reported *not
+only after assembly. MIT coverage reads it through one matcher,
+`mit_assessment.slot_matcher` (#377), and a value the build synthesizes in the user's
+absence — the placeholder root name and description, the "licence not stated"
+entity — never counts as filled: the values are imported from the build's own
+constants rather than duplicated. An item the tool cannot assess from a crate is reported *not
 assessed*, never failed, and leaves the denominator of what was assessed — never the
 instrument's own. Where a published formula has no *not assessed* state, the report carries
 both numbers: `pct` over the criteria assessed, `published_pct` over every criterion
@@ -1814,22 +1936,14 @@ return `{"ok": False, "issues": [], "error": ...}`.
 **Invocation (Issue #409).** The layer cannot be reached through
 `build_and_validate`: that call takes `profile="all"`, `profiles/validator.py`
 accepts only `all|base|isa|tox`, and `DATA_CONTENT_PROFILE = "data"` sits
-deliberately outside that set. So the pipeline spine calls it directly —
-`_validate_populated_tables`, after `_run_fix_loop`, and **only when population
-actually landed rows** (the header-only placeholder #94 materialises is valid by
-construction). Its verdict is returned by `run_pipeline` under its own
-`data_issues` key and is **not** folded into `ok`: a cell contradicting its
-`tableSchema` is a different defect from a SHACL conformance failure, and merging
-them would make `success` in the eval harness mean two different things. It is
-kept out of the fix loop for the same reason — that loop terminates on
-`build_and_validate`'s `ok`, and `fix_required_issues` is keyed on SHACL rules
-and cannot repair a data cell.
-
-The `compound` / `cell_line` foreign-key allow-lists carry entity **names as well
-as ids**, because that is what the cells hold: `propose_condition_rows` writes
-`name` and falls back to `entity_id` only for an entity that has none, and a
-depositor's plate map names compounds the way a bench scientist writes them. An
-id-only allow-list would flag every row of a correct table.
+deliberately outside that set. So it is a tool of its own, `validate_table`, which
+the agent calls on a table that holds rows (the header-only placeholder #94
+materialises is valid by construction). Its verdict is **never** folded into
+`build_and_validate`'s `ok`: a cell contradicting its `tableSchema` is a different
+defect from a SHACL conformance failure, and merging them would make `success` in
+the eval harness mean two different things. It stays out of `fix_required_issues`
+for the same reason — that loop is keyed on SHACL rules and cannot repair a data
+cell.
 
 ### Verification Layer
 Checks that identifiers resolve at their source. Verification failures are REQUIRED — the identifier must be corrected or removed. Leaving a field empty is acceptable (shows up in MIT/FAIR scores but does not block).
@@ -1871,15 +1985,9 @@ sessions/<session_id>/
 ```
 
 ### When Saving Happens
-The pipeline saves at **phase boundaries**: after scaffold, after materialize, and
-after each `build_and_validate` in the fix loop. `run_interactive_build` then does a
-final `save_session(state, always_write=True)` after guidance + export, which
-bypasses change-detection so a populated overview and a resumable session are
-guaranteed written. Entity drafting is deliberately **not** a save point — the fix
-loop's first `build_and_validate` saves immediately after it, so a late-recovered
-identifier reaches `sessions/` either way; do not add one back. The ReAct arm saves
-through the agent-callable `save_session` tool and an end-of-loop autosave. There is
-no save on a HITL answer, and no context-limit trigger exists.
+The ReAct loop saves through the agent-callable `save_session` tool and an
+end-of-loop autosave. There is no save on a HITL answer, and no context-limit
+trigger exists.
 
 **Durability (Issue #53):** Session saves use an atomic-write strategy: write to a temp
 file in the same directory, `fsync` it, then `os.replace()` over the target. A SHA-256
@@ -1893,11 +2001,9 @@ to the agent loop, never silently swallowed.
    resumed session would otherwise lack because it bypasses `initialize()`.
 2. Unless `--output` is given, the restored `output_path` is versioned, so a
    resumed export never overwrites the crate the previous run produced.
-3. Both arms are told `resumed=True` explicitly — the caller's fact, never inferred
-   from how populated the state looks (#410) — and print the resume summary.
-4. The pipeline arm re-runs the spine (scaffold → materialize → draft → fix loop),
-   so validation is re-established from the crate itself. The ReAct arm prints a
-   resume panel whose next steps are derived from the crate's actual state:
+3. The loop is told `resumed=True` explicitly — the caller's fact, never inferred
+   from how populated the state looks (#410) — and prints the resume summary.
+4. The resume panel's next steps are derived from the crate's actual state:
    blocking issues first, then the next unmet step of the BASE → ISA → TOX climb,
    then export.
 
@@ -1958,13 +2064,13 @@ Three implementations ship in `builder/tools/hitl.py`:
 | `SmokeTestHumanInterface` | `True` | `main.py --smoke-test` | itself — see below |
 
 **`SmokeTestHumanInterface` (`--smoke-test`) is a TEST harness, not a frontend.**
-It exists so the interactive path — the guidance tail included — can be driven end
-to end with nobody at the keyboard: every `present` confirms the **pre-selected**
+It exists so the interactive path can be driven end to end with nobody at the
+keyboard: every `present` confirms the **pre-selected**
 choice (via the shared `_default_choice_index`, never a re-implemented "first
 option") and every `request_input` returns the literal `SMOKE_TEST_ANSWER`,
 `"yes, continue"`. It reports `is_interactive = True` *because that is the point* —
-the tail is gated on that one signal (§14.6.1), so the simulator cannot exercise
-it. Four rules bind the harness; the mechanism lives in the docstrings of
+the loop's questions are gated on that one signal (§4.4.6), so the simulator cannot
+exercise them. Four rules bind the harness; the mechanism lives in the docstrings of
 `builder/tools/hitl.py`, and the outcomes are pinned by
 `tests/test_smoke_test_mode.py`:
 
@@ -1984,20 +2090,14 @@ it. Four rules bind the harness; the mechanism lives in the docstrings of
   metadata would be fabricating metadata, which D5 forbids.
 - **`select_many` skips rather than picking a subset.** A multi-select has no
   pre-selection to confirm, so choosing one would be inventing an answer.
-- **`is_done()` is `False` unless a budget was given.** A mode that volunteered
-  "done" would return before asking anything, exercising nothing. Without a budget,
-  termination is left to `run_guidance`'s own guards (report exhausted / no
-  progress / `max_rounds`), which never depend on a cooperating frontend.
-  `--smoke-test MINUTES` gives the run a wall-clock budget: once it is spent
-  `is_done()` is `True`, and `run_guidance` consults it at the top of each round so
-  the run winds down between gaps (never mid-question) and exports what it has.
+- **The conversation is bounded.** The ReAct loop's conversational "what next?"
+  read goes through the `HumanInterface` (`CONVERSATION_FIELD_TYPE`) when the
+  answers are synthetic, so the harness answers it for a bounded number of turns
+  (`conversation_turns`) or, with `--smoke-test MINUTES`, until the wall-clock
+  budget is spent, then ends the session the way Ctrl+D does — between turns,
+  never mid-question — and the crate it has is exported.
 
-`--smoke-test` implies `--interactive` (normalised once, in `parse_args`) and
-**drives both arms**: the ReAct loop's conversational "what next?" read goes through
-the `HumanInterface` (`CONVERSATION_FIELD_TYPE`) when the answers are synthetic, so
-the harness answers it for a bounded number of turns (`conversation_turns`) or, with
-`--smoke-test MINUTES`, until the budget is spent, then ends the session the way
-Ctrl+D does.
+`--smoke-test` implies `--interactive` (normalised once, in `parse_args`).
 
 ## 9. Input & Output Formats
 
@@ -2166,10 +2266,6 @@ without weakening D5 (identifiers still come from the authority and are verified
 - **Bounded concurrency gate** (`_ResolveConcurrency`, default 4) admits only a
   few resolves at once, so a burst does not all storm PubChem and trip its rate
   limiter — complementing the per-host throttle, which spaces each request.
-- **Parallel prefetch** (`prefetch_compound_lookups`, #821): the pipeline fetches
-  every plan compound's lookups (PubChem, then CompTox by the key
-  `resolve_compound` uses) through that gate before its serial resolve loop, which
-  then creates the entities from warm caches. No state is written concurrently.
 
 > **Status: the shipped default no longer matches the bound stated below.**
 > `DEFAULT_RESOLVE_TIMEOUT` (`builder/tools/_resolve_cache.py`) is currently
@@ -2220,7 +2316,7 @@ The `scan_files` tool is restricted to directories the user has explicitly appro
 - A hard denylist (`scanner._is_forbidden_root`) refuses `/`, the user's home directory itself, `/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, and `/Volumes` even if explicitly present in `approved_roots`; it is also enforced in `engine._directory_to_approve` so a forbidden directory can never *become* an approved root. Legitimate subdirectories are unaffected.
 - `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (benign checkpoints still auto-approve).
 - `SmokeTestHumanInterface` (`--smoke-test`) is `is_interactive = True`, so unlike the simulator it *does* reach the `present` escalation — and **refuses a `scan_root` purpose outright, before any choice is consulted**. That refusal is stated in the class itself and deliberately *not* inherited from the console frontend's `deny_by_default` pre-selection: `_default_choice_index` falls back to the LAST option when no choice reads as a refusal, so a caller offering `["Show me the folder first", "Yes, allow this folder"]` turned the inherited rule into an approval. **An unattended mode must never be the approver for filesystem access**, so it is stated directly rather than inherited from a rule written for a human at a keyboard; `tests/test_smoke_test_mode.py` pins it, including the case where no option reads as a refusal.
-- The A/B eval is **no** exception: both arms meet the corpus behind the production `SimulatedHumanInterface`, and `eval/tests/test_arm_symmetry.py` asserts that neither arm's interface reports `is_interactive`. An eval-only interface must never claim `is_interactive = True`: beyond letting a scan-root escalation be approved, that signal also un-gates the ReAct loop's RECOMMENDED/OPTIONAL validation escalation, so one arm would silently pay for extra full SHACL sweeps.
+- The eval is **no** exception: the measured build meets the corpus behind the production `SimulatedHumanInterface`, and `eval/tests/test_headless_engine.py` asserts that its interface does not report `is_interactive`. An eval-only interface must never claim `is_interactive = True`: beyond letting a scan-root escalation be approved, that signal also un-gates the ReAct loop's RECOMMENDED/OPTIONAL validation escalation, so a measured build would silently pay for extra full SHACL sweeps.
 
 **Extended to read + write tools (#167).** The approved-roots boundary previously guarded only `scan_files`, so prompt injection could still escape it via the read tools (arbitrary local file read, e.g. `read_file('/etc/passwd')` or a secrets `.env`) and the export writer (a `..` traversal `dest_path`, or a symlinked source escaping the input tree). The fix adds one shared containment primitive, `scanner._contain(candidate, approved_roots) -> Path | None` (resolve realpath, reject when not inside any approved root, apply the `_is_forbidden_root` denylist, fail closed on empty/None roots), applied at three choke points: the read-tool dispatch in `engine.run_tool` (gates `read_file`/`read_excel`/`read_docx`/`read_file_sample`/`read_multiple_files`/`extract_pdf_text`/`preview_archive`/`unzip_file`), `_crate_mapping._file_dest` (contains `dest_path` under the crate output dir, else `data/<slug>`), and `_crate_mapping._file_source` (refuses sources whose realpath escapes `input_path`). The scanner read functions themselves stay unguarded so `scan_files` can still sample files internally; the gate lives at the orchestration layer.
 
@@ -2354,8 +2450,8 @@ someone else's data by a tool whose purpose is FAIR outputs. RO-Crate allows `li
 nothing, which is neither a grant nor a restriction. It satisfies the requirement, keeps the crate
 conformant, and is machine-readable: a consumer branches on the `@id` rather than string-matching
 prose. A licence the depositor *did* state always wins, and is emitted as a described entity when
-`describe_license` recognises it (never renamed when it does not). The gap engine and MIT scorer
-discount the entity by id, so an unstated licence never reads as filled — see §Gap Analysis.
+`describe_license` recognises it (never renamed when it does not). The MIT and FAIR scorers
+discount the entity by id, so an unstated licence never reads as filled.
 
 **Declared funding is read the same way, and the crate states it as a funder and a grant.**
 `extract_deposit_funding` reads who paid and under which grant number from the two conventions that
@@ -2403,7 +2499,7 @@ alone, and a declared funder is still written as it is declared.
   "the folder tree is the depositor's own statement of what the studies and assays are"):
   `dataset_folders` reads the labelling `deposit_structure` holds when the checks accepted it, and
   otherwise the deepest folder common to the files `attach_files` placed on the entity, except for
-  an Assay that holds every file of the deposit, as the pipeline's one Assay does; a folder counts
+  an Assay that holds every file of the deposit; a folder counts
   only if the scan saw it, never the deposit root, never one that holds a file placed on another
   Assay, and never one another Study or Assay takes or is nested with (an Assay before its Study).
   Such an entity is the directory Dataset at
@@ -2699,8 +2795,8 @@ address) the walk never visits is detached, whatever the profile could evaluate 
 something" is a weaker test an island passes, since it references its own members (#738). An entity
 named by an absolute URI is described here and lives elsewhere, the same line `verify_payload`
 draws, so it is excluded — except the pathway. `provenance_dag`'s orphan flag is undirected and is
-not this test. `fold_isa_reachability` runs it beside the ISA pass in `build_and_validate` and the
-gap engine; `isa_reachability_checked` records that it ran.
+not this test. `fold_isa_reachability` runs it beside the ISA pass in `build_and_validate`;
+`isa_reachability_checked` records that it ran.
 
 **Every finding folds out of the severity row it belongs to** (#510). Severity is the primary axis
 because it is the fix order — REQUIRED blocks the build, the advisory tiers do not — so a tier row
@@ -3028,24 +3124,16 @@ the channel that survives greyscale, print and colour vision deficiency, so **no
 share a glyph** — `TestCategoryRegistry` pins that, the palette separation, the contrast floor, and
 the generated-CSS coverage.
 
-### D15: Two Build Arms, the ReAct Loop as the Default
-The `--interactive` default is the ReAct loop (D1, §4); the deterministic pipeline
-(§14) is selected with `--pipeline`. The pipeline's case is **efficiency,
-predictability, and clean termination**, not raw capability — a capable model
-reaches SHACL conformance on either path, and the in-repo A/B (`eval/`) stands on
-that qualitative finding: the pipeline is cheaper per build and terminates on its
-own, where ReAct runs to a recursion cap. The ReAct loop is the default because it
-reads the deposit through tools, on demand, where the pipeline's one planning call
-must fit a deposit into one bounded context and its guidance tail asks for what
-that context did not carry. The success metric is profile conformance (base + isa
-+ tox) plus an entity-count quota — **not** scientific accuracy.
-
-> **No measured figure from that A/B is published here, and no figure from it may be
-> quoted until it has been re-measured on the fixed harness (#636)** — the
-> conformance result as much as the cost, token and wall-clock multipliers. The runs
-> predate the harness fixes in #609 and gave the two arms different environments;
-> the biases do not all point the same way, so the net direction is unknown until a
-> re-run.
+### D15: The ReAct Loop Is the Build
+There is one build: the ReAct agent loop (D1, §4.4), one orchestration over the
+toolbox (§5). The LLM decides the order of tool calls and reads the deposit through
+tools, on demand; code owns only what runs before the loop — initialization (§1) and
+one read of the deposit's structure from its folder tree (§4.2.8) — and the guard
+rails around it. `run_build` (§4.4.6) is its one entrypoint, for `main.py
+--interactive` and the eval harness alike, and the crate names the build that
+produced it on its generator record (`generator.architecture = "react"`, #772). The
+eval (`eval/`) measures it by profile conformance (base + isa + tox) plus an
+entity-count quota — **not** scientific accuracy.
 
 ### D16: ISA-Tox Specialization via Ontology Terms, Not `@type` Arrays
 
@@ -3113,187 +3201,6 @@ array; it does not forbid a node being genuinely two things:
 The domain type stays FIRST in every case: it is the specific, meaningful one, and
 the rest are what a generic consumer can follow.
 
-### D18: A crate claims the profile its study can meet
-
-ISA-Tox requires an Investigation to include an Exposure, so a study that exposes
-nothing (culture conditions, the characterisation of a cell model) cannot conform to
-it and must not claim to. `--profile isa` is the depositor saying so:
-`metadata.profile`, kept with the session, `isa-tox` unless stated. The claim decides
-three things, and nothing else decides them:
-
-- **what the crate states**: the root's `conformsTo` lists the ISA profile alone, and
-  the ISA-Tox profile is not described in the crate;
-- **what is judged**: `CrateState.layers` is what `profile="all"` means in every
-  validation call, so the verdict, the gap engine and the fix loop cover RO-Crate and
-  ISA. A pass asked for by name (`profile="tox"`) still runs;
-- **what is shown**: `CrateState.conformance()` reports the claimed layers, and the
-  report's matrix and cards, the TUI, the dashboard, the session status and the build
-  summaries list those layers and no other.
-
-The pipeline lays no Exposure step for such a crate, and the ReAct brief tells the
-agent there is none. The claim is never inferred from the crate: in an ISA-Tox build
-a missing Exposure is a gap the deposit has to answer (#781), and a crate that
-dropped the claim by itself would read as conformant exactly when its evidence is
-thinnest.
-
-## 12. Project Structure
-
-Where each component lives:
-
-```
-vitro-crate/
-├── AGENTS.md                    This file — authoritative system design
-├── CONTEXT.md CONTRIBUTING.md README.md
-├── .github/workflows/ci.yml     CI (ruff, ty, pytest on push/PR)
-├── pyproject.toml
-├── main.py                      CLI entry point — mode dispatch, output-path resolution (§14)
-├── profiles/                    Domain profiles + validation
-│   ├── context.py               JSON-LD context builder
-│   ├── validator.py             3-pass SHACL validation (base / isa / tox)
-│   ├── models/isa.py, tox.py    Entity classes
-│   ├── shapes/tox/              Custom tox-ro-crate SHACL shapes
-│   │                            (base + isa shapes ship with rocrate_validator)
-│   ├── contexts/               Vendored RO-Crate 1.1 / 1.2 JSON-LD contexts
-│   └── docs/
-├── lookups/                     External API clients
-│   ├── cellosaurus.py, pubchem.py, comptox.py, aopwiki.py, bao.py
-│   └── orcid.py, ror.py, crossref.py, iuclid.py, _http.py
-├── mit/invitro_tox.yaml         Minimal Information Table
-├── fair/                        FAIR indicators (RDA FDMM + FAIRplus DSM, vendored)
-├── air/                         Bridge2AI AI-readiness criteria (vendored)
-├── input/                       Example inputs
-├── builder/                     Core builder system
-│   ├── state.py                 CrateState dataclass
-│   ├── engine.py                AgentEngine — run_tool, gating, approved scan roots
-│   ├── config.py, pricing.py    Provider/model config; token pricing
-│   ├── tools/                   Tool implementations (the shared toolbox)
-│   │   ├── scanner.py, drafters.py, composites.py, management.py
-│   │   ├── lookups.py, verification.py, builder.py, validation.py
-│   │   ├── repair.py, gap_analysis.py, mit_assessment.py, fair_assessment.py
-│   │   ├── air_assessment.py, assessment_graph.py  Bridge2AI axis + shared verdicts
-│   │   ├── data_content.py, file_readers.py, hitl.py, session.py
-│   │   ├── document_discovery.py, file_descriptions.py, rehome.py, remediation.py
-│   │   ├── field_kinds.py        Shared field-kind vocabulary (both arms)
-│   │   ├── registry.py, _crate_mapping.py, dashboard.py, provenance.py
-│   │   ├── profiler.py, reachability.py, _resolve_cache.py
-│   │   ├── directory.py, existing_crate.py, metadata_files.py
-│   ├── writers/                 Output writers
-│   │   ├── rocrate_writer.py
-│   │   ├── provenance_dag.py     Entity-graph model + inventories (#130)
-│   │   ├── maturity_report.py    Maturity / FAIR HTML report
-│   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
-│   │   ├── entity_explorer.js   …its browser half (no build step)
-│   │   ├── entity_explorer_layout.js  …where its nodes go (#619)
-│   │   ├── explorer_inspector.js  …the panel and vocabulary both viewers share
-│   │   ├── assay_lane.py        Assay-lane section (#686)
-│   │   ├── assay_lane_view.js   …where one assay's nodes go
-│   │   ├── assay_lane_app.js    …its browser half: SVG, chips, folds, inspector
-│   │   ├── payload_codec.js  …the wire format its data island carries (#694)
-│   │   └── vendor/              Pinned UMD builds inlined into the report
-│   └── agents/                  Orchestration + LLM config
-│       ├── build.py             BuildMode switch + run_build dispatch; pipeline entrypoint (run_interactive_build)
-│       ├── llm.py               Shared model construction + usage mining, both modes (#309)
-│       ├── ui.py                Shared interactive UI: status bar, reply, banners, boxed prompt (both arms)
-│       ├── progress_spinner.py  Shared live progress spinner (both arms)
-│       ├── pipeline/            Deterministic pipeline mode (--pipeline)
-│       │   ├── pipeline.py        Pipeline spine (run_pipeline)
-│       │   ├── guidance.py        HITL guidance tail (run_guidance)
-│       │   └── leaves.py          Bounded LLM extraction leaves (drafter tier)
-│       └── react/               ReAct StateGraph mode (the --interactive default)
-│           ├── agent_loop.py      ReAct StateGraph loop
-│           ├── system_prompt.py   ReAct system prompt
-│           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM + the registry-parity contract (#327)
-├── eval/                        A/B eval harness (--arch react|pipeline)
-├── scripts/                     Developer tools (indicator/criteria generators, profile validator)
-├── docs/                        Profiling notes + agent docs (linked from §4, §5)
-├── sessions/                    Persisted sessions
-├── output/                      Built crates (versioned)
-└── tests/                       Test suite
-```
-
-## 13. Future Considerations
-
-Extension points the current design leaves open (not yet built): registering
-external **MCP** servers as additional tools (the toolbox is MCP-ready);
-**multi-user** provenance (the model is single-user today); a **Web API / frontend**
-over the builder library (FastAPI/Streamlit call in unchanged); runtime-loaded
-**custom profiles** (schemas are YAML); and **batch processing** (state is
-per-session, so parallel runs are straightforward).
-
-## 14. The Deterministic Pipeline & Guidance Loop
-
-The `main.py --interactive --pipeline` build is a **deterministic pipeline + HITL
-guidance tail** over the shared toolbox (§5): code owns the step ordering and the
-LLM is confined to bounded leaves. The ReAct agent loop (§4 "Agent Graph", the
-`--interactive` default) is the other first-class arm — §1 states the two-variant
-relationship and **D15** records what each arm wins and why ReAct is the default.
-This section documents the pipeline and its guidance tail.
-
-### 14.1 Decision
-
-The workflow orchestration lives in **code**, not the LLM system prompt: the
-sequence `scan → scaffold ISA backbone → materialize the plan → draft entities →
-build_and_validate →
-fix REQUIRED bottom-up → enrich → export` is control flow (§14.5), with the LLM
-confined to bounded leaves (§14.2) and a small agent for the conversational /
-unstructured-input tail. The defensible win is **cost, latency, reproducibility,
-testability, and clean termination** — not blanket correctness (a capable model
-reaches conformance on ReAct too). Which arm is the default is a product choice
-(**D15**); the in-repo A/B measures the levers.
-
-### 14.2 Pipeline shape
-
-```
-INPUT (dir / zip / conversation)
-   │
-   ▼  DETERMINISTIC PIPELINE (code, not model-driven)
- scan ─ scaffold ISA backbone ─ materialize ─ draft entities ─ retry compounds ─ fix loop ─ data-content pass
-                                     │  (bounded LLM leaf: extract→entity)   │      │ (deterministic
-                                     ▼                                       │      │  dispatch over
-                              cheap drafter model            provider-gated ─┘      ▼  routed issues;
-                                                                                       LLM only for
-   small TAIL AGENT (strong model) ── only for: no-metadata conversational build,       content repairs)
-                                       genuine ambiguity, HITL
-   │
-   ▼ export — NOT a spine step: `_run_build_body` calls it after the guidance tail
-   │
-   ▼ OUTPUT: RO-Crate dir + payload + embedded graph/maturity/preview
-```
-
-- **Spine = code.** The Priority 1–4 heuristic (§4) becomes control flow, not prose.
-- **Leaves = cheap model.** Drafting/disambiguation only (binds the §4.4.5 drafter tier).
-- **Leaf context = bounded file bodies, not just filenames (#231).** The single
-  `extract`/`draft` leaf is fed by `pipeline.py::_gather_context`, which gives every
-  scanned file **one** content slice under **one** cap — a body excerpt when the file
-  is readable, its `first_rows` preview in full otherwise — **fail-closed to
-  `state.approved_scan_roots`**. Every emitted slice is charged against the total, so
-  the ceiling is honest and the one call stays token-safe. The empty-context path is a
-  strict no-op (no provider call), preserving the no-provider determinism guarantee.
-- **Priority decides chars, not just order (#378, #840).** Files are read
-  **metadata-first** and the budget is spent tier by tier, top down: a tier gets
-  what is left after every populated tier below it keeps its floor
-  (`_TIER_FLOORS`: a floor per file for a tier's first two files, never more — on an
-  82-file deposit a reservation per file left the workbooks, the descriptor and every
-  README at zero), and the files of a tier split that max-min fairly on what each
-  has to say, with no per-file cap above the bulk tier, so what a tier does not spend
-  is left to the next and a tier with the room reads a long workbook or SOP whole.
-  Bulk data is previewed (`_BULK_PREVIEW_CHARS`) unless it is all the deposit holds;
-  a tier serves as many files as can each get a useful slice (`_MIN_SLICE`, a whole
-  preview for bulk), in scan order, and names the rest; a byte-identical copy of an
-  earlier file is named as such and charged only that line. Equal shares were not enough — with
-  them the highest-priority file in a real deposit emitted 298 chars while a
-  bulk-data export emitted 2,049. High-priority bodies are read with the shared
-  compactors (`file_readers.compact_grid_text` / `compact_attribute_json`), which is
-  what makes the whole metadata workbook fit. Two budgets, bounding the slices (the
-  per-file headers and the discovered-documentation block ride outside them): the
-  drafter leaves use `_MAX_CONTEXT_CHARS`, re-sent once per entity; the one plan call
-  uses `_PLAN_CONTEXT_CHARS`, sized to carry a real deposit's metadata tiers whole.
-  The algorithm is documented in the `_gather_context` docstring.
-- **Fix loop = deterministic.** `build_and_validate` already returns issues pre-routed to
-  `{entity_id, property, fix, severity, profile}`; a code loop dispatches each to a
-  lookup / `set_fields` / `link`, calling the LLM only for "draft new content" repairs.
-- **Tail = small strong-model agent.** The one place open-ended judgement is irreducible.
-
 ### D17: A step executes its deposited documents, or else its own protocol record
 
 A step **executes the documents it follows**, those the deposit places on it or, where it
@@ -3301,9 +3208,7 @@ places none, those the drafter named (#789): `executesLabProtocol` names each `F
 its path in the crate, one value per document (a readout that follows RNA isolation,
 DNase and cDNA/qPCR executes all three). A document a step executes is `File` +
 `LabProtocol` (a script `File` + `SoftwareSourceCode` + `LabProtocol`) in the graph that
-is validated and in the crate that is written alike. In the pipeline arm it may carry a
-description written from the file's content (`file_descriptions.describe_payload_files`),
-which then answers the checks that ask a protocol for one. What the step states about its
+is validated and in the crate that is written alike. What the step states about its
 protocol is written on each document it executes (`_crate_mapping._execute_documents`):
 
 - `intendedUse`, the step's protocol type as an ontology term (a `DefinedTerm`):
@@ -3318,13 +3223,12 @@ protocol is written on each document it executes (`_crate_mapping._execute_docum
 - on any step, `reagent` also lists the compounds it names under `reagents`: a
   readout's substrate;
 - the `description` and `url` the lab stated about the step's protocol — the protocol
-  the drafter recorded (`draft_protocol` with a name and description, or the plan's
-  `protocols[]`), which is no crate node of its own (#789) — where the document has
+  the drafter recorded (`draft_protocol` with a name and description), which is no
+  crate node of its own (#789) — where the document has
   none, the rule of `draft_protocol(source_file=...)`. The document keeps its own
   `name`; a protocol name the lab stated that differs from it is an `alternateName`. A
   description or url the document already has is kept, so a different one the lab
-  stated is not in the crate; a description written from the file's content has the
-  same `llm` source as a lab statement, and nothing tells the two apart.
+  stated is not in the crate.
 
 A document carries one protocol type and one set of reagents, so steps share one only
 where they agree: every step that would execute it states the same `intendedUse` term (no
@@ -3376,852 +3280,108 @@ assay growing SK-N-AS follows one entity, the culture of each line its own, and 
 composite is invented. Each is also linked to its Study: `hasPart` for a deposited
 document, which is real payload.
 
-### 14.3 Build-path wiring contracts
+### D18: A crate claims the profile its study can meet
 
-A single `scaffold_isa_backbone(...)` call yields a crate that passes base and ISA
-with zero issues. It fails ISA-Tox on one finding: the Investigation MUST include an
-Exposure its root reaches (#781), and only the deposit's evidence can supply one. The
-finding names no property, so the gap engine reports it rather than asking for a field.
-A richer build must additionally honour three **conditional Violation traps** — the
-build-path *wiring contract* — which fire only when the relevant entities exist
-(document for callers):
+ISA-Tox requires an Investigation to include an Exposure, so a study that exposes
+nothing (culture conditions, the characterisation of a cell model) cannot conform to
+it and must not claim to. `--profile isa` is the depositor saying so:
+`metadata.profile`, kept with the session, `isa-tox` unless stated. The claim decides
+three things, and nothing else decides them:
 
-1. A `PropertyValue` named `DOI`/`PubMedID` is SHACL-duck-typed and MUST carry
-   `propertyID` as an **`@id` IRI node** (the OBI IRI: `DOI`→`OBI_0002110`,
-   `PubMedID`→`OBI_0001617`). `draft_property_value` defaults the IRI by name and
-   `@id`-wraps it — a bare string literal is a Violation.
-2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
-   (unlike TestSystemPreparation/Exposure); a process with no explicit output fires a Violation.
-   `draft_process_chain` closes it from the DEPOSIT (raw files → the readout,
-   processed → the analysis), and `attach_files` completes any step still unwired.
-   When the deposit holds no such file the Violation is **left to fire** (#592):
-   this trap is closed with evidence or reported, never with a manufactured file.
-   A step nothing evidences at all — neither data nor a procedure document — is
-   not drafted: a crate with no evidenced Exposure fails ISA-Tox (#781) rather
-   than asserting an experiment it cannot show.
-3. What an `Exposure` executes MUST name at least one test or control compound
-   (`MolecularEntity`) as a `reagent` (D17). The build writes the reagents from the
-   step's `chemicals`, so the finding is answered there: its fix hint and its gap
-   name `chemicals` (`validation.answering_field`), never the `executesLabProtocol`
-   SHACL reports. No code can supply a compound the deposit does not name, so an
-   Exposure whose chemicals were never recorded is **left to fire**.
+- **what the crate states**: the root's `conformsTo` lists the ISA profile alone, and
+  the ISA-Tox profile is not described in the crate;
+- **what is judged**: `CrateState.layers` is what `profile="all"` means in every
+  validation call, so the verdict and the fix loop cover RO-Crate and
+  ISA. A pass asked for by name (`profile="tox"`) still runs;
+- **what is shown**: `CrateState.conformance()` reports the claimed layers, and the
+  report's matrix and cards, the TUI, the dashboard, the session status and the build
+  summaries list those layers and no other.
 
-The first two are code-fixable; the third is the user's to answer.
+The ReAct brief tells the agent such a crate has no Exposure step. The claim is never inferred from the crate: in an ISA-Tox build
+a missing Exposure is a gap the deposit has to answer (#781), and a crate that
+dropped the claim by itself would read as conformant exactly when its evidence is
+thinnest.
 
-### 14.4 Pipeline composition
+## 12. Project Structure
 
-The deterministic pipeline is assembled from the shared toolbox (§5), not a parallel
-re-implementation. Its parts:
-
-- **`fix_required_issues`** — the deterministic REQUIRED-severity repair loop (the
-  keystone; §5, §14.6).
-- **Drafter leaves** — bounded LLM extraction (`leaves.py`, below), wired into the
-  spine's `_draft_entities` step and gated to a strict no-op when no LLM provider is
-  configured.
-- **Deposit structure** (`builder/tools/deposit_structure.py`, #852) — the deposit's
-  studies and assays, read from its folder tree before either arm starts
-  (`build.read_deposit_structure`). The tree is summarised deterministically (one line
-  per folder to depth 4, files counted by classification, document and data names, the
-  README excerpt the ranking read), one drafter call labels it as studies of assays
-  (`leaves.derive_deposit_structure`), and the labelling is kept only when fixed checks
-  accept it: every named folder holds a scanned file, no assay lies inside another, every
-  assay lies inside its study, at least one assay. A folder of documents alone is still an
-  assay (S-VHPS27 deposits its assays with the data to follow). A failed check, a model
-  error or no provider stores the fallback — one study, one assay, at the root — and
-  either way one line says what the deposit was read as. The structure rides in
-  `CrateState.deposit_structure` and the session, so a resumed build keeps it. The build
-  reads it for the folder a Study or an Assay is identified by (D13), so the validation
-  fingerprint covers it; the scaffold and the file attachment still make one Study and
-  one Assay.
-- **Composite meta-tools** — e.g. `draft_process_chain`, which wires the
-  EndpointReadout/DataAnalysis outputs the build otherwise lacks (closing the §14.3
-  Violation trap) and wires a whole chain in one idempotent call (§5 Derivation
-  Chain Tools).
-- **Design table** — for each Exposure the spine writes the one scanned table whose
-  rows fit the canonical schema (`data_content.condition_table_fit`, §4.2.2), among
-  its own assay's files when that assay holds any (#669), into the Exposure's typed
-  CSV via `populate_condition_table` (#408, #594), reading fail-closed to
-  `approved_scan_roots`. No fitting table, or one the write
-  refuses, falls back to the propose-from-entities path (#422, #438), so a candidate
-  never yields less table content than having none; only the several-candidates
-  ambiguity refuses without fallback, because choosing among real plate maps is a
-  human call.
-- **The spine** — `run_pipeline` (`builder/agents/pipeline/pipeline.py`, §14.5), the
-  code-driven orchestrator behind `main.py --interactive --pipeline` (via
-  `run_interactive_build`, §14.6.1); also selectable in the eval harness
-  (`python -m eval --arch pipeline`).
-- **The gap engine + guidance tail** — `assess_gaps` (§14.6) feeds the deterministic
-  HITL `run_guidance` loop (§14.6.1), invoked *around* the spine by
-  `run_interactive_build` for real interactive users only.
-
-The ReAct loop is the `--interactive` default; its `should_continue` graph and its
-`system_prompt.py` orchestration prose are kept intact.
-
-#### The drafter-leaf (`leaves.py`)
-
-The "Leaves = cheap model" primitive (§14.2). `builder/agents/pipeline/leaves.py`
-exposes a single pure function — **`draft_entity_fields(entity_type: str,
-context: str, *, overrides: ModelOverrides | None = None, usage_sink: UsageSink |
-None = None) -> dict[str, Any]`** — the smallest unit of LLM
-work in the pipeline: free-text/context in → a structured dict of one entity's
-fields out, in a **single bounded model call**. It is a **library leaf, not an
-LLM-callable tool** — the deterministic spine (§14.5) imports and calls it; the
-ReAct agent never sees it, so it needs **no four-place tool registration**. It
-does **not** mutate `CrateState` and does **not** orchestrate; the spine feeds
-its result into the deterministic `draft_*` state mutators.
-
-Contract:
-- **Drafter tier.** The call goes through `_build_chat_model(role="drafter")`
-  (§4.4.5), so a cheap model does the extraction. With no drafter model configured
-  this resolves to the primary model — a strict no-op.
-- **Structured output.** The output is constrained by the entity's typed hint
-  schema `_crate_mapping.draft_hints_schema(entity_type)` via the model's
-  structured-output / function-calling, so the returned dict validates against
-  that schema. The schema gets a top-level `title` (`<EntityType>Fields`) so
-  langchain can use it directly as a function spec.
-- **D5 — no fabricated identifiers.** Identifier-bearing scalar fields (CAS /
-  InChIKey / SMILES / PubChem CID / ORCID / ROR / DOI / Cellosaurus accession /
-  ontology codes / IRIs) and all entity-reference fields (`_REF_FIELDS`) are
-  **removed from the schema the model sees** — it is never even asked for an
-  identifier — *and* defensively stripped from the result. Those fields are left
-  empty for a downstream **lookup** to fill, never guessed.
-- **One definition of what the model is offered.** The pruned property set is
-  `field_kinds.drafter_visible_fields(entity_type)`, which lives outside this
-  module because the spine needs it too (to skip calls that cannot apply
-  anything, §14.5's "Draft entities" step) and must not import `langchain`.
-  Deriving the bound schema and the spine's skip rule from the same function is
-  what keeps them from drifting apart.
-- **One model, one ledger.** Every leaf — `draft_entity_fields`, `extract_plan`,
-  `describe_files` (driven by `builder/tools/file_descriptions.describe_payload_files`),
-  and the guidance tail's question/answer leaves — takes the run's `ModelOverrides` and `UsageSink`
-  from its caller; no leaf resolves the model from the environment on its own.
-  `run_pipeline` and `run_guidance` forward both to each call, so `--model X`
-  pins the whole interactive build and every leaf's tokens reach the same
-  profile ledger the ReAct model node writes (#399, #608).
-
-**Fidelity beyond validity — deterministic build-path wiring, not new LLM tools.**
-Reproducing the richer structure of a real gold crate is done through `_crate_mapping`
-wiring rather than LLM tools, per §14's "prefer the deterministic build path" (and
-D5 — identifiers come from lookups or the value is dropped, never fabricated):
-
-- **Identifier PropertyValues** — Person `orcid` → ORCID PV; MolecularEntity
-  `cas`/`pubchem_cid` → `[CAS, PubChem CID]`; DOI/PubMed `propertyID` as OBI `@id`
-  IRIs; `Person.affiliation` / `Publication.author` resolved as `{@id}` references.
-- **Reference wiring** — root `funder` → Organization, root `about` → the DataAnalysis
-  LabProcess, Assay `measurementMethod` → BAO `DefinedTerm`, and the hasPart-family
-  aliases re-emitted as resolved File refs nested under the assay.
-- **CSVW payload** — the full Exposure condition table. Nothing is appended to an
-  EndpointReadout: its result is the deposit's raw tier (#589), never a manufactured
-  table standing beside it.
-- **Characteristics/properties** — CellLineSample `organ`/`tissue` and LabProcess
-  `additionalProperty` as PropertyValue characteristics, and source-code co-typing
-  (`@type:[File, SoftwareSourceCode, LabProtocol]`, from the extension;
-  `schema:programmingLanguage` when the caller names it).
-
-AOP pathways and publications-with-authors are materialized from the spine by their
-own composites (`resolve_aop`, `draft_publication_with_authors`). Root
-`releaseDate` / `dateModified` are set through `set_crate_metadata` and emitted
-**only when explicitly supplied** — never guessed (D5); `datePublished` is auto-set
-by ro-crate-py at crate construction, so the builder never sets or fabricates it.
-
-> **Tool-registration contract:** every new LLM tool must be registered in **four**
-> lockstep places — `TOOL_REGISTRY`, `TOOL_SPECS`, the system-prompt "## Your Tools"
-> catalogue, and §5 of this doc (guarded by `tests/test_agents_doc_toolbox.py`). The
-> `TOOL_REGISTRY` ⇄ `TOOL_SPECS` half is enforced automatically (#327): the parity
-> contract in `tools_spec.py` — `expected_tool_spec_names()`, the shared registry plus
-> a small, *documented* set of engine-routed tools (`_LLM_TOOLS_OUTSIDE_REGISTRY`) —
-> is checked at runtime by `assert_tool_spec_parity()` when the ReAct arm builds its
-> tools, and in CI by `tests/test_tools_spec.py`. A registered tool with no schema, or
-> a schema advertising a tool the engine cannot run, fails fast in either direction, so
-> the A/B always compares the *same* toolbox. A genuinely engine-routed tool (present
-> to the LLM but not in the registry) is declared once, in `_LLM_TOOLS_OUTSIDE_REGISTRY`.
-> That parity assert is also ReAct's *reachability* guard — an advertised tool is one the
-> model can always reach. The pipeline half is `PIPELINE_UNREACHED` +
-> `assert_pipeline_reachability()` in `builder/tools/reachability.py`, checked in CI by
-> `tests/test_tool_reachability.py` (#386): a registered tool with no call site reachable
-> from the deterministic arm fails unless it carries a waiver stating why, and a waiver
-> naming a tool that has since been wired fails too.
-
-### 14.5 The pipeline spine (`builder/agents/pipeline/pipeline.py`)
-
-`run_pipeline(engine: AgentEngine, *, progress=None, save=None, overrides=None) ->
-dict` is the deterministic, code-driven orchestrator of §14.2 — the Priority 1-4
-heuristic (§4) expressed as **control flow, not prose**, with **no LLM deciding
-control flow**. It operates on an already-`initialize()`-d engine (so scanning +
-approved-roots happened in the engine) and routes every step through
-`engine.run_tool(...)` (so
-each is profiled and validation is cached); it never re-implements tool logic, only
-orchestrates the existing toolbox. The keyword-only `progress` sink (a no-op by
-default) receives one concise line per phase (#241) and the keyword-only `save`
-callback (defaulting to `save_session`) persists CrateState at each phase boundary
-so a concurrent dashboard live-updates (#242) — see §14.6.1 "Progress +
-persistence". The keyword-only `overrides` carries the run's `ModelOverrides` to
-every bounded leaf, so `--model X` pins the whole build (§14.4 "One model, one
-ledger", #399). The sequence:
-
-1. **Scaffold** the ISA backbone via `scaffold_isa_backbone` — always, and
-   idempotent (existing layers are reused). The spine supplies deterministic
-   backbone **names** (from `state.metadata.title` when present, else stable
-   defaults) because a bare `draft_study` populates only the entity_id, not the
-   `name` field, and the ISA profile REQUIRES a non-empty Study `name`. With names
-   supplied this alone passes base and ISA on an empty crate; ISA-Tox also needs an
-   Exposure (§14.3).
-2. **Materialize the plan** — `_materialize_plan` asks the bounded `extract_plan`
-   leaf for a candidate plan (names only, no identifiers) and turns each section
-   into linked ISA-Tox entities through the idempotent composites, and describes
-   the payload files via `describe_payload_files`. This is where most entities are
-   minted; the stage is documented in full in §14.6 ("Materialize"). Identifiers
-   come from the composites' own lookups, never from the plan (D5). With **no
-   provider configured** `extract_plan` is never called and every *plan-driven*
-   section is a no-op, but the deterministic process-chain and file-attachment
-   steps still run (#262), so the crate is never structurally hollow and the
-   no-provider graph hash stays identical across repeats. Returns the per-section
-   counts reported as `materialized`.
-3. **Draft entities** — the §14.2 bounded **drafter-leaf**: `_draft_entities`
-   gathers a free-text context from what the engine carries (crate
-   `title`/`description` + a scanned-file digest that gives every scanned file
-   **one** content slice under **one** cap — a bounded BODY excerpt when the file
-   is readable, whatever its type, and its `first_rows` preview in full otherwise
-   — read fail-closed to `approved_scan_roots` and capped by
-   `_MAX_CONTEXT_CHARS`, #231, §14.2) and, for
-   each draftable entity missing descriptive fields, calls `draft_entity_fields`
-   (`leaves.py`) and applies only the returned **non-identifier descriptive**
-   fields (fill, don't clobber). It is a **strict no-op when no LLM provider is
-   configured** (detected via `config.get_provider()`, the same check the rest of
-   the code uses) *and* when there is no usable context — so the deterministic
-   spine, its tests, and the deterministic A/B path are unchanged (the leaf is
-   never even imported on that path). **D5-safe:** identifier / `@id` / `entity_id`
-   fields are never set or overwritten — those come from lookups. Returns
-   `{drafted: [<ids>], fields_applied: <n>}`.
-
-   Two properties bound what the step spends and what it can assert:
-
-   - **A call is made only when it could apply something.** The leaf offers the
-     model exactly `field_kinds.drafter_visible_fields(entity_type)`; the spine
-     applies only fields that are both descriptive and *missing*. When those sets
-     are disjoint the call cannot change state whatever comes back, so it is not
-     made — a named `MolecularEntity`, `Organization` or `Publication` (schemas
-     that expose no `description`) never reaches the leaf.
-   - **Each entity gets its own context.** `_entity_draft_context` folds the
-     entity's id, type and known field values into the shared crate digest. The
-     leaf's signature carries no entity, so a shared-only context makes every
-     entity of one type send an identical prompt — the model cannot tell which
-     one it is describing, and one entity's description lands on its siblings.
-     Only the entity's *own* fields are folded in; naming a sibling reintroduces
-     the confusion from the other side.
-4. **Retry unresolved compounds** — `_retry_unresolved_compounds` gives every
-   identifier-less `MolecularEntity` one (and only one) more `resolve_compound`
-   attempt, **before** the fix loop validates, so a recovered CAS is in the crate
-   that gets validated and exported. It is **provider-gated** (`get_provider() is
-   not None`) because the spine must not reach the NETWORK unless a provider is
-   configured — that gate is what keeps the no-provider path both deterministic and
-   offline. Whatever is still missing comes back as `unresolved_compounds` so the
-   summary can say so out loud (#338).
-   A compound the retry resolves keeps the Compound Wiki id it was given, recorded
-   as looked up, so it is identified by that item like one resolved at first.
-   Behind the same gate the spine then calls `resolve_characteristic_terms` once.
-   `resolve_cell_line` looks up the terms of what the plan states, but the drafter
-   states an organ or a tissue afterwards, so this is where those words get the
-   term they name (§5), in time for the crate that is validated. A
-   failure costs the terms and nothing else.
-5. **build_and_validate** in memory (no disk write).
-6. **Fix loop** — `fix_required_issues` + re-validate, **bounded to ≤3 rounds**,
-   stopping when no REQUIRED issue remains *or* a round fixes nothing (deterministic
-   dispatch only; the loop is monotone over the rule set, so a no-progress round
-   means the rest needs the LLM leaf).
-7. **Data-content check** — `_validate_populated_tables` runs the Frictionless
-   payload layer (§6) over a condition table that actually received rows, *after*
-   the fix loop and deliberately outside it: that loop terminates on SHACL `ok` and
-   repairs SHACL rules, which cannot touch a data cell. Its findings come back
-   under their own `data_issues` key and are **not** folded into `ok` — a cell
-   contradicting its `tableSchema` is a different defect from a conformance failure
-   (#409).
-8. Returns `{ok, conformance, issues, data_issues, scaffold, materialized, drafted,
-   unresolved_compounds, fix_rounds, usage}`. `data_issues` and
-   `unresolved_compounds` each stay their own key, never folded into `ok`; `usage`
-   is the per-run leaf token ledger (§14.4 "One model, one ledger").
-
-`run_pipeline` is the **automated** build and stays **guidance-free** — the HITL
-guidance tail is invoked *around* it by the interactive entrypoint
-(`run_interactive_build`, §14.6.1), never inside the spine, so the A/B eval can
-drive the spine non-interactively. This spine is the
-`main.py --interactive --pipeline` build (**D15**); ReAct is the default.
-
-**Determinism contract:** with **no LLM provider configured** every LLM-touching
-step is a strict no-op — the LLM calls inside Materialize (step 2), the
-drafter leaf (step 3) and the provider-gated compound retry (step 4) — so every
-step is deterministic and the same input state ⇒ an identical built `@graph`, the
-headline win the deterministic A/B path of the eval harness asserts
-(`crate_graph_hash` equal across runs, zero tokens in CI). When a provider *is*
-configured, those steps make bounded, D5-safe extraction and lookup calls, trading
-strict graph-hash determinism for richer drafted content.
-
-**Measurable via the same harness.** `eval/pipeline_factory.py`
-(`make_pipeline_agent_factory` → `PipelineBuildAgent`) implements the same
-`BuildAgent` contract as the ReAct factory: it builds a headless engine (behind
-the production `SimulatedHumanInterface`, the same human the ReAct arm gets — see
-D9; the ReAct arm likewise runs its **shipped** loop via
-`run_build(BuildMode.REACT, ..., interactive=False)` rather than a bare single graph
-invocation, so both arms are measured with the budget they ship with, #609),
-`initialize(input_path=case.input_path)` (which approves the
-input dir under the fail-closed guard), runs the shipped `run_interactive_build`
-(spine, then export + persist — the ReAct arm exports from inside its own loop, so
-scoring one arm before export and the other after compared two different stages,
-#609), and returns the final
-`CrateState`/`session_id` exactly like `ReActBuildAgent`.
-`eval/__main__.py` adds `--arch react|pipeline` (DEFAULT `react`) selecting the
-factory, so `python -m eval --arch pipeline --label pipeline` runs the same
-corpus/metrics/report against the spine — diffable vs the frozen `react-baseline`.
-The spine calls a model only through its bounded leaves, and only when a provider is
-configured — with none set it is a strict no-op, so it runs in CI for real.
-
-The ReAct run used for the original A/B is frozen at git tag **`react-baseline`**.
-
-### 14.6 The hybrid build loop and the gap engine (`builder/tools/gap_analysis.py`)
-
-The full hybrid ISA-Tox build loop runs in five stages — the first three are the
-**automated pipeline** (`run_pipeline`, §14.5) and the last two are the
-**interactive HITL tail** (`assess_gaps` + `run_guidance`, §14.6.1). Every stage is
-deterministic *code* except its bounded LLM leaves — `extract_plan`,
-`draft_entity_fields` and `describe_files` inside the spine, and the guidance tail's
-phrase/interpret pair (the drafter it uses to *suggest* a value the user must
-confirm). **No LLM decides control flow.**
+Where each component lives:
 
 ```
-        ┌──── AUTOMATED PIPELINE (run_pipeline) ────┐ ┌─ HITL TAIL (interactive only) ─┐
-INPUT → Extract → Materialize → Auto-resolve →  …  →  Assess → Guidance (run_guidance)
-        (leaf)    (deterministic (deterministic        │       (deterministic HITL loop:
-                  composites)    fix loop, REQUIRED    ▼       ask-user / draft+confirm)
-                                 severity)        gap engine
+vitro-crate/
+├── AGENTS.md                    This file — authoritative system design
+├── CONTEXT.md CONTRIBUTING.md README.md
+├── .github/workflows/ci.yml     CI (ruff, ty, pytest on push/PR)
+├── pyproject.toml
+├── main.py                      CLI entry point — build dispatch, output-path resolution (§4.4.6)
+├── profiles/                    Domain profiles + validation
+│   ├── context.py               JSON-LD context builder
+│   ├── validator.py             3-pass SHACL validation (base / isa / tox)
+│   ├── models/isa.py, tox.py    Entity classes
+│   ├── shapes/tox/              Custom tox-ro-crate SHACL shapes
+│   │                            (base + isa shapes ship with rocrate_validator)
+│   ├── contexts/               Vendored RO-Crate 1.1 / 1.2 JSON-LD contexts
+│   └── docs/
+├── lookups/                     External API clients
+│   ├── cellosaurus.py, pubchem.py, comptox.py, aopwiki.py, bao.py
+│   └── orcid.py, ror.py, crossref.py, iuclid.py, _http.py
+├── mit/invitro_tox.yaml         Minimal Information Table
+├── fair/                        FAIR indicators (RDA FDMM + FAIRplus DSM, vendored)
+├── air/                         Bridge2AI AI-readiness criteria (vendored)
+├── input/                       Example inputs
+├── builder/                     Core builder system
+│   ├── state.py                 CrateState dataclass
+│   ├── engine.py                AgentEngine — run_tool, gating, approved scan roots
+│   ├── config.py, pricing.py    Provider/model config; token pricing
+│   ├── tools/                   Tool implementations (the shared toolbox)
+│   │   ├── scanner.py, drafters.py, composites.py, management.py
+│   │   ├── lookups.py, verification.py, builder.py, validation.py
+│   │   ├── repair.py, mit_assessment.py, fair_assessment.py
+│   │   ├── air_assessment.py, assessment_graph.py  Bridge2AI axis + shared verdicts
+│   │   ├── data_content.py, file_readers.py, hitl.py, session.py
+│   │   ├── document_discovery.py, deposit_structure.py, rehome.py, remediation.py
+│   │   ├── field_kinds.py        Shared field-kind vocabulary (reference / identifier fields)
+│   │   ├── registry.py, _crate_mapping.py, dashboard.py, provenance.py
+│   │   ├── profiler.py, _resolve_cache.py
+│   │   ├── directory.py, existing_crate.py, metadata_files.py
+│   ├── writers/                 Output writers
+│   │   ├── rocrate_writer.py
+│   │   ├── provenance_dag.py     Entity-graph model + inventories (#130)
+│   │   ├── maturity_report.py    Maturity / FAIR HTML report
+│   │   ├── entity_explorer.py   Interactive React Flow entity graph (#615)
+│   │   ├── entity_explorer.js   …its browser half (no build step)
+│   │   ├── entity_explorer_layout.js  …where its nodes go (#619)
+│   │   ├── explorer_inspector.js  …the panel and vocabulary both viewers share
+│   │   ├── assay_lane.py        Assay-lane section (#686)
+│   │   ├── assay_lane_view.js   …where one assay's nodes go
+│   │   ├── assay_lane_app.js    …its browser half: SVG, chips, folds, inspector
+│   │   ├── payload_codec.js  …the wire format its data island carries (#694)
+│   │   └── vendor/              Pinned UMD builds inlined into the report
+│   └── agents/                  Orchestration + LLM config
+│       ├── build.py             run_build: reads the deposit's structure, then runs the ReAct loop (§4.4.6)
+│       ├── structure.py         derive_deposit_structure: one drafter-tier call labels the folder tree (§4.2.8)
+│       ├── llm.py               Shared model construction + usage mining (#309)
+│       ├── ui.py                Interactive UI: status bar, reply, banners, boxed prompt
+│       ├── progress_spinner.py  Live progress spinner
+│       └── react/               ReAct StateGraph loop (the build, D15)
+│           ├── agent_loop.py      ReAct StateGraph loop
+│           ├── system_prompt.py   ReAct system prompt
+│           └── tools_spec.py      TOOL_SPECS advertised to the ReAct LLM + the registry-parity contract (#327)
+├── eval/                        Eval harness: runs the build over a corpus and scores it
+├── scripts/                     Developer tools (indicator/criteria generators, profile validator)
+├── docs/                        Profiling notes + agent docs (linked from §4, §5)
+├── sessions/                    Persisted sessions
+├── output/                      Built crates (versioned)
+└── tests/                       Test suite
 ```
 
-- **Extract** (`extract_plan`, leaf #213, §14.4) — the bounded whole-document
-  extractor pulls a *candidate plan* (names/titles only, no identifiers — D5)
-  from the input context in a single model call. The plan also carries each
-  process step's **descriptive experimental parameters** (exposure duration,
-  detection instrument, endpoint …), drawn from the shared LabProcess hint
-  vocabulary (`_crate_mapping.LABPROCESS_PARAMETER_FIELDS`) so both arms offer the
-  same keys; without that channel a step states no descriptive parameter at all,
-  and nothing is invented in its place — not a placeholder, not an empty list
-  (D5) — so the tox "MUST have at least one additionalProperty" fires on it
-  (#379). Identifiers remain excluded, and the parameter sub-object is closed so
-  an unrecognised key cannot reach LabProcess state. What a step states beyond
-  those keys goes in its `other_parameters` list by name (§5), which the overlay
-  reads as names and values only, dropping any entry named like an identifier (D5). The guidance loop then asks
-  for the step's own parameter field (`validation.STEP_PARAMETER_FIELD`), where
-  the build reads it, never for the predicate the shape names: both profiles
-  report the finding on `additionalProperty` / `parameterValue`, and an answer
-  stored under either is dropped at assembly (#835).
-- **Materialize** (`_materialize_plan` via the idempotent composites #217, §14.5)
-  — deterministically turns each plan section into linked ISA-Tox entities through
-  `scaffold_isa_backbone` / `resolve_compound` / `draft_cell_line_sample` /
-  `draft_process_chain` / `resolve_aop` / `draft_person`. Identifiers
-  come from the composites' own lookups, never from the plan. The backbone is
-  scaffolded BEFORE the plan is materialized, so the plan's Study name/description
-  are merged onto the already-scaffolded Study (fill-don't-clobber: only when the
-  field is empty or still the generic placeholder), and each `people[]` is split
-  into `givenName`/`familyName` so the Person is ISA-conformant (#232). When a
-  `people[].affiliation_name` is present, an `Organization` is minted via
-  `draft_organization` (or an existing one of the same name or ROR id is
-  **reused**, so a shared affiliation yields ONE Organization, not duplicates) and
-  the Person's `affiliation` reference is wired onto it via `set_fields` — the build
-  resolves it to the Organization's `@id` (`_crate_mapping._wire_reference`).
-  D5-safe: the plan gives the affiliation's *name* only, and the Organization takes a
-  ROR id only when ROR registers that name for one record (`registered_organization`),
-  with the name ROR displays — no ROR/IRI is fabricated (#179 Lane 1).
-  **Entity→provenance wiring (#273).** Resolving a compound / cell line MINTS the
-  entity but leaves it a graph orphan unless something references it, so after the
-  `compounds[]` / `cell_lines[]` sections run, `_materialize_plan` wires the
-  collected ids deterministically through `set_fields` (never hand-rolled JSON-LD)
-  using the canonical ISA-Tox reference fields: each resolved `MolecularEntity` →
-  the **Exposure** LabProcess via `chemicals` (ISA forbids a MolecularEntity as a
-  process object — objects MUST be File/Sample/BioSample — so the build makes each
-  compound a `reagent` of the Exposure's protocol record;
-  `_crate_mapping._build_process`);
-  the resolved `CellLineSample` → the
-  **TestSystemPreparation** LabProcess via `cell_line` (its consumed input); and BOTH are surfaced on the
-  scaffolded Study via `schema:mentions` (the `chemicals` / `cell_lines`→
-  `biologicalModels` aliases) so every resolved entity — PubChem- AND ChEBI-backed
-  compounds alike — is reachable from the backbone at a glance (orphan count → 0).
-  Idempotent: `set_fields` writes the same deterministic ids, so re-running mints
-  no duplicates. The Exposure's protocol record is the primary link, since the
-  compounds are what the exposure applied. The Study `mentions` edge is a backstop
-  for a compound no record can reach (one resolved with no Exposure in the chain).
-  **Assay→Key Event (#382).** Materializing an AOP subgraph used to wire the *Study*
-  and stop, so the crate listed a pathway's key events without ever saying which one
-  the assay measures. Each `aops[]` item now also carries `measured_event_name` — a
-  NAME, never an id (D5): an AOP-Wiki address or number there, which the tool would
-  match, is not passed on — and after the pathway is stored the spine calls
-  `link_assay_to_key_event(assay_id, event_name)`, which matches that name against
-  the pathway's events on AOP-Wiki, stores the one named and commits ITS IRI onto the Assay's
-  `keyEvent` (camelCase: it is the `Assay:keyEvent` MIT slot). A zero or ambiguous
-  match writes nothing and is logged, not raised — which key event an assay measures
-  is a scientific claim, so an unlinked Assay is a legitimate outcome, and the
-  guidance tail (§14.6.1) can still take the answer from the user through the same
-  tool. Counted on `_materialize_plan`'s result as `key_events`.
-- **Auto-resolve** (`fix_required_issues`, §5, the keystone) — clears every
-  `auto_fixable` gap deterministically from state alone, no prompt. The spine runs
-  it off `build_and_validate`'s REQUIRED issues, so the automated path needs no
-  `GapReport`; the guidance tail runs it again for any `auto_fixable` gap the
-  report still carries.
-- **Assess** (`assess_gaps`, the gap engine #215, this section) — one
-  prioritized `GapReport` unifying SHACL + MIT + FAIR + AI-readiness. It runs in the
-  **guidance tail**, not in `run_pipeline`: the spine validates at REQUIRED severity
-  only, and the headless path deliberately never calls `assess_gaps` (see "Headless
-  gap summary" below).
-- **Guidance** (`run_guidance` #218 / #244, §14.6.1) — the **code-driven HITL
-  loop** that walks the remaining `auto_fixable=False` gaps with the user in the
-  loop. CODE still owns control flow (it is NOT a ReAct/LLM-orchestrated agent),
-  but the per-gap ask-user step is a **small bounded LLM exchange** — the #179
-  hybrid's "small guidance agent" (#244) — so a cryptic gap becomes a real
-  conversation. The user's raw prose is **never** stored verbatim as a field value:
-  typing "no idea which file you mean" must not land as the crate `description`.
-  It is invoked **only for a real interactive user** (see §14.6.1).
-  The loop **advances over un-progressable gaps** rather than aborting on the
-  first one (#230): each round it draws the next *actionable* gap (`report-only`
-  gaps are never drawn — see below), and a gap it cannot progress (e.g. the user
-  skips it) is added to a **per-report skip-set** (indices into the current report)
-  so the loop moves on to the gap behind it. It only stops once the whole report is
-  exhausted with no progress — one cryptic, uncommittable gap can no longer abandon
-  the 200 behind it — and is still hard-bounded by `max_rounds`. The per-report
-  index skip-set is cleared on every commit (the re-assessed report is fresh).
-  Alongside it the loop keeps a **per-RUN skip-set keyed by gap IDENTITY**
-  (`(source, entity_id, property, message)`, #179): a gap surfaced/answered but not
-  progressed is recorded here and **never re-drawn for the rest of the run**, even
-  after a *different* gap commits and clears the per-report index set and a fresh
-  re-assess re-emits it. Without it the always-highest-priority root citation MUST
-  gap — which re-emits every round until a `ScholarlyArticle` is wired — is re-asked
-  every round (#179).
+## 13. Future Considerations
 
-  **A scanned deposit is read before anything is asked (#811, #833).** With a provider
-  and a scanned deposit, `_deposit_options` looks for the answer first: up to three
-  deposit documents (`_gap_documents`: a step's SOPs first, ranked by the words their
-  names share with the step's; the deposit's own description first otherwise) are
-  read by `extract_field_with_quote`, and a value counts only when the passage it
-  quotes is in that file and states the field itself (a general description is not
-  a value for a narrower field; a keyword list holds terms, not a sentence). Then:
-
-  - the one value the deposit states is recorded without asking, at any tier;
-  - several values make a required (MUST) gap ONE multiple-choice question whose rows
-    are answers only: each value with the file it came from, then the console's own
-    typed-answer row. Skipping and stopping are keys, not rows: a `GUIDANCE_PURPOSE`
-    box skips the question on Esc, ends guidance on Ctrl+D, and names both on its
-    help line (#813);
-  - a required gap the deposit is silent on is asked in words, through the exchange
-    below;
-  - a recommended or optional gap is never asked and stays in the report, and the
-    draft-confirmation dialog is for required gaps only.
-
-  One field of one entity is asked about at most once per run: `_gap_identity` is
-  `(entity, field)`, so two checks about the same field, or a gap re-raised with new
-  wording after an answer, are one question. A picked value is committed; a typed
-  answer is interpreted once and never followed by another question. A session with
-  no scanned deposit keeps the exchange below for every tier, because there is
-  nothing to read.
-
-  **Nothing is asked whose answer could not be stored (#813).** An identifier is
-  looked up, never typed (D5), and a field that must name an entity takes words only
-  where a route resolves them (a person, the root citation, a Key Event, a
-  measurement method). `_answer_can_be_stored` holds those field-level refusals of
-  `_apply_value`, and every ask path checks it before asking. A measurement-method
-  answer naming several methods is resolved name by name, split as a Key Event
-  answer is: the first BAO term found is stored (the field holds one term) and the
-  other names are reported back rather than lost with the reply (#839).
-
-  **The per-gap LLM exchange (#244).** When a provider is configured (gated on
-  `config.get_provider()`, like the pipeline leaves), each ask-user gap runs a
-  bounded **phrase → ask → interpret → commit** cycle using two new drafter-tier
-  leaves in `builder/agents/pipeline/leaves.py` (internal pipeline calls, NOT four-place
-  LLM-advertised tools):
-  - **Phrase** (`phrase_gap_question(gap_context) -> str`) turns the gap
-    (property, entity_type, tier, MIT/FAIR rationale, suggestion) into ONE clear
-    question with a concrete example (none when the options are shown as rows) —
-    never raw SHACL shapes / FAIR indicator
-    codes / property IRIs. The leaf's text is accepted only when it IS one
-    question — one line, no braces, bounded, ending in a question mark
-    (`_one_question`, #838): a model once returned its own reasoning inside the
-    field. Anything else, like an empty or failed result, falls back to the
-    deterministic human-readable prompt.
-  - **Interpret** (`interpret_gap_reply(question, reply, gap_context) -> dict`)
-    parses the free-text reply into a **structured decision** — one of
-    `{action: "commit", value}` | `{action: "skip"}` (covers "I don't
-    know"/empty) | `{action: "clarify", question}` | `{action: "from_file",
-    filename?}`. **Free-text musings never become field values.**
-  - **Commit** — only a `commit`'s clean `value` reaches `_apply_value`
-    (`set_fields` / `set_crate_metadata`, never hand-rolled JSON-LD). `skip`
-    commits nothing; `clarify` asks at most **one** bounded follow-up
-    (`_MAX_CLARIFY_FOLLOW_UPS`) then skips, so the clarify path can't loop, and
-    its follow-up passes the same one-question check or the reply is a skip;
-    `from_file` records the filename hint and commits nothing (file extraction is
-    a separate bounded reader, not this loop — never store the prose). **D5:**
-    identifier-bearing fields are never committed from the user's prose — those
-    come from lookups, so an identifier `commit` is refused at `_apply_value`,
-    the single chokepoint every commit funnels through (#375). Guarding the
-    chokepoint rather than the interpret leaf is what closes the loop's two
-    otherwise-unguarded feeders: the no-provider ask-user path and the
-    draft-confirm dialog's `edits["value"]`.
-    - **A commit must be one the crate will actually carry** (#375). `_apply_value`
-      returns `True` only when the value truly lands, because the loop treats
-      `True` as progress and `format_guidance_summary` reports it to the user:
-      - a **typed** gap (MIT gaps carry `entity_id is None` + an `entity_type`)
-        commits to the single in-state instance of that type — the same instance
-        `_ground_entityless_gap` phrased the question about, so the prompt and the
-        write can never name different entities. Zero or several instances commit
-        nothing. Only a genuinely root-level gap (`entity_type` `None` or
-        `Investigation`, since `./` folds the Investigation) may reach
-        `set_crate_metadata`; without this a question about an Assay overwrote the
-        root's `description`, a Base MUST;
-      - a **reference-only** field (`_REF_FIELDS`) accepts only a value that
-        resolves as a reference. The build strips those keys from an entity's
-        scalar properties and `_wire_reference` emits nothing for a
-        non-resolvable literal, so storing prose there and reporting success is a
-        lie. The shared `builder/tools/field_kinds.py` answers "is this field a
-        reference / an identifier, and would this value resolve?" for both arms —
-        `set_fields` logs a warning on the same condition, so the ReAct LLM cannot
-        make the mistake silently either.
-    - **"Progress" means the gap cleared** (#375). After a commit the loop
-      re-assesses and, if the gap's identity is still present, records it in
-      `tried_identities` and drops it from `resolved` rather than counting it. A
-      commit that does not clear its gap would otherwise be re-drawn every round —
-      one un-clearable gap consuming the whole `max_rounds` budget while the rest
-      of the report is never reached.
-    - **Person/agent fields are committed as ENTITY references, not strings
-      (#275).** A `creator` / `author` / `publisher` / `editor` / `contributor`
-      gap requires an ISA Person reference, so `_apply_value` routes its value to
-      `_apply_person_value`: the prose is parsed into a name (plus an optional
-      ORCID / affiliation), a Person is minted via the `draft_person` tool, and
-      its `@id` is linked onto the gap entity's field as a `{"@id": …}` reference
-      (a root/crate-level person gap is satisfied by minting alone — the builder
-      auto-wires every Person onto the Root Data Entity as an author). A supplied
-      ORCID is attached **only** after `lookup_orcid` confirms its family name
-      (D5); an unverified one is dropped (the name still mints a Person).
-      Committing such a field as a literal string leaves the "creator MUST be
-      of type Person" SHACL shape unsatisfied, so the gap re-emits every
-      round and `isa=fail` (#275) — see the `_apply_value` docstring.
-    - **The root `citation` gap is resolved through the publication composites,
-      not stored as a string (#179).** The Root Data Entity's `citation`
-      requirement (BASE: the auto-wired root `citation` `@id` must be an absolute
-      URI; ISA: a `ScholarlyArticle` with an identifier) surfaces with
-      `entity_id == "./"`, which `_resolve_entity_id` cannot map to a state entity
-      and which is not a crate-metadata slot — so a string commit dropped the
-      answer and the always-highest-priority gap was re-asked every round. So
-      `_apply_value` routes a root `citation` answer to `_apply_citation_value`:
-      an answer carrying a DOI → `draft_publication_with_authors(doi=…)`, otherwise
-      it is treated as a title → `resolve_publication(title=…)` (both via
-      `engine.run_tool`, never hand-rolled JSON-LD). The builder auto-wires the
-      resulting `ScholarlyArticle` onto `root_dataset.citation`. D5: the DOI is
-      re-looked-up and a title only commits on a confident Crossref match.
-
-  **Entity-less MIT gaps are grounded in the real instance name (#179).** An MIT
-  gap is emitted crate-level with `entity_id=None` carrying only `entity_type`
-  (e.g. `CellLineSample`). `_resolve_entity_id` short-circuits to `None` for any
-  falsy `entity_id`, so without grounding the phrase leaf sees a bare TYPE and no
-  name, and the model invents a stock example — or a question no gap rule raises
-  at all. `_gap_context`, when `_resolve_entity_id` is `None` but `entity_type`
-  is set, looks the type's
-  instances up via `state.list_entities(entity_type)` and threads the REAL name in
-  (`entity_name` / `known_fields`); with several instances it surfaces their names
-  for disambiguation, so the leaf is **never** handed a bare type with no name.
-  The `_PHRASE_SYSTEM_PROMPT` reinforces this: with no entity name it must ask
-  generically about "the &lt;entity type&gt;" and is explicitly forbidden from
-  inventing a specific name, identifier, or example value (D5: no fabrication).
-
-  **Offline / no-provider determinism.** With no provider configured the exchange
-  degrades to the original deterministic ask-and-set: phrase = the human-readable
-  prompt, interpret = non-empty reply → commit, empty/skip → skip. The same
-  deterministic decision is used when a configured leaf is unavailable or raises,
-  so a flaky/unreachable LLM never silently drops the user's answer — and offline
-  tests and headless runs stay deterministic. ask-user prompts remain
-  **human-readable**, never the raw failed-check `message`.
-
-**The deliberate split — automated vs interactive.** Stages 1–3 are the
-**automated** build: `run_pipeline` (§14.5) runs them with **no HITL**, so it
-never blocks on a user and the A/B eval can drive it non-interactively
-(`--arch pipeline`, a clean automated-vs-automated comparison vs ReAct).
-`run_pipeline` therefore stays **guidance-free** — the Assess + Guidance tail
-(stages 4–5) is HITL and lives **outside** the spine, in the interactive entrypoint
-(`run_interactive_build`, §14.6.1). A headless / simulated run is exactly
-`run_pipeline` alone; a real user gets `run_pipeline` *then* `run_guidance`.
-
-#### 14.6.1 The interactive entrypoint (`builder/agents/build.py`)
-
-`BuildMode` (`PIPELINE` / `REACT`) is the single switch that selects a variant, and
-`run_build(mode, engine, *, provider=None, model=None, base_url=None, output=None,
-resumed=False, initial_prompt=None, verbose=False, interactive=True)` dispatches to
-it — `PIPELINE` → `run_interactive_build` (below), `REACT` →
-`run_interactive_agent` (§4). `main.py` derives the mode from
-`--pipeline` (`BuildMode.from_cli`; ReAct is the default) and the eval harness maps its `--arch`
-string onto the same enum (`BuildMode(arch)`), so A/B is chosen in **one** place
-(#309).
-
-**Session provenance is passed, never inferred (#410).** `resumed` states whether
-the run was loaded from a saved session (`--resume`) or started fresh, and reaches
-**both** arms. Only the CLI knows: `engine.initialize(--input)` populates
-`scanned_files` — and the drafters may populate entities — before either arm
-begins, so a populated `CrateState` is *not* evidence of a resume. Anything that
-branches on resume-ness (the session banner's title, the ReAct greeting prompt and
-its offline fallback) takes this flag; `ui.print_resume_summary(engine, *, resumed)`
-makes it a **required** keyword so no call site can quietly re-derive it from state
-content. Content emptiness still decides whether the banner appears at all — that
-is a separate question from where the content came from.
-
-**The ReAct arm needs a kickoff; the pipeline does not (#412).** `run_pipeline` is
-code-driven and starts unprompted, but the ReAct loop's greeting invoke sits
-*outside* the autonomous-continuation loop (§4), which is keyed on a user message —
-so the loop greets and then blocks on stdin having done no work. `initial_prompt`
-(`REACT`-only) seeds that first turn in place of the first stdin read; blank is
-treated as absent, and control passes to the ordinary autonomous loop immediately
-afterwards. The CLI supplies it whenever an input folder is given
-(`build.DEFAULT_INSTRUCTION`, unless `--prompt/-P` says otherwise; #846): a folder on
-the command line already says what to do. Without a folder the session waits for a
-first message, which is the conversational character that makes ReAct a distinct arm.
-
-`run_interactive_build(engine, *, pipeline_runner=None, guidance_runner=None,
-exporter=None, output=None, overrides=None, resumed=False) -> dict` joins the two
-halves into the end-to-end sequence a real user runs. It:
-
-1. emits a leading **progress** line (`Scanning ✓ (N files)`, #241) and runs the
-   **automated** pipeline (`run_pipeline`) — always — threading the `output`
-   channel in as the spine's progress sink (see "Progress + persistence" below);
-2. runs the **HITL guidance tail** (`run_guidance(engine, engine.human_interface)`)
-   **iff the engine's `HumanInterface` is interactive**;
-3. surfaces a concise summary of the guidance results
-   (`format_guidance_summary` — gaps resolved / asked / remaining per tier, plus
-   final conformance of each claimed layer) via the injected `output` channel (e.g. the
-   CLI's `print` / console writer);
-4. **exports the crate to disk LAST** (`export_crate(engine.state)`, #233) — after
-   guidance, so the *enriched* crate is what lands — and surfaces the resolved
-   **absolute** crate path via `output` (`Crate written to <abs path>`);
-5. does a **final `save_session(state, always_write=True)`** (#242) so a populated
-   CrateState overview + a resumable session are guaranteed on disk, then
-6. returns `{"pipeline": <run_pipeline result>, "guidance": <run_guidance result
-   or None>, "export": <export_crate result>}` — `guidance` is `None` exactly when
-   the path was non-interactive; `export` is the (successful) export result dict.
-
-**The on-disk export (#233).** `export_crate` (`builder/tools/builder.py`) is the
-only disk writer, and it runs as the deterministic **final step** of
-`run_interactive_build` on **every** completed build — interactive *and* headless —
-after guidance, so the *enriched* crate is what lands and `--output` has an effect.
-The destination is resolved by `export_crate` from `state.metadata.output_path` (the
-CLI-resolved path, see below) with the session `working_crate/` fallback, and the
-resolved **absolute** crate path is surfaced via `output`. An export failure is
-**never silently swallowed**: it is logged, surfaced via `output`, and re-raised as
-`CrateExportError` so the CLI signals a non-zero exit. The exporter is injectable so
-the wiring is unit-tested with no ro-crate-py / disk (`tests/test_agents_build.py`).
-
-**The ReAct loop mirrors this (#287).** The loop must never depend on the model
-*choosing* `export_crate`, and `_finish_backstop` (#251) only runs on the quit/EOF
-exit path — so the ReAct arm auto-exports on **every** completed in-loop build too:
-`_auto_export_after_build` in `builder/agents/react/agent_loop.py` fires after a
-`build_and_validate` that passes **base** conformance over a non-empty crate, calls
-`export_crate` with no explicit path (same destination resolution as above), stamps
-`_EXPORTED_FLAG` and surfaces the absolute crate path. It is idempotent via
-`CrateState.export_fingerprint()` — a **content** hash over entities + crate metadata
-+ the scanned-file inventory — so it re-exports exactly when the crate changed and an
-unchanged repeat build is a no-op. The fingerprint must be content, **never an entity
-count** (#380): a count is invariant under every field-level tool the arm is told to
-use for the rest of the session (`set_fields`, `set_crate_metadata`,
-`fix_required_issues`, `link`), so counting keeps all of that work off disk — see the
-`export_fingerprint` docstring. `export_fingerprint()` is strictly **wider** than
-`validation_fingerprint()` because `export_crate` packages scanned files
-(`include_all_scanned=True`) the validation path never sees, and
-`validation_fingerprint()` must stay narrow or the #155 debounce stops hitting.
-`_finish_backstop` gates on the same fingerprint rather than on "something exported
-this session": it is the last chance to catch a crate that changed after its
-auto-export, and it stamps the fingerprint too so the two exit paths (quit and EOF)
-cannot double-export.
-
-**Progress + persistence (#241 / #242).** Both are deterministic, need no LLM, and
-never perturb the built `@graph`:
-
-- **Progress (#241)** is surfaced through the **existing `output` channel** — one
-  concise line per phase: `Scanning ✓ (N files)` (emitted by `run_interactive_build`
-  from `state.scanned_files`), then the spine's own threaded lines
-  (`Scaffolding ISA backbone…` / `Extracting plan…` / `Materializing N entities…` /
-  `Validating base→ISA→ISA-Tox…` / `Resolving gaps…`), then `Crate written to
-  <abs path>`. `run_pipeline` takes a keyword-only `progress` sink (defaulting to a
-  strict **no-op**); `run_interactive_build` threads `output` in only when the
-  injected `pipeline_runner` actually accepts a `progress` kwarg (signature-checked,
-  so a narrower injected test double still works). With the default no-op `output`
-  (non-interactive / eval / tests) **nothing is emitted**, so determinism and eval
-  output stay clean.
-- **Persistence (#242)** is driven by `save_session` calls at **phase boundaries**.
-  `run_pipeline` takes a keyword-only `save` callback (defaulting to the real
-  `builder.tools.session.save_session`) and calls it after **scaffold**, after
-  **materialize**, and after **each `build_and_validate`** in the fix loop — the
-  incremental, change-detected writes drive the dashboard's mtime-watch refresh so
-  a running `--dashboard` reflects the crate converging round by round.
-  `run_interactive_build` then does a **final `save_session(state,
-  always_write=True)`** after guidance + export (on **both** the interactive and the
-  headless path), which bypasses change-detection to guarantee a populated overview
-  + a resumable session. Persisting CrateState writes only `crate_state.json`; it
-  **never touches the built `@graph`**, so the no-provider determinism guarantee
-  (identical graph hash across runs) holds. Both `progress` and `save` are injected
-  so the wiring is unit-tested with no disk / no SHACL (`tests/test_agents_build.py`,
-  `tests/test_agents_pipeline.py`).
-
-**Console notices are user copy (#813).** An interactive session routes every log
-record at INFO or above to the console as a dim `·` line (`main.py` installs
-`ui.NoticeHandler` at INFO), so such a record is written for the person running the
-build: plain English, with no issue numbers, hedged plurals (`file(s)`) or module
-tags (`guidance:`), and a count after a label (`Files attached: 91`). What only a
-developer needs is logged at DEBUG and shown with `-v`.
-`tests/test_log_lines_are_user_copy.py` holds the rule.
-
-**Output location (CLI, `main.py`).** The on-disk destination is resolved at
-dispatch time with this precedence (#233, #315):
-
-1. `--output` / `-o` always wins (sets `state.metadata.output_path`);
-2. `--output` omitted **and** `--input` given => **`output/<name>_crate`**, versioned
-   `_v2`/`_v3`… on re-run (`_default_output_dir`), where `<name>` is the input folder
-   name with a trailing `_extracted` stripped. This keeps builds under a dedicated
-   `output/` tree instead of writing an `<input>-ro-crate` sibling (which polluted a
-   curated input tree like `input/raw/`). Payload is materialized, so each version is
-   self-contained;
-3. no `--input` (conversation mode) => leave `output_path` unset so `export_crate`
-   falls back to the session `working_crate/` directory.
-
-**The interactive signal.** "Interactive vs headless" is read from a single,
-optional `HumanInterface.is_interactive` attribute via the fail-closed helper
-`builder.tools.hitl.is_interactive(human)`: a `None` interface, one that omits the
-attribute, or one that sets it falsy is **non-interactive**; only a frontend
-backed by a real user sets it `True`. The default `SimulatedHumanInterface`
-(used by the A/B eval, batch runs, and the test suite) is `is_interactive = False`,
-so behind it `run_interactive_build` degrades to `run_pipeline` + export alone and
-`run_guidance` is **never invoked** — guidance can never block a headless build,
-but the headless build is **still written to disk**. This gate is also why
-`--smoke-test` needs its own `SmokeTestHumanInterface` (§8) rather than reusing the
-simulator: to exercise the tail an interface must report `is_interactive = True`,
-and the simulator reports `False` by design. The pipeline, guidance, and
-exporter runners are all injectable so the wiring is unit-tested with no SHACL /
-no LLM / no disk / no network (`tests/test_agents_build.py`).
-
-**Headless gap summary (#179, Lane 5; #296).** On the headless path `run_guidance`
-is never invoked, so without this the user would never see the build's posture.
-After the pipeline build + export, `run_interactive_build` emits a single,
-**non-blocking** summary line via the `output` channel — `format_gap_summary`
-renders the count of open **MUST** issues plus the conformance of each claimed layer.
-**It REUSES the validation result the pipeline already computed** (`run_pipeline`
-returns `{conformance, issues, …}` from its required-severity fix loop) rather
-than calling `assess_gaps` afresh: a fresh `assess_gaps` re-runs the heaviest
-`severity="optional"` SHACL + MIT + FAIR + AI-readiness sweep (the #115
-validation bottleneck),
-which on every headless build is both a real per-build UX regression and a CI
-timeout (#296). Because the pipeline validates only at REQUIRED severity, SHOULD/MAY
-gaps are not computed on this fast path — the line reports them as *not assessed*
-rather than fabricating a count (D5 — read-only reporting of real state). It is
-**pure observability**: it never prompts, never runs `run_guidance`, and never
-mutates state. Wording is deliberately distinct from `format_guidance_summary`
-(no "resolved"/"asked" verbs, since no interactive guidance ran). Tested with no
-extra SHACL (`tests/test_agents_build.py::TestHeadlessGapSummary`); the interactive
-path is unchanged (it still runs `run_guidance` + `format_guidance_summary`).
-
-**Stage C — the gap engine.** `assess_gaps(state: CrateState) -> GapReport`
-(`builder/tools/gap_analysis.py`) unifies the four assessors into ONE
-prioritized gap list the Guidance stage consumes. It is a **pure, deterministic,
-idempotent library function** (no LLM, no network, never mutates `state`) — and a
-**library function only, NOT a four-place LLM tool**: the spine/guidance *code*
-imports and calls it. It calls (does not re-implement) the four assessors, all
-against the SAME assembled document the SHACL sweep validated — a second
-assembly is how two axes come to disagree about one crate (#377):
-
-- `build_and_validate(state, severity="optional", profile="all")` — one widest
-  sweep yields REQUIRED + RECOMMENDED + OPTIONAL SHACL issues, each already
-  routed to `{entity_id, property, message, fix, severity, profile}`.
-- `assess_mit_coverage`'s underlying YAML logic — every unfilled MIT parameter is
-  a domain-enrichment gap. Both go through **one** matcher,
-  `mit_assessment.slot_matcher` (#377): the `crate_slot` vocabulary describes the
-  **assembled crate**, not `CrateState`, so a state-field scan cannot see a
-  `LabProcess*` subtype (they are `LabProcess` + an `additionalType`, absent from
-  the `EntityType` literal), the `char` characteristic traversal, or a field the
-  build *promotes* — a MolecularEntity's `cas` becomes the node's `identifier`,
-  a CellLineSample's `accession` likewise. A second copy in the gap engine would
-  ask for identifiers the crate already carries. The document assembled for the
-  SHACL sweep is threaded into the MIT pass, so a `GapReport` costs **one**
-  assembly, not two. A value the build *synthesized* in
-  the user's absence (the placeholder root name/description, the "licence not
-  stated" entity) never counts as filled — crediting it would stop the loop asking
-  for the real one; the values are imported from the build's own constants rather
-  than duplicated. The licence discount is keyed on `LICENCE_NOT_STATED_ID`, and
-  `_nonempty` unwraps a single-key `{"@id": …}` before checking, so a placeholder
-  is not made real by being modelled as an entity rather than a string (#540).
-- `assess_fair_maturity` — every *failing* indicator is a gap.
-- `assess_air_readiness` — every criterion **assessed and not met** is a gap; a
-  criterion the tool cannot assess never becomes one. Each criterion declares a
-  remedy in `air/criteria.yaml`, and `_is_committable` has the final veto: a remedy
-  naming an entity type with no instance in state is forced `report-only` rather than
-  spending a human turn on a value `_apply_value` would discard. Never `MUST` — that
-  tier is the SHACL build gate, and no profile requires AI-readiness.
-
-**Tiering** mirrors the §6 validation layers (MUST = blocking, SHOULD =
-recommended, MAY = optional):
-
-| Source | Gap → tier |
-|--------|------------|
-| SHACL `required` (Violation) | **MUST** |
-| SHACL `recommended` (warning) | **SHOULD** |
-| SHACL `optional` | **MAY** |
-| MIT param, `additional: false` (core) | **SHOULD** |
-| MIT param, `additional: true` | **MAY** |
-| FAIR failing indicator, `essential` | **SHOULD** |
-| FAIR failing indicator, otherwise | **MAY** |
-| AI-readiness criterion failed, remedy committable | **SHOULD** |
-| AI-readiness criterion failed, remedy `report-only` | **MAY** |
-| AI-readiness criterion **not assessed** | *no gap* |
-
-An AI-readiness gap is **never MUST and never `auto_fixable`**: MUST is the SHACL
-build gate and no RO-Crate profile requires AI-readiness, and `auto_fixable` means
-precisely "`fix_required_issues` can clear it", which no repair rule does for a
-Bridge2AI criterion.
-
-Each `Gap` carries `{tier, source, entity_id, entity_type, property, message,
-suggestion, fix_hint, auto_fixable}`: `suggestion` is the expected propertyID
-IRI / ontology term / parameter description from the profile or MIT YAML;
-`fix_hint` is a deterministic tool name (`"fix_required_issues"`), `"draft"`,
-`"ask-user"`, or **`"report-only"`** (#230). A `report-only` gap is one the
-guidance loop can *not* commit — it stays in the report for context, but the loop
-never spends a human turn on it. `_is_committable` decides this and **must mirror
-`guidance._apply_value`'s success conditions** (#375); a test walks every
-actionable gap and asserts `_apply_value`'s preconditions hold, so the two cannot
-drift. A gap is committable when it names a field the loop can write: a
-person/citation field (their own composite routes), an entity-scoped gap whose
-`entity_id` resolves to a state entity (or the root `./` with a
-`_CRATE_SETTABLE_FIELDS` field), a **typed** gap (`entity_id is None` +
-`entity_type`) whose field is a crate slot **and** whose type has exactly one
-instance, or a crate-level gap whose field is a crate slot. Never committable: a
-gap naming **no field** (a node shape), and an **identifier-bearing field** — D5
-refuses to take an identifier from prose, so asking could only discard the answer
-(resolving it is a *lookup*, #338/#372). A **reference-only** field stays
-committable on purpose: prose is refused, but naming an entity already in the
-crate is exactly the useful answer when a repair rule declined on ambiguous
-candidates. **Every FAIR gap is `report-only`** (its property is an indicator id
-like `RDA-F1-02M`, not a field), as are **crate-level MIT gaps whose field is not
-a crate slot**. Actionability is gated on the **field**, never on the mere
-presence of an `entity_id` — MIT gaps deliberately keep `entity_id is None`, and
-populating it would flip ~167 report-only pseudo-field slots
-(`MolecularEntity:char`, `LabProcessExposure:param`, …) into ask-user turns that
-would write literal `"char"` / `"param"` keys. `GapReport` adds
-`{gaps, conformance, mit_overall, fair_summary, air_summary, counts}`, with
-`gaps` sorted
-**all MUST, then SHOULD, then MAY**, then **committable before `report-only`**
-within a tier, stable secondary by `(source, entity_id, property)` — so the loop
-always reaches the gaps it can act on first.
-
-**`auto_fixable` is the load-bearing field** — it is `True` iff
-`fix_required_issues` can clear the gap deterministically from state alone. The
-engine decides this by re-using the repair loop's **own** rule predicates
-(`builder/tools/repair.py` `_RULES`, `_resolve_state_entity`,
-`_unique_unwired_file`, `_unique_unwired_input`) read-only, so the gap engine and
-the repair loop can never drift on what "deterministically fixable" means: the two
-symmetric rules make a process-edge gap auto-fixable **iff its target is the single
-unambiguous candidate in state** — `missing_process_output` (an
-`EndpointReadout`/`DataAnalysis` missing its `result`/`output`) iff exactly one
-un-wired `File` exists, and `missing_process_input` (a `DataAnalysis` missing its
-`schema:object`) iff exactly one free-floating `Sample`/`File` exists. Two-or-more
-(ambiguous) or zero (needs new content, D5) candidates, and every non-SHACL or
-non-REQUIRED gap, are `auto_fixable=False` → `"ask-user"`/`"draft"`. The
-Auto-resolve stage runs `fix_required_issues`; what remains is exactly the
-`auto_fixable=False` set the Guidance stage works through.
+Extension points the current design leaves open (not yet built): registering
+external **MCP** servers as additional tools (the toolbox is MCP-ready);
+**multi-user** provenance (the model is single-user today); a **Web API / frontend**
+over the builder library (FastAPI/Streamlit call in unchanged); runtime-loaded
+**custom profiles** (schemas are YAML); and **batch processing** (state is
+per-session, so parallel runs are straightforward).
 
 ---
 
