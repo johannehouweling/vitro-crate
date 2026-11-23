@@ -47,15 +47,15 @@ jobs:
               setup/fixture, with no transformation in between.
             - bypasses-producer: the test's name/docstring claims build or extraction
               coverage but it hand-builds the expected state (or scripts the drafters)
-              and never drives the real entry point (e.g. run_pipeline / the transform
-              under test).
+              and never drives the real entry point (e.g. run_build / the ReAct loop /
+              the transform under test).
             - over-mock / stub-assert: a behaviour test that only asserts a mock's
               configured return value, or asserts against a stub.
             - name-claims-more-than-body: the assertion is materially weaker than the
               test name/docstring promises.
             The honest pattern to compare against: drive the real entry point over
             real/recorded input, gate any leaf stub on content-only tokens, and assert
-            on what was produced (see tests/test_pipeline_real_input.py).
+            on what was produced (see tests/test_discovery_context_reaches_the_agent.py).
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 

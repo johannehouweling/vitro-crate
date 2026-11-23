@@ -48,8 +48,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 - `fair/dsm_indicators.yaml` — FAIRplus Data Stewardship Maturity (DSM) ladder (hand-curated; no machine-readable upstream)
 - `builder/state.py` — CrateState dataclass (the central data model)
 - `builder/engine.py` — AgentEngine orchestrator (runs tools, manages state)
-- `builder/agents/` — both build arms plus their shared layer (`build.py` dispatches on the selected mode; `llm.py`, `ui.py`)
-- `builder/agents/pipeline/` — the deterministic, code-orchestrated build arm (the `--interactive` default): `pipeline`, `guidance`, `leaves`
-- `builder/agents/react/` — the LangChain/LangGraph ReAct arm (`--react`): `agent_loop`, `SYSTEM_PROMPT` in `system_prompt.py`, `TOOL_SPECS` in `tools_spec.py` (kept in parity with the shared engine by `assert_tool_spec_parity`)
+- `builder/agents/` — the build and its shared layer (`build.py` is the entrypoint: it reads the deposit's structure, then runs the ReAct loop; `structure.py` labels the deposit's folder tree as studies and assays; `llm.py`, `ui.py`)
+- `builder/agents/react/` — the LangChain/LangGraph ReAct loop (`--interactive`): `agent_loop`, `SYSTEM_PROMPT` in `system_prompt.py`, `TOOL_SPECS` in `tools_spec.py` (kept in parity with the shared engine by `assert_tool_spec_parity`)
 - `builder/tools/` — All tool implementations (scanner, drafters, lookups, builder, validation, assessment, session)
 - `builder/config.py` — Persistent config (`~/.config/vitro-crate/config.toml`) for LLM provider settings
