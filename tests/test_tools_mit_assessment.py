@@ -606,8 +606,7 @@ class TestPlaceholderValuesAreNotCredited:
 
     The assembly synthesizes `name = "Untitled Investigation"` on the root when
     no title is set (`_crate_mapping.py`), so a graph-based match would credit
-    `Investigation:name` on a crate that has no title at all — and, once the gap
-    engine shares this matcher, would silently stop asking the user for it.
+    `Investigation:name` on a crate that has no title at all.
 
     This is the same class the module already guards against for
     `conditionsOfAccess` vs the always-present default `license`.
@@ -673,10 +672,10 @@ class TestPlaceholderValuesAreNotCredited:
             assert const.strip().lower() in values, const
 
     def test_the_assess_gaps_path_also_rejects_its_placeholder(self):
-        """The two build paths use DIFFERENT defaults, so cover both.
+        """The two assembly paths use DIFFERENT defaults, so cover both.
 
-        `assess_gaps` scores against `assemble_crate`'s document, whose root name
-        falls back to `_DEFAULT_ROOT_NAME` — a different string from the one
+        `_assemble_and_validate` builds `assemble_crate`'s document, whose root
+        name falls back to `_DEFAULT_ROOT_NAME` — a different string from the one
         `_assemble_graph` produces.
         """
         from builder.tools.mit_assessment import slot_matcher

@@ -29,7 +29,7 @@ from builder.tools.data_content import (
 # Headroom, not a licence to grow: no test in this module is changed.
 pytestmark = pytest.mark.timeout(120)
 
-# The committed per-well fixture the pipeline actually meets in the corpus. Anchored
+# The committed per-well fixture the build actually meets in the corpus. Anchored
 # to this file, not the CWD — a test below deliberately chdirs. The fixture is owned
 # by the eval corpus, so ``test_the_corpus_fixture_still_requires_aliasing`` guards
 # against it drifting to canonical column names and quietly making the end-to-end
@@ -680,7 +680,7 @@ class TestValueUrlDropsOnMultivaluedColumn:
 
     The Exposure's ``chemicals`` ref field and its cultured-sample ``object`` are
     what feed ``cells``/``chems`` into ``_build_condition_table_schema``, so these
-    build the same wiring ``_materialize_plan`` produces.
+    build that wiring directly.
     """
 
     _REL = Path("data") / "LabProcess_proc_exp_condition_table.csv"
@@ -780,10 +780,10 @@ class TestValueUrlDropsOnMultivaluedColumn:
 class TestPlateMapIntakeByFormat:
     """``populate_condition_table`` dispatches on the file's format (#422).
 
-    The spine picks the design table by its rows, not its extension, so the
+    The design table was picked by its rows, not its extension, so the
     real deposit's ``.xlsx`` plate map reached a UTF-8
     ``csv.DictReader`` and raised ``UnicodeDecodeError`` on the first ZIP byte.
-    The spine swallowed that into a ``reason:`` string and the crate shipped a
+    The build swallowed that into a ``reason:`` string and the crate shipped a
     header-only table with nothing said about why.
     """
 
@@ -861,7 +861,7 @@ class TestPlateMapIntakeByFormat:
         assert populate_condition_table(state, exposure_id, str(tsv))["ok"]
 
     def test_unreadable_format_is_refused_by_name(self, tmp_path) -> None:
-        # Previously a UnicodeDecodeError escaped into the spine's generic
+        # Previously a UnicodeDecodeError escaped into the build's generic
         # handler; now it names the file and the reader that could not take it.
         from builder.tools.data_content import populate_condition_table
 
@@ -900,8 +900,8 @@ class TestAKeyOnItsOwnDescribesNothing:
     any table carrying a well-ish header qualified. On S-VHPS22 that admitted two
     files that describe no conditions at all — a qPCR protocol sheet whose first
     column is ``Well Position``, and a gamma-counter export keyed on ``Run ID`` —
-    giving three candidates where there is one design table. The pipeline refuses
-    when several qualify, so **the crate shipped four header-only tables while
+    giving three candidates where there is one design table. The build refused
+    to choose when several qualified, so **the crate shipped four header-only tables while
     1048 rows of real design sat in the deposit**.
 
     The rule already stated for the other side of the pair — "a table with wells

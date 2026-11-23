@@ -132,7 +132,7 @@ class TestExportFingerprint:
     """#380: the ReAct auto-export gate needs a CONTENT fingerprint.
 
     It used to compare `len(state.list_entities())`, which is invariant under
-    every field-level mutation the arm exposes (`set_fields`,
+    every field-level mutation the agent is told to use (`set_fields`,
     `set_crate_metadata`, `fix_required_issues`, `link`) — so once the crate had
     been exported once, none of that work ever reached disk.
     """

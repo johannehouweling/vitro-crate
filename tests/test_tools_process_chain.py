@@ -6,7 +6,7 @@ chain — ``Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample
 →[EndpointReadout]→ raw/result →[DataAnalysis]→ figures`` — into ONE
 idempotent call. Its keystone job is to **synthesize the missing outputs** for
 EndpointReadout / DataAnalysis (the two subtypes with no build-time output
-fallback, AGENTS.md §14.3) so the chain never dangles into a tox Violation.
+fallback, AGENTS.md §4.2.7) so the chain never dangles into a tox Violation.
 
 The validation-heavy class carries a 120s timeout (the #184 lesson) because each
 ``build_and_validate`` runs the full three-pass SHACL sweep.
@@ -281,7 +281,7 @@ class TestViaEngine:
 @pytest.mark.timeout(120)
 class TestChainPassesValidation:
     """The KEY assertion: after one chain call there are NO EndpointReadout /
-    DataAnalysis missing-result/object tox Violations (§14.3 trap closed)."""
+    DataAnalysis missing-result/object tox Violations (§4.2.7 trap closed)."""
 
     @staticmethod
     def _dosed() -> tuple[CrateState, str, list[dict]]:
@@ -391,9 +391,9 @@ class TestTheExposureReachesItsCompounds:
     def _exposure_chain_state(self) -> tuple[CrateState, list[str]]:
         """A backbone + chain whose Exposure carries two resolved compounds.
 
-        Returns ``(state, compound_entity_ids)``. Mirrors the real materialize
-        flow: the chain is drafted first, then the compounds are wired onto the
-        Exposure via the ``chemicals`` ref field (as ``_materialize_plan`` does).
+        Returns ``(state, compound_entity_ids)``. The chain is drafted first,
+        then the compounds are wired onto the Exposure via the ``chemicals`` ref
+        field.
         """
         from builder.tools.drafters import draft_cell_line_sample, draft_molecular_entity
 
@@ -721,7 +721,7 @@ class TestExposureProducesTheExposedSample:
         )
 
     def test_the_exposure_executes_one_record_not_the_table(self) -> None:
-        """ReAct arm (#783): drafted and wired through the engine's tools, the
+        """The ReAct build (#783): drafted and wired through the engine's tools, the
         Exposure executes ONE protocol, its record naming the compounds, and the
         condition table is data about the exposed Sample rather than a protocol."""
         from builder.tools.drafters import draft_molecular_entity

@@ -7,14 +7,14 @@
 routed issues and attempts a **deterministic** repair per issue (no LLM, no
 network), using only what already exists in :class:`CrateState`.
 
-Scope (AGENTS.md §14.2, §14.3, D5):
+Scope (AGENTS.md §4.2.7, D5):
 
 - **In scope** — repairs whose correct value is already determined by state:
   a missing process output/input edge whose target is the *single, unambiguous*
   candidate already in state -> :func:`link`.
 - **Out of scope** — anything that needs NEW content, a NEW entity, or a
-  fabricated identifier. Those are classified as ``remaining`` for the bounded
-  LLM leaf to handle later. We **never fabricate identifiers** (D5).
+  fabricated identifier. Those are classified as ``remaining`` for the agent
+  to handle. We **never fabricate identifiers** (D5).
 
 The dispatch is a small, ordered list of :class:`RepairRule`s (issue-shape ->
 repair action), not a monolith, so each case is independently testable and new
@@ -153,8 +153,8 @@ def _repair_missing_process_output(
     """Wire the unique un-wired File as this process's ``result`` (deterministic).
 
     Declines (returns ``None``, no mutation) when the target is not unambiguous —
-    zero candidates (new content needed) or 2+ (genuine ambiguity) — so the LLM
-    leaf decides. Never creates a File and never fabricates an id (D5).
+    zero candidates (new content needed) or 2+ (genuine ambiguity) — so the
+    agent decides. Never creates a File and never fabricates an id (D5).
     """
     assert entity is not None  # guarded by _applies_missing_process_output
     target = _unique_unwired_file(state)
@@ -221,7 +221,7 @@ def _repair_missing_process_input(
 
     The symmetric counterpart of :func:`_repair_missing_process_output`. Declines
     (returns ``None``, no mutation) when the target is not unambiguous — zero
-    candidates (new content needed) or 2+ (genuine ambiguity) — so the LLM leaf
+    candidates (new content needed) or 2+ (genuine ambiguity) — so the agent
     decides. Never creates an entity and never fabricates an id (D5).
     """
     assert entity is not None  # guarded by _applies_missing_process_input
@@ -271,11 +271,12 @@ def fix_required_issues(
 ) -> dict[str, Any]:
     """Deterministically repair routed validation issues — no LLM, no network.
 
-    The keystone of the deterministic pipeline (AGENTS.md §14): it runs
-    ``build_and_validate(severity, profile)``, dispatches each issue to a
-    deterministic :class:`RepairRule`, then re-validates to confirm which issues
-    actually cleared. Repairs that would need new content, a new entity, or a
-    fabricated identifier are left for the LLM leaf (classified ``remaining``).
+    The deterministic repair loop (AGENTS.md §5, Crate Assembly & Validation
+    Tools): it runs ``build_and_validate(severity, profile)``, dispatches each
+    issue to a deterministic :class:`RepairRule`, then re-validates to confirm
+    which issues actually cleared. Repairs that would need new content, a new
+    entity, or a fabricated identifier are left for the agent (classified
+    ``remaining``).
 
     It is **side-effect-safe**: if no rule deterministically fixes any issue, it
     mutates nothing and returns every issue under ``remaining``. It is

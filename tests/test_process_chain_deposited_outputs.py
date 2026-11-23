@@ -1,6 +1,6 @@
 """A deposited data file is the step's result, not a synthesized empty one (#589).
 
-``draft_process_chain`` closes the §14.3 "no output fallback" trap by
+``draft_process_chain`` closes the §4.2.7 "no output fallback" trap by
 synthesizing a placeholder File for EndpointReadout / DataAnalysis. It did so
 **unconditionally** — never asking whether the deposit already contained the
 file the step produced. On a real submission that inverted the crate's metadata

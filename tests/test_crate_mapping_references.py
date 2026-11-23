@@ -599,8 +599,8 @@ class TestSourceCodeFileTyping:
         assert node.get("encodingFormat") == "text/x-python"
 
     def test_a_script_is_source_code_without_being_told(self):
-        """#786: the extension decides, in both arms — the pipeline never passes
-        additional_types, and the agent may not. LabProtocol too, because a
+        """#786: the extension decides — the agent may not pass
+        additional_types. LabProtocol too, because a
         process that executes it trips the ISA "MUST be of type LabProtocol"."""
         state = CrateState()
         state.metadata.title = "Code crate"
@@ -709,7 +709,7 @@ class TestADataAnalysisShouldFollowAnAnalysisScript:
     record based on one. Warning, not Violation, for the reason the Sample check
     above gives.
 
-    Driven through ``attach_files``, the way both arms place a deposit's files.
+    Driven through ``attach_files``, the way the build places a deposit's files.
     """
 
     SOP = "4.1 Deiodinase activity assay.docx"

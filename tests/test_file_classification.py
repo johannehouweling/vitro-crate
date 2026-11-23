@@ -280,7 +280,7 @@ class TestTheFilenameDecidesWhenContentIsSilent:
         )
 
     def test_a_publication_is_recognised_by_name_and_not_by_content(self):
-        """The gap engine asks this to notice a deposited article nobody recorded.
+        """The ReAct loop's ``open_items`` asks this to notice a deposited article nobody recorded.
 
         Content is the wrong place to ask: the deposit record names a ``DOI``
         field and an assay README shows a worked citation, so both read as papers

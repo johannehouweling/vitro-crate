@@ -398,7 +398,7 @@ class TestInteractiveVerbosity:
 
         When *interactive* raises the effective level to INFO (and the user did
         not ask for it via -v/-vv), the noisy third-party loggers are forced to
-        WARNING so each guidance question is not buried under per-request
+        WARNING so each question is not buried under per-request
         ``HTTP Request: POST .../chat/completions`` INFO lines, while our own
         ``builder.*`` progress lines stay at INFO.
         """

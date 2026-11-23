@@ -243,7 +243,7 @@ class TestCompactGridText:
         "drop rows with an empty Value cell" rule still reddens the assertion.
 
         Run at BOTH read depths — the suite used to inspect 100 rows while the
-        pipeline read 500, leaving the lossy rules unexercised over 5x the rows
+        build read 500, leaving the lossy rules unexercised over 5x the rows
         they actually run on in production.
         """
         from builder.tools.file_readers import _MAX_ROWS, compact_grid_text, read_excel

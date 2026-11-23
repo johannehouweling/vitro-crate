@@ -45,8 +45,8 @@ def _stub_composites_compound_wiki(monkeypatch):
 def _stub_composites_registered_organization(monkeypatch):
     """Keep the composites' ROR name match offline.
 
-    An affiliation without a ROR id, on an ORCID record, a paper's author line or
-    the pipeline's plan, is asked of ROR, so every test drafting one would reach
+    An affiliation without a ROR id, on an ORCID record or a paper's author line,
+    is asked of ROR, so every test drafting one would reach
     api.ror.org. A miss by default, scoped to the name bound in ``composites`` like
     the stubs around it; a test that needs a match re-patches
     ``composites.find_registered``.
@@ -60,10 +60,8 @@ def _stub_composites_registered_organization(monkeypatch):
 def _stub_composites_cellosaurus(monkeypatch):
     """Keep ``resolve_cell_line``'s Cellosaurus calls offline (#372).
 
-    Wiring ``resolve_cell_line`` into ``_materialize_plan`` gave three modules a
-    live network path they never had: ``test_agents_pipeline``,
-    ``test_pipeline_e2e`` and ``test_pipeline_real_input`` all drive the real
-    pipeline over a plan carrying a cell line, and nothing stubbed Cellosaurus.
+    ``resolve_cell_line`` reaches Cellosaurus, so every test that drives it over
+    a cell line has a live network path unless something stubs it.
     Default both primitives to a MISS so a forgotten stub surfaces as "no
     accession" rather than as a request to api.cellosaurus.org.
 
@@ -118,9 +116,9 @@ def _stub_drafters_registries(monkeypatch):
 def _stub_composites_exact_term(monkeypatch):
     """Keep the composites' ontology-term lookup offline.
 
-    ``resolve_cell_line`` and the pipeline spine look up the term of a stated
-    organ, tissue and cell type, so every test that drives either over a cell
-    source would reach the ontology service. A miss by default, scoped to the
+    ``resolve_cell_line`` (through ``resolve_characteristic_terms``) looks up the
+    term of a stated organ, tissue and cell type, so every test that drives it
+    over a cell source would reach the ontology service. A miss by default, scoped to the
     name bound in ``composites`` like the stubs above; a test that needs a term
     re-patches ``composites.lookup_exact_term``.
     """

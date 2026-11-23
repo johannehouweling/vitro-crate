@@ -1,11 +1,11 @@
 """Shared LLM plumbing lives in ``builder.agents.llm`` (Issue #309).
 
 Model construction and the provider/token/timeout/recursion helpers are used by
-BOTH build modes — the ReAct loop (``builder.agents.react.agent_loop``) and the
-deterministic pipeline's bounded leaves (``builder.agents.pipeline.leaves``). They were
-extracted out of ``agent_loop.py`` so the pipeline no longer imports from an
-agent-mode module to build its drafter model. These tests pin the symbols to
-their new home (import parity) and smoke-test behaviour.
+the ReAct loop (``builder.agents.react.agent_loop``) and by the bounded drafter
+call that reads a deposit's structure (``builder.agents.structure``). They live
+outside ``agent_loop.py`` so that call does not import from the loop to build its
+drafter model. These tests pin the symbols to their home (import parity) and
+smoke-test behaviour.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class TestImportParity:
         It only reaches for ``engine.profiler`` / ``engine.state``, so
         :class:`~builder.engine.AgentEngine` stays a ``TYPE_CHECKING`` import. If
         it ever became a real one this deliberately cheap shared module would pull
-        the whole engine in behind every leaf, and the leaves import it eagerly.
+        the whole engine in behind every bounded call, which imports it eagerly.
         Measured in a fresh interpreter because the in-process ``sys.modules`` is
         already polluted by whatever the rest of the suite imported.
         """
@@ -223,11 +223,10 @@ class _DuckEngine:
 
 
 class TestMakeUsageLogger:
-    """#384 — one shared sink builder, usable by any LLM caller in either arm.
+    """#384 — one shared sink builder, usable by any LLM caller outside the loop.
 
-    It was the pipeline spine's private helper while the spine was its only
-    caller; the guidance tail became a second one, and a second *copy* would have
-    been free to log a different event shape than the one every reader parses.
+    A second *copy* would be free to log a different event shape than the one
+    every reader parses.
     """
 
     def test_accumulates_totals_and_logs_the_reader_visible_event(self) -> None:
@@ -257,7 +256,7 @@ class TestMakeUsageLogger:
         assert engine.state.generator.output_tokens == 40
 
     def test_logs_the_system_fingerprint_when_the_provider_reports_one(self) -> None:
-        """#771 — the pipeline/guidance arm's event carries the backend handle."""
+        """#771 — a bounded call's event carries the backend handle."""
         from builder.agents.llm import make_usage_logger
 
         profiler = _RecordingProfiler()

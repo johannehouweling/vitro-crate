@@ -322,9 +322,9 @@ class TestPublicationAuthors:
 
 
 class TestPublicationRealPipelineDoiId:
-    """The Publication @id must be the DOI URL on the REAL pipeline path (#179).
+    """The Publication @id must be the DOI URL on the REAL drafting path (#179).
 
-    The real pipeline (``draft_publication`` via ``_ensure_publication`` /
+    The real drafting path (``draft_publication`` via ``_ensure_publication`` /
     Crossref) never sets a ``doi`` FIELD — it stores the DOI on ``identifier`` in
     the FULL URL form Crossref returns (``https://doi.org/10....``). Because that
     value does not start with the literal ``"10."``, the old ``_mint_id``
@@ -337,7 +337,7 @@ class TestPublicationRealPipelineDoiId:
     def _state_with_url_identifier(self) -> CrateState:
         state = CrateState()
         state.metadata.title = "Publication crate"
-        # Mirror the real pipeline: ONLY identifier (full URL form), NO doi field.
+        # Mirror the real drafting path: ONLY identifier (full URL form), NO doi field.
         state.add_entity(
             Entity(
                 entity_id="pub_real",
@@ -493,7 +493,7 @@ class TestCellLineSampleCellosaurusId:
     follow it. Person/ORCID, Organization/ROR, MolecularEntity/PubChem and
     Publication/DOI already work this way — the cell line was the gap, and the
     branch shipped in ``_mint_id`` untested until ``resolve_cell_line`` gave the
-    deterministic arm a way to produce an accession at all.
+    build a way to produce an accession at all.
     """
 
     def _cell_state(self, **fields) -> CrateState:

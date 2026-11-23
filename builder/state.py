@@ -1740,8 +1740,8 @@ def _migrate_documents(documents: list[Any]) -> list[Any]:
     Document discovery labelled each candidate ``role``; it now answers with the
     one file ``classification``. ``--resume`` bypasses ``initialize()``, so
     discovery never re-runs and the saved dicts are what the readers see for the
-    rest of the session — and one reader is not cosmetic: the ReAct gap engine
-    counts assay folders by the documents classified ``metadata`` or
+    rest of the session — and one reader is not cosmetic: the ReAct loop's
+    ``open_items`` counts assay folders by the documents classified ``metadata`` or
     ``protocol``, so an old session produced none and the "N assay folders, M
     Assays" item stopped appearing.
 

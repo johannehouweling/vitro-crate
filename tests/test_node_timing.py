@@ -93,7 +93,7 @@ class TestWrapModelNode:
         assert _events(prof, "node_end", "model")[0]["produced_tool_calls"] is True
 
     def test_logs_the_system_fingerprint_when_the_provider_reports_one(self):
-        """#771 — the ReAct arm's model event carries the backend handle too."""
+        """#771 — the ReAct model node's event carries the backend handle too."""
         prof = _RecordingProfiler()
 
         def call_model(state):

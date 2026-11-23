@@ -132,7 +132,7 @@ class TestConsoleHumanInterface:
 
     def test_request_input_displays_question_via_show_func(self):
         """An injected show_func renders the question so the CLI can style it as a
-        green-● reply like the ReAct arm, instead of a bare print (#344)."""
+        green-● reply like the ReAct loop's own, instead of a bare print (#344)."""
         shown: list[str] = []
 
         resp = ConsoleHumanInterface(

@@ -707,10 +707,10 @@ def scan_files(
             # zip/OLE2 container): the raw-bytes sampler's NUL-byte binary guard
             # (Issue #51) rejects them, so `read_file_sample(already_text=False)`
             # returned None and left `first_rows` unset — which forced every .xlsx
-            # down the budget-consuming body-read path in the pipeline's
-            # `_gather_context` (Issue #179, Commit 2). Read them through the proper
-            # Excel reader (the same `read_excel` path `read_file` uses) so the
-            # cheap preview is captured; CSV/TSV stay on the fast text sampler.
+            # down a budget-consuming body read (Issue #179, Commit 2). Read them
+            # through the proper Excel reader (the same `read_excel` path
+            # `read_file` uses) so the cheap preview is captured; CSV/TSV stay on
+            # the fast text sampler.
             if entry.suffix.lower() in {".xlsx", ".xls"}:
                 sample = _excel_preview(str(entry))
             else:
