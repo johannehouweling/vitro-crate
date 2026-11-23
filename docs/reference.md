@@ -124,6 +124,27 @@ uv run python -m main --interactive --provider openai --model gpt-4o-mini
 uv run python -m main --interactive --provider openai --api-base http://localhost:11434/v1
 ```
 
+### Unattended build mode
+
+`--unattended` runs the same build with nobody at the keyboard. A question the
+agent asks gets no answer: nothing is approved or chosen on anyone's behalf, what
+the deposit and the lookups do not state stays empty, and the maturity report lists
+it. The crate is exported and the run ends. It exits 1 when no crate was written.
+
+```bash
+uv run python -m main --unattended -i /path/to/experiment/ -o /path/to/crate/
+```
+
+The questions nobody answered are kept in the session. The run ends by naming them
+and the command that puts them to a person:
+
+```bash
+uv run python -m main --resume <session-id> --interactive
+```
+
+It needs `--input` or `--resume`, and is not combined with `--interactive` or
+`--smoke-test`.
+
 **Smoke-testing the interactive path (`--smoke-test`).** For **testing**, not for
 producing a crate you would keep. It runs the same interactive build with nobody at
 the keyboard: every choice prompt confirms its **pre-selected** option and every
@@ -323,6 +344,12 @@ Options:
   -I, --interactive      Run in interactive build mode: the ReAct agent loop,
                          where the LLM orchestrates the tool calls (requires
                          LangChain + API key)
+      --unattended       Build from --input (or a --resume session) with nobody
+                         at the keyboard: a question gets no answer, what the
+                         deposit and the lookups do not state stays empty and is
+                         reported, and the crate is exported. Unanswered
+                         questions are kept in the session for a later --resume
+                         --interactive. Exits 1 when no crate was written
       --smoke-test [MINUTES]
                          TESTING: drive the interactive build with nobody at the
                          keyboard — confirm every pre-selected choice, answer
