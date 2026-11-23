@@ -448,30 +448,28 @@ class TestReadDepositStructure:
         assert calls == [] and lines == []
 
 
-class TestBothArmsGetTheStructure:
-    """``run_build`` reads the structure before dispatching either arm."""
+class TestTheBuildStartsWithTheStructure:
+    """``run_build`` reads the structure before the loop starts."""
 
-    @pytest.mark.parametrize("mode_name", ["REACT", "PIPELINE"])
-    def test_the_arm_starts_with_the_structure_on_the_state(
-        self, mode_name: str, monkeypatch: pytest.MonkeyPatch
+    def test_the_loop_starts_with_the_structure_on_the_state(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import builder.agents.build as build_mod
         import builder.agents.react.agent_loop as agent_loop
-        from builder.agents.build import BuildMode, run_build
+        from builder.agents.build import run_build
 
         monkeypatch.setattr(build_mod, "get_provider", lambda: None)
         engine = TestReadDepositStructure._engine()
         seen: dict[str, Any] = {}
 
-        def _arm(eng: Any, *a: Any, **k: Any) -> dict[str, Any]:
+        def _loop(eng: Any, *a: Any, **k: Any) -> dict[str, Any]:
             seen["structure"] = eng.state.deposit_structure
             return {}
 
-        monkeypatch.setattr(agent_loop, "run_interactive_agent", _arm)
-        monkeypatch.setattr(build_mod, "run_interactive_build", _arm)
+        monkeypatch.setattr(agent_loop, "run_interactive_agent", _loop)
         lines: list[str] = []
 
-        run_build(BuildMode[mode_name], engine, output=lines.append)
+        run_build(engine, output=lines.append)
 
         assert seen["structure"] == fallback_structure()
         assert lines[0].startswith("Could not read the deposit's structure")
