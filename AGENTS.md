@@ -1121,7 +1121,7 @@ draft_molecular_entity(name: str, hints: dict) → Entity
 draft_cell_line_sample(name: str, hints: dict) → Entity
 draft_sample(hints: dict) → Entity                       # material input/output in the derivation chain
 draft_process(assay_id: str, process_type: str, hints: dict) → Entity
-draft_protocol(hints: dict) → Entity                     # LabProtocol a step's protocol record can be based on
+draft_protocol(hints: dict) → Entity                     # what the lab states about a step's protocol: written on the documents the step executes, or on its protocol record (D17)
 draft_person(name: str, hints: dict) → Entity            # hints accept givenName/familyName; when neither is given they are derived by a deterministic split of `name` (comma-form "Last, First" inverted; a lone token kept as a family-name candidate, never mis-placed into givenName) so EVERY Person path is ISA-conformant (non-empty schema:givenName). Without an orcid hint it takes the ORCID the deposit states for exactly that name, else a single strong name-search hit, once ORCID confirms it (D5)
 draft_organization(name: str, hints: dict) → Entity      # without a ror hint it takes the ROR id the deposit states for exactly that name, once ROR returns that record (D5)
 draft_publication(doi: str, hints: dict) → Entity
