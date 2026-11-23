@@ -249,7 +249,9 @@ def _drafting_state() -> CrateState:
             orcid="0000-0002-1825-0097",
         )
     )
-    state.add_entity(_ent("org", "Organization", name="Universiteit Utrecht"))
+    # ISA-Tox identifies an Organization by its ROR ID; this one is Utrecht
+    # University's, as tests/test_registered_organization.py records it.
+    state.add_entity(_ent("org", "Organization", name="Universiteit Utrecht", ror="04pp8hn57"))
 
     # Domain entities: compound, cell line, protocol, and the Exposure process.
     state.add_entity(_ent("cell", "CellLineSample", name="FRTL-5 TPO-overexpressing cells"))
@@ -378,7 +380,9 @@ def _arbitrary_tox_folder_state() -> CrateState:
             orcid="0000-0002-1825-0097",
         )
     )
-    state.add_entity(_ent("org", "Organization", name="Universiteit Utrecht"))
+    # ISA-Tox identifies an Organization by its ROR ID; this one is Utrecht
+    # University's, as tests/test_registered_organization.py records it.
+    state.add_entity(_ent("org", "Organization", name="Universiteit Utrecht", ror="04pp8hn57"))
 
     # Domain entities: cell line, compound, protocol.
     state.add_entity(_ent("cell", "CellLineSample", name="FRTL-5 TPO-overexpressing cells"))

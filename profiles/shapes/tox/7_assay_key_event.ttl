@@ -4,6 +4,7 @@
 # An Assay is selected as the ISA profile defines one: a Dataset whose additionalType
 # is "Assay".
 
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix schema: <http://schema.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix tox: <https://w3id.org/ro/crate/isa-tox/1.0/> .
@@ -23,7 +24,11 @@ tox:AssayShouldReferenceKeyEvent a sh:NodeShape ;
     sh:property [
         a sh:PropertyShape ;
         sh:path schema:mentions ;
-        sh:qualifiedValueShape [ sh:nodeKind sh:IRI ; sh:pattern "^https://aopwiki\\.org/events/[0-9]+$" ] ;
+        sh:qualifiedValueShape [
+            sh:nodeKind sh:IRI ;
+            rdfs:seeAlso <https://bioregistry.io/registry/aop.events> ;
+            sh:pattern "^https://aopwiki\\.org/events/(\\d+)$" ;
+        ] ;
         sh:qualifiedMinCount 1 ;
         sh:message "Assay SHOULD reference the Key Event its endpoint reads out via schema:mentions, as its AOP-Wiki IRI https://aopwiki.org/events/<id>" ;
         sh:severity sh:Warning ;

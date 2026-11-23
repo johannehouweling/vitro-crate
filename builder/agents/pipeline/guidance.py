@@ -116,6 +116,7 @@ from builder.tools.field_kinds import (
     PERSON_FIELDS,
     is_citation_field,
     is_identifier_field,
+    is_identifier_value,
     is_person_field,
     is_reference_field,
     is_resolvable_reference,
@@ -616,7 +617,9 @@ def _record_root_attribution(engine: AgentEngine, gap: Gap, person_id: str) -> b
     return True
 
 
-def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
+def _apply_person_value(
+    engine: AgentEngine, gap: Gap, value: str, human: HumanInterface | None = None
+) -> bool:
     """Mint a Person for a person/agent-typed gap and link it by reference (#275).
 
     Person/agent fields (``creator``/``author``/…) require an ISA Person ENTITY
@@ -627,7 +630,9 @@ def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     reference through ``set_fields`` — never hand-rolled JSON-LD (AGENTS.md §4.7).
 
     D5: a supplied ORCID is attached only after :func:`_verified_orcid_for`
-    confirms it; an unverified one is dropped (the name still mints a Person).
+    confirms it; an unverified one is dropped (the name still mints a Person),
+    and *human* is told so: ISA-Tox requires the iD, so an answer that gave one
+    and a crate that still lacks it must not look the same as a recorded answer.
 
     A crate-level / root person gap (no resolvable state entity) has no state
     field to set, so it is routed to :func:`_record_root_attribution`, which
@@ -651,6 +656,13 @@ def _apply_person_value(engine: AgentEngine, gap: Gap, value: str) -> bool:
     verified = _verified_orcid_for(family, bare_orcid)
     if verified:
         hints["orcid"] = verified
+    elif bare_orcid:
+        _notify(
+            human,
+            f"The ORCID iD {bare_orcid} was not recorded: ORCID did not confirm it for "
+            f"a person named {family or name}. {name} was added without it, so the "
+            "crate still needs their iD.",
+        )
 
     person = engine.run_tool("draft_person", name=name, hints=hints)
     person_id = getattr(person, "entity_id", None)
@@ -912,7 +924,7 @@ def _apply_value(
 
     # (#275) Person/agent fields need a Person reference, not a literal string.
     if _is_person_field(field):
-        return _apply_person_value(engine, gap, value)
+        return _apply_person_value(engine, gap, value, human)
 
     # (#179) The root citation gap needs a resolved ScholarlyArticle, not a string.
     if _is_citation_field(field) and _gap_is_root(engine, gap):
@@ -965,6 +977,16 @@ def _apply_value(
 
     state_id = _resolve_entity_id(engine, gap)
     if state_id is not None:
+        # D5 again, for the value of an identifier PropertyValue (a CAS number, a
+        # DOI): `value` is no identifier field in general, so the field-name guard
+        # above cannot see it.
+        if is_identifier_value(engine.state.get_entity(state_id), field):
+            _notify(
+                human,
+                "That value is an identifier, so it is looked up rather than typed in — "
+                "your answer was not stored.",
+            )
+            return False
         engine.run_tool("set_fields", entity_id=state_id, fields={field: value})
         return True
 
@@ -1106,6 +1128,8 @@ def _ask_user_prompt(gap: Gap, engine: AgentEngine | None = None) -> str:
         lines.append(f"Why: {gap.message}")
     if gap.suggestion:
         lines.append(f"Suggestion: {gap.suggestion}")
+    if engine is not None and _is_person_field(field) and (orcid := _orcid_request(engine)):
+        lines.append(orcid.strip())
     # A Key Event answer must name one of the Key Events of the crate's pathway —
     # anything else cannot resolve to an entity and is refused. Listing them turns
     # a question answerable only from memory into one answerable by reading.
@@ -1305,6 +1329,9 @@ def _gap_context(engine: AgentEngine, gap: Gap) -> dict[str, Any]:
         context["candidates"] = [
             f"{c['name']} ({c['event_type']})" if c["event_type"] else c["name"] for c in candidates
         ]
+    # A person is asked for with their ORCID iD, which the answer is checked for.
+    if _is_person_field(field) and (orcid := _orcid_request(engine)):
+        context["suggestion"] = " ".join(filter(None, [gap.suggestion, orcid.strip()]))
     title = (engine.state.metadata.title or "").strip()
     if title:
         context["crate_title"] = title
@@ -1536,6 +1563,10 @@ def _answer_can_be_stored(engine: AgentEngine, gap: Gap) -> bool:
     """
     field = _local_name(gap.property) or (gap.property or "")
     if _is_identifier_field(field):
+        return False
+    if (state_id := _resolve_entity_id(engine, gap)) is not None and is_identifier_value(
+        engine.state.get_entity(state_id), field
+    ):
         return False
     return (
         not is_reference_field(field)
@@ -1948,6 +1979,24 @@ def _person_group_message(engine: AgentEngine, gaps: list[Gap]) -> str:
     )
 
 
+def _orcid_request(engine: AgentEngine) -> str:
+    """The sentence that asks for the person's ORCID iD with their name.
+
+    ISA-Tox requires every Person to be identified by an ORCID iD, and the answer's
+    iD is parsed and confirmed by a lookup before it is attached
+    (:func:`_apply_person_value`). Asking for the name alone would draft a person
+    the profile then reports, which no later question can repair. It is added
+    where a question about a person field is worded (:func:`_ask_user_prompt`,
+    :func:`_gap_context`), once each, a grouped question included.
+    """
+    if "tox" not in engine.state.layers:
+        return ""
+    return (
+        " Give their ORCID iD with the name: ISA-Tox requires every person to be "
+        "identified by one, and the iD is checked with ORCID before it is recorded."
+    )
+
+
 def _resolve_person_group(
     engine: AgentEngine,
     human: HumanInterface,
@@ -2149,6 +2198,7 @@ def run_guidance(
                 "resolved": [ {tier, source, entity_id, property, fix_hint, via}, ... ],
                 "asked":    [ {tier, source, entity_id, property, fix_hint}, ... ],
                 "remaining_gaps": {must_open, should_open, may_open},
+                "required_issues": [ {entity_id, property, message}, ... ],
                 "conformance":    {base, isa, tox},
                 "rounds":         <int>,
                 "usage":          {input_tokens, output_tokens, total_tokens},
@@ -2282,6 +2332,14 @@ def run_guidance(
         "resolved": resolved,
         "asked": asked,
         "remaining_gaps": dict(report.counts),
+        # The required findings still open, as the validator reported them: what a
+        # caller names in its summary after the questions, since an answer may
+        # have cleared one the spine's own verdict still lists.
+        "required_issues": [
+            {"entity_id": gap.entity_id, "property": gap.property, "message": gap.message}
+            for gap in report.gaps
+            if gap.tier == "MUST" and gap.source == "shacl"
+        ],
         "conformance": dict(report.conformance),
         "rounds": rounds,
         "usage": {

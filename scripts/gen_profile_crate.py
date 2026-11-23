@@ -40,8 +40,8 @@ SHAPES_BASE = (
 )
 
 PROFILE_IRI = "https://w3id.org/ro/crate/isa-tox/1.0"
-VERSION = "1.0.0"
-DATE_PUBLISHED = "2026-10-30"
+VERSION = "1.1.0"
+DATE_PUBLISHED = "2026-11-23"
 PARENT_IRI = "https://github.com/nfdi4plants/isa-ro-crate-profile"
 RO_CRATE = "https://w3id.org/ro/crate/1.2"
 PAGES = "https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/"

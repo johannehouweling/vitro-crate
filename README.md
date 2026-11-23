@@ -61,6 +61,13 @@ contains:
 - `ro-crate-metadata-maturity.html`: a self-contained report on profile conformance,
   FAIR maturity and MIT coverage, with an entity explorer. It needs no network access.
 
+A crate conforms to ISA-Tox 1.1 only when every person in it is identified by an ORCID
+iD and every organisation, funders included, by a ROR ID. The builder looks these up and
+never invents one, so a person or organisation it cannot confirm is listed at the end of
+the build as needing an identifier from you. Every other identifier the crate states (a
+CAS number, a PubChem or Cellosaurus address, a DOI, an ontology term) must have the
+form the [Bioregistry](https://bioregistry.io) gives it.
+
 ## Build modes
 
 | Mode | Command | Description |

@@ -48,6 +48,7 @@ from builder.tools.deposit_structure import (
 )
 from builder.tools.hitl import SYNTHETIC_ANSWER_NOTICE, answers_are_synthetic, is_interactive
 from builder.tools.session import save_session
+from profiles.identifier_namespaces import ORGANIZATION_NEEDS_ROR, PERSON_NEEDS_ORCID
 
 if TYPE_CHECKING:
     from builder.engine import AgentEngine
@@ -62,6 +63,7 @@ __all__ = [
     "run_interactive_build",
     "format_guidance_summary",
     "format_gap_summary",
+    "format_unidentified_agents",
     "format_unresolved_compounds",
     "CrateExportError",
 ]
@@ -420,6 +422,13 @@ def run_build(
         # before it starts (#772). The pipeline arm stamps itself in
         # ``run_interactive_build``, which the eval harness calls directly.
         engine.state.generator.architecture = BuildMode.REACT.value
+        # The pipeline gives each declared funder its ROR ID in its spine. This
+        # arm has no spine, so it is done here, once, before the loop starts, and
+        # behind the same gate: nothing reaches the network without a provider.
+        if get_provider() is not None:
+            from builder.tools.composites import look_up_declared_funders
+
+            look_up_declared_funders(engine.state)
         react_kwargs: dict[str, Any] = {
             "provider": provider,
             "model": model,
@@ -567,6 +576,14 @@ def _run_build_body(
     unresolved = format_unresolved_compounds(pipeline_result)
     if unresolved:
         emit(f"  {unresolved}")
+    # Who still lacks a registry identifier is read from what guidance left open:
+    # an answer may have supplied an iD the spine's earlier verdict still misses.
+    still_open = (guidance_result or {}).get("required_issues")
+    unidentified = format_unidentified_agents(
+        pipeline_result if still_open is None else {"issues": still_open}
+    )
+    if unidentified:
+        emit(f"  {unidentified}")
 
     # Export LAST so the guidance-enriched crate is what lands on disk (#233).
     export_result = _export_crate_to_disk(engine, exporter, emit, human)
@@ -703,6 +720,45 @@ def format_unresolved_compounds(pipeline_result: dict[str, Any] | None) -> str |
     )
 
 
+# The ISA-Tox findings about a person or organisation with no registry identifier
+# (profiles/shapes/tox/14_identifier_namespaces.ttl), and what each one lacks.
+_UNIDENTIFIED = (
+    (PERSON_NEEDS_ORCID, "ORCID iD", "person", "people"),
+    (ORGANIZATION_NEEDS_ROR, "ROR ID", "organisation", "organisations"),
+)
+
+
+def format_unidentified_agents(pipeline_result: dict[str, Any] | None) -> str | None:
+    """One line naming the people and organisations with no registry identifier, or ``None``.
+
+    ISA-Tox requires every Person to be identified by an ORCID iD and every
+    Organization by a ROR ID. The build never invents one (D5), so a person the
+    deposit names without one, and no lookup confirmed, stays an open MUST. The
+    finding names no field, so the guidance loop never asks about it; without this
+    line the reason the crate fails ISA-Tox is a count, not a list of who.
+    """
+    issues = (pipeline_result or {}).get("issues") or []
+    parts = []
+    for words, scheme, one, many in _UNIDENTIFIED:
+        ids = sorted(
+            {
+                str(issue.get("entity_id") or "").removeprefix("./")
+                for issue in issues
+                if isinstance(issue, dict) and words in str(issue.get("message") or "")
+            }
+        )
+        if ids:
+            noun = one if len(ids) == 1 else many
+            parts.append(f"{len(ids)} {noun} with no {scheme} ({', '.join(ids)})")
+    if not parts:
+        return None
+    return (
+        "no registry identifier: "
+        + "; ".join(parts)
+        + " — ISA-Tox requires one and no lookup confirmed it, so ask the depositor"
+    )
+
+
 def _layers(conformance: dict[str, Any]) -> list[str]:
     """The layers a verdict covers, base first; every layer when it covers none."""
     every = PROFILE_LAYERS[DEFAULT_PROFILE]
@@ -816,6 +872,9 @@ def format_gap_summary(pipeline_result: dict[str, Any] | None) -> str:
     unresolved = format_unresolved_compounds(result)
     if unresolved:
         lines.append(f"  {unresolved}")
+    unidentified = format_unidentified_agents(result)
+    if unidentified:
+        lines.append(f"  {unidentified}")
     return "\n".join(lines)
 
 

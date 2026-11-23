@@ -182,6 +182,22 @@ The publication's authors are NOT this. They describe the paper; publisher /
 creator / contact describe the dataset. A crate can list six authors and still
 have no owner.
 
+### People and Organisations Carry Their Registry Identifiers
+
+ISA-Tox requires every Person to be identified by an ORCID iD and every
+Organization by a ROR ID. Neither may be invented, so:
+
+- `draft_person` and `draft_organization` already try the deposit and the
+  registries. A finding that one has no identifier means none was confirmed.
+- Ask the user for an ORCID iD the deposit does not state (`request_input`), set
+  it with `set_fields` on the person's orcid field, then run `verify_identifier`
+  on that field. It clears an iD that belongs to somebody else.
+- Give an organisation a ROR ID only from a record `lookup_ror` returns that
+  registers exactly its name. A similar name is another organisation.
+- Never remove a person or organisation to clear the finding, and never leave one
+  out because it has no identifier. An open finding that names who lacks an
+  identifier is the honest result.
+
 ### The Licence: Ask, With the Trade-offs
 
 A crate with no licence does not ship "no licence" — BASE requires one, so it

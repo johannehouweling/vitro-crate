@@ -50,6 +50,7 @@ from builder.tools.hitl import (
     choice_stance,
     is_interactive,
 )
+from profiles.identifier_namespaces import ORGANIZATION_NEEDS_ROR, PERSON_NEEDS_ORCID
 
 if TYPE_CHECKING:
     from typing import cast
@@ -855,10 +856,17 @@ _HINT_OPEN = "Type what to do next, or 'continue' to let me carry on."
 _HINT_DONE = "Nothing left to do — type a change, or 'quit'."
 
 
-def _prompt_hint(reply: str | None, *, open_work: bool) -> str:
-    """The line above the ❯ box after a stop: answer, steer or continue, or done."""
+def _prompt_hint(reply: str | None, *, open_work: bool, waiting_on: str | None = None) -> str:
+    """The line above the ❯ box after a stop: answer, steer or continue, or done.
+
+    *waiting_on* says what only the user can supply (:func:`_identifiers_wanted`).
+    It replaces the offer to carry on, which would end at once on the same
+    findings, and the claim that nothing is left, which would be false.
+    """
     if _reply_is_question(reply):
         return _HINT_ANSWER
+    if waiting_on:
+        return waiting_on
     return _HINT_OPEN if open_work else _HINT_DONE
 
 
@@ -902,18 +910,85 @@ def _crate_is_complete(engine: AgentEngine) -> bool:
     knows that. Informational lines are excluded: a count of findings on
     build-generated nodes can never be worked off, so counting it would leave
     the agent running until the turn cap on every session.
+
+    This is the strict question, and what the user is told rests on it. Whether
+    the loop should go on by itself is a wider one (:func:`_agent_is_done`).
     """
     try:
         if not engine.state.list_entities():
             return False
         val = engine.state.validation
         gates_pass = all(_passes(engine.state).values()) and not val.required_issues
-        if not gates_pass:
-            return False
-        return not open_items(engine.state, actionable_only=True)
+        return gates_pass and not open_items(engine.state, actionable_only=True)
     except Exception:  # noqa: BLE001 — a completeness probe must never raise.
         logger.debug("completeness probe failed", exc_info=True)
         return False
+
+
+def _agent_is_done(engine: AgentEngine) -> bool:
+    """Whether the loop should stop continuing by itself and hand back to the user.
+
+    True for a complete crate, and for one whose only REQUIRED findings are those
+    a person has to answer (:func:`_only_people_can_answer`) with nothing else
+    left to do. The second is not a complete crate, and nothing says it is: the
+    prompt hint and the exit summary name what is missing.
+    """
+    if _crate_is_complete(engine):
+        return True
+    try:
+        return _only_people_can_answer(engine.state) and not open_items(
+            engine.state, actionable_only=True
+        )
+    except Exception:  # noqa: BLE001 — a completeness probe must never raise.
+        logger.debug("completeness probe failed", exc_info=True)
+        return False
+
+
+# The REQUIRED findings no tool can clear on its own: an ORCID iD or a ROR ID the
+# deposit did not state and no lookup confirmed
+# (profiles/shapes/tox/14_identifier_namespaces.ttl). An identifier is never
+# invented, so only a person can supply one.
+_ANSWERED_BY_A_PERSON = (PERSON_NEEDS_ORCID, ORGANIZATION_NEEDS_ROR)
+
+
+def _only_people_can_answer(state: CrateState) -> bool:
+    """Whether every REQUIRED finding left is one only the user can answer.
+
+    Such a crate is as finished as the agent can make it. Counting it as unfinished
+    would have the loop continue on its own, turn after turn, on findings it can
+    clear only by guessing an identifier or by deleting the person it is about. The
+    loop hands back to the user instead, who can answer them.
+    """
+    passes = _passes(state)
+    if not passes.get("base") or not passes.get("isa", True):
+        return False
+    issues = [str(issue) for issue in state.validation.required_issues]
+    return bool(issues) and all(any(w in i for w in _ANSWERED_BY_A_PERSON) for i in issues)
+
+
+def _identifiers_wanted(state: CrateState) -> str | None:
+    """The prompt hint for a crate that lacks only identifiers a person can give.
+
+    ``None`` unless that is all that stands between the crate and ISA-Tox. It
+    counts who is missing what, so the user is asked for something specific
+    instead of being told that nothing is left to do.
+    """
+    try:
+        if not _only_people_can_answer(state):
+            return None
+        issues = [str(issue) for issue in state.validation.required_issues]
+    except Exception:  # noqa: BLE001 — a hint must never raise.
+        logger.debug("identifier hint failed", exc_info=True)
+        return None
+    people = sum(PERSON_NEEDS_ORCID in issue for issue in issues)
+    organisations = sum(ORGANIZATION_NEEDS_ROR in issue for issue in issues)
+    parts = []
+    if people:
+        parts.append(f"{people} {'person needs' if people == 1 else 'people need'} an ORCID iD")
+    if organisations:
+        noun = "organisation needs" if organisations == 1 else "organisations need"
+        parts.append(f"{organisations} {noun} a ROR ID")
+    return f"{' and '.join(parts)} to conform to ISA-Tox — give them here, or 'quit'."
 
 
 # Longest a reply can be and still count as running commentary rather than
@@ -4204,6 +4279,24 @@ def _finish_backstop(
         return None
 
 
+def _say_who_lacks_an_identifier(engine: AgentEngine, emit: Any) -> None:
+    """Name the people and organisations with no registry identifier, on the way out.
+
+    The line the pipeline prints in its summary (``build.format_unidentified_agents``),
+    read from this session's last verdict. Without it a ReAct session ends on a
+    crate that fails ISA-Tox with only a count to say why. Never raises: it runs
+    on the exit path.
+    """
+    try:
+        from builder.agents.build import format_unidentified_agents
+
+        line = format_unidentified_agents({"issues": engine.state.validation.issue_records})
+        if line:
+            emit(f"[dim]{line}[/dim]")
+    except Exception:  # noqa: BLE001 — the exit path must never raise.
+        logger.debug("could not list who lacks an identifier", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # Agent execution
 # ---------------------------------------------------------------------------
@@ -4635,6 +4728,7 @@ def run_interactive_agent(
                 _finish_backstop(engine, emit=console.print)
         finally:
             engine.on_tool_event = prior_tool_event
+        _say_who_lacks_an_identifier(engine, console.print)
 
     # Seeded before `_run_turn` closes over it: the stopped-branch panel reads it
     # to decide whether it is handing back or carrying on.
@@ -4995,9 +5089,16 @@ def run_interactive_agent(
                     if _reply_is_question(reply):
                         break
 
-                    # The crate is finished → stop auto-continuing and check in.
-                    if _crate_is_complete(engine):
-                        logger.info("Crate complete — ending autonomous run")
+                    # Nothing left the agent can do → stop auto-continuing and
+                    # check in. Only a complete crate is called complete.
+                    if _agent_is_done(engine):
+                        if _crate_is_complete(engine):
+                            logger.info("Crate complete — ending autonomous run")
+                        else:
+                            logger.info(
+                                "Only identifiers a person can give are missing — "
+                                "ending autonomous run"
+                            )
                         break
 
                     # Otherwise the agent just narrated/worked → AUTO-CONTINUE with
@@ -5016,7 +5117,11 @@ def run_interactive_agent(
                     console.print()
                 # The box that follows says what it is for (#596): the reply above
                 # is either a question to answer or work that stopped.
-                prompt_hint = _prompt_hint(reply, open_work=not _crate_is_complete(engine))
+                prompt_hint = _prompt_hint(
+                    reply,
+                    open_work=not _crate_is_complete(engine),
+                    waiting_on=_identifiers_wanted(engine.state),
+                )
             except KeyboardInterrupt:
                 # Ctrl+C during a turn / the autonomous run: stop working and return
                 # to the prompt so the user can interject (preserve interruptibility).

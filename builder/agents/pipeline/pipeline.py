@@ -68,7 +68,11 @@ from builder.agents.llm import ModelOverrides, UsageSink, _as_int
 from builder.agents.llm import make_usage_logger as _make_usage_logger
 from builder.config import get_provider
 from builder.state import DEFAULT_PROFILE, PROFILE_LAYERS
-from builder.tools.composites import prefetch_compound_lookups, registered_organization
+from builder.tools.composites import (
+    look_up_declared_funders,
+    prefetch_compound_lookups,
+    registered_organization,
+)
 from builder.tools.document_discovery import (
     DocumentationCandidate,
     _fair_shares,
@@ -3014,6 +3018,7 @@ def run_pipeline(
     # Behind the same gate, and before the fix loop for the same reason.
     if get_provider() is not None:
         _look_up_characteristic_terms(engine)
+        look_up_declared_funders(engine.state)
 
     validation, fix_rounds = _run_fix_loop(engine, progress=emit, save=_persist)
 

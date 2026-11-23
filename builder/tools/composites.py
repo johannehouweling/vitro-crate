@@ -26,6 +26,7 @@ from builder.tools._crate_mapping import (
     STATED_TERM_ONTOLOGIES,
     TERM_FIELDS,
     confirmed_term,
+    organizations_named,
     term_field,
 )
 from builder.tools._resolve_cache import (
@@ -1454,6 +1455,76 @@ def registered_organization(name: str) -> dict[str, Any]:
     except Exception:
         logger.debug("ROR search failed for %r", name, exc_info=True)
         return {}
+
+
+def resolve_declared_funders(state: CrateState) -> list[str]:
+    """Give each funder the deposit declares the ROR ID registered under its name.
+
+    A declared funder is written as the crate's Organization of that name, or as an
+    Organization stating the name and nothing more
+    (``_crate_mapping._declared_funder``), and ISA-Tox requires every Organization
+    to be identified by a ROR ID. The name is matched as an affiliation's is
+    (:func:`registered_organization`): one ROR record that registers exactly that
+    name, never a search hit (D5). The funder is then the Organization the crate
+    holds under that ROR ID or under the declared name, else a new one. Where that
+    Organization goes by another name, the declared one is added as an
+    ``alternateName`` so the funder is found by it.
+
+    Running it again changes nothing. Returns the declared names no record
+    registers ("EU Horizon 2020" names a programme, not an organisation). They
+    stay a finding the depositor answers.
+    """
+    unregistered: list[str] = []
+    for stated in state.metadata.funding:
+        name = str(stated.get("funder") or "").strip()
+        if not name:
+            continue
+        named = organizations_named(state, name)
+        if named and named[0].fields.get("ror"):
+            continue
+        match = registered_organization(name)
+        ror = str(match.get("@id") or "")
+        if not ror:
+            unregistered.append(name)
+            continue
+        facts = {"ror": ror, **_ror_facts(ror)}
+        # The Organization under that ROR ID and the one under the declared name
+        # are one organisation, whichever of them the crate holds. Both take the
+        # ROR ID, and the build writes two entities at one address as one node.
+        holder = _existing_organization(state, ror)
+        found = [holder] if holder is not None else []
+        found += [org for org in named[:1] if org is not holder]
+        if not found:
+            found = [draft_organization(state, name, facts)]
+        for org in found:
+            missing = {k: v for k, v in facts.items() if not org.fields.get(k)}
+            if missing:
+                org.set_fields_from_dict(missing, source="lookup")
+            org.set_field_status("ror", "verified", "lookup")
+            if str(org.fields.get("name") or "").strip().casefold() != name.casefold():
+                _append_alternate_name(org, name)
+    return unregistered
+
+
+def look_up_declared_funders(state: CrateState) -> None:
+    """:func:`resolve_declared_funders` as a build step: it never raises.
+
+    ISA-Tox requires every Organization, a funder included, to be identified by a
+    ROR ID, and the deposit names its funders in words. One ROR registers under
+    exactly that name becomes that Organization; one it does not, such as a
+    funding programme, stays an open finding the depositor answers. Both build
+    arms run it: the pipeline in its spine, the ReAct arm before its loop starts.
+    Enrichment: a failure costs the ROR IDs and nothing else.
+    """
+    try:
+        unregistered = resolve_declared_funders(state)
+    except Exception as exc:  # noqa: BLE001 - a lookup must not break a build
+        logger.warning("The declared funders were not looked up in ROR: %s", exc)
+        return
+    if unregistered:
+        logger.info(
+            "Declared funders ROR registers no organisation for: %s.", ", ".join(unregistered)
+        )
 
 
 def _registered_institution(affiliation: str) -> tuple[str, str | None]:

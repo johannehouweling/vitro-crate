@@ -31,14 +31,17 @@ from typing import Any
 
 from builder.state import CrateState
 from builder.tools._crate_mapping import _REF_FIELDS, TERM_FIELDS, draft_hints_schema
+from profiles.identifier_namespaces import VALUE_CHECKS
 
 __all__ = [
     "CITATION_FIELDS",
     "IDENTIFIER_FIELDS",
+    "IDENTIFIER_VALUE_NAMES",
     "PERSON_FIELDS",
     "drafter_visible_fields",
     "is_citation_field",
     "is_identifier_field",
+    "is_identifier_value",
     "is_person_field",
     "is_reference_field",
     "is_resolvable_reference",
@@ -152,6 +155,29 @@ def is_identifier_field(field: str) -> bool:
     IRI — see :func:`normalise_field_name`.
     """
     return normalise_field_name(field) in _IDENTIFIER_KEYS
+
+
+# The PropertyValues whose `value` IS an identifier, named by the scheme they state:
+# the ones the build writes for people, chemicals and publications. They are the
+# ones whose form the ISA-Tox shapes check, so this is that table's keys and not a
+# second list. `value` is no identifier field in general (a passage number is a
+# value too), so whether it is one depends on the entity, not the field name.
+IDENTIFIER_VALUE_NAMES: frozenset[str] = frozenset(VALUE_CHECKS)
+
+
+def is_identifier_value(entity: Any, field: str | None) -> bool:
+    """Whether ``field`` of ``entity`` holds an identifier because of what the entity is.
+
+    True for the ``value`` of a PropertyValue named after an identifier scheme
+    (:data:`IDENTIFIER_VALUE_NAMES`). D5 then applies as it does to an identifier
+    field: the value comes from a lookup, never from prose.
+    """
+    if entity is None or normalise_field_name(field) != "value":
+        return False
+    if getattr(entity, "type", None) != "PropertyValue":
+        return False
+    name = (getattr(entity, "fields", None) or {}).get("name")
+    return str(name or "").strip() in IDENTIFIER_VALUE_NAMES
 
 
 def is_reference_field(field: str) -> bool:

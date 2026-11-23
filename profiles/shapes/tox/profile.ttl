@@ -20,7 +20,7 @@
     rdfs:label "ISA-Tox RO-Crate Profile" ;
     # The /1.0 IRI names the series; this is its exact version, kept in step with
     # the specification's header and the Profile Crate.
-    dct:hasVersion "1.0.0" ;
+    dct:hasVersion "1.1.0" ;
     rdfs:comment "Toxicology (in vitro New Approach Methodology) domain extension of the ISA RO-Crate Profile."@en ;
 
     # Extends the bundled ISA RO-Crate profile (token `isa-ro-crate`), which extends

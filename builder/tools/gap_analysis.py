@@ -37,6 +37,7 @@ from builder.tools.field_kinds import (
     CITATION_FIELDS,
     PERSON_FIELDS,
     is_identifier_field,
+    is_identifier_value,
 )
 from builder.tools.mit_assessment import (
     assess_mit_coverage,
@@ -187,9 +188,11 @@ def _is_committable(
 
     Never committable, whatever the target:
 
-    * a gap that names **no field** (a node shape) — there is nothing to set;
+    * a gap that names **no field** (a node shape, such as an @id outside its
+      registry's namespace) — there is nothing to set;
     * an **identifier-bearing** field (D5 — the value comes from a lookup, so the
-      user's answer is refused whatever they type);
+      user's answer is refused whatever they type), including the ``value`` of an
+      identifier PropertyValue (``is_identifier_value``);
     * a field only the repository a crate is published to can fill
       (:data:`_PUBLISHED_FIELDS`, a directory's ``distribution``).
 
@@ -216,8 +219,9 @@ def _is_committable(
             return True
         from builder.tools.repair import _resolve_state_entity
 
-        if _resolve_state_entity(state, entity_id) is not None:
-            return True
+        if (entity := _resolve_state_entity(state, entity_id)) is not None:
+            # The value of an identifier PropertyValue is looked up, never typed (D5).
+            return not is_identifier_value(entity, field)
         # The root "./" folds the Investigation and has no separate state entity.
         return entity_id == "./" and field in _CRATE_SETTABLE_FIELDS
 
