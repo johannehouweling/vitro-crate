@@ -3,8 +3,8 @@
 ISA-Tox requires an Investigation to include an Exposure. A study that treats nothing
 (culture conditions, a characterisation of a cell model) cannot meet that and should
 not claim to. ``--profile isa`` is the depositor saying so: the crate states the ISA
-profile alone, its verdict and its report cover RO-Crate and ISA, the pipeline lays no
-exposure step, and nothing shows a third layer the crate does not claim.
+profile alone, its verdict and its report cover RO-Crate and ISA, the agent is told
+there is no exposure step, and nothing shows a third layer the crate does not claim.
 """
 
 from __future__ import annotations
@@ -16,9 +16,12 @@ from typing import Any
 import pytest
 
 import main
-from builder.agents.build import format_gap_summary, format_guidance_summary
-from builder.agents.pipeline.pipeline import _merge_plan_chain_names
-from builder.agents.ui import UiSnapshot, render_goodbye, render_resume_summary, render_status_markup
+from builder.agents.ui import (
+    UiSnapshot,
+    render_goodbye,
+    render_resume_summary,
+    render_status_markup,
+)
 from builder.state import (
     CrateMetadata,
     CrateState,
@@ -203,25 +206,8 @@ class TestNothingShowsALayerTheCrateDoesNotClaim:
         assert "Tox" not in text(saved)
         assert "Tox" in text(_state().to_dict())
 
-    def test_the_build_summaries(self):
-        verdict = {"conformance": {"base": True, "isa": True}, "issues": []}
-        assert "tox=" not in format_gap_summary(verdict)
-        assert "base=pass isa=pass" in format_gap_summary(verdict)
-        guidance = {"resolved": [], "asked": [], "remaining_gaps": {}, "conformance": {"base": True, "isa": True}}
-        assert "tox=" not in format_guidance_summary(guidance)
-        full = {"conformance": {"base": True, "isa": True, "tox": False}, "issues": []}
-        assert "base=pass isa=pass tox=fail" in format_gap_summary(full)
-
 
 class TestTheBuild:
-    def test_the_pipeline_lays_no_exposure_step(self):
-        steps = [s["process_type"] for s in _merge_plan_chain_names(None, _state("isa").layers)]
-        assert steps == ["TestSystemPreparation", "EndpointReadout", "DataAnalysis"]
-
-    def test_the_pipeline_lays_the_whole_chain_by_default(self):
-        steps = [s["process_type"] for s in _merge_plan_chain_names(None, _state().layers)]
-        assert steps == ["TestSystemPreparation", "Exposure", "EndpointReadout", "DataAnalysis"]
-
     def test_the_agent_is_told_there_is_no_exposure(self):
         from builder.agents.react.agent_loop import _completeness_nudge
 
