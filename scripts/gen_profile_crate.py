@@ -263,7 +263,7 @@ def _as_profile_crate(doc: dict) -> dict:
     ``__setitem__`` refuses ``@type`` (both checked against rocrate 0.15). The
     RO-Crate 1.2 Profile Crate requirements need both, so the three fields are
     rewritten on the generated document — the graph itself is still assembled
-    by ro-crate-py, as AGENTS.md requires.
+    by ro-crate-py, as docs/design/building.md requires.
 
     ponytail: three-field rewrite; drop it if ro-crate-py grows a Profile Crate
     writer.

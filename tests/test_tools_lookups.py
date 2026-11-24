@@ -132,7 +132,7 @@ class TestLookupCompound:
 
     def test_falls_back_to_chebi_when_pubchem_misses(self, monkeypatch):
         # When PubChem indexes nothing, lookup_compound resolves a ChEBI IRI via
-        # OLS (the AGENTS.md §10 name → CAS → ChEBI multi-strategy). Fully mocked
+        # OLS (the docs/design/lookups.md name → CAS → ChEBI multi-strategy). Fully mocked
         # — covers the #146 fallback path with no network.
         monkeypatch.setattr("builder.tools.lookups.lookup_pubchem", lambda name: {})
         chebi_hit = {

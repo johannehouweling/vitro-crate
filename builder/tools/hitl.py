@@ -153,7 +153,7 @@ class SimulatedHumanInterface:
     filesystem access (fail-closed, #197).
 
     ``is_interactive`` is ``False`` — this is the headless default, so behind it
-    the build (AGENTS.md §4.4.6) never waits on an answer nobody can give: a
+    the build (docs/design/react-loop.md) never waits on an answer nobody can give: a
     scan-root escalation is denied and the validation escalation is never offered
     (the A/B eval and batch runs stay automated-only).
     """
@@ -334,7 +334,7 @@ class ConsoleHumanInterface:
     """A REAL interactive HITL interface that prompts on the terminal (stdin).
 
     This is the CLI frontend the **interactive build** runs behind
-    (`main.py --interactive` → `run_build`, AGENTS.md §4.4.6). Unlike
+    (`main.py --interactive` → `run_build`, docs/design/react-loop.md). Unlike
     :class:`SimulatedHumanInterface` it is ``is_interactive = True``, so the
     build's questions — scan-root approval, the validation escalation and the
     agent's own ``present_to_human`` / ``request_input`` calls among them — reach

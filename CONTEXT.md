@@ -40,7 +40,7 @@ An LLM-assisted tool that helps researchers create profile-conformant RO-Crates 
 
 ## Related files
 
-- `AGENTS.md` — system design document (architecture, components, tools)
+- `AGENTS.md` — rules for working on the code and a map of the design (`docs/design/`, `docs/adr/`)
 - `profiles/` — domain profiles (ISA, ISA-Tox) with schemas and SHACL shapes
 - `lookups/` — external API clients (PubChem, Cellosaurus, AOP-Wiki, etc.)
 - `mit/invitro_tox.yaml` — in-vitro toxicology Minimal Information Table

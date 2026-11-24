@@ -117,7 +117,7 @@ class TestMain:
 
 
 class TestInteractiveDispatch:
-    """``--interactive`` runs the ReAct loop (AGENTS.md D15).
+    """``--interactive`` runs the ReAct loop (D15, docs/adr/).
 
     These tests mock the loop (no live LLM, no network) and assert only what
     reaches it.

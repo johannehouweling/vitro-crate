@@ -3,7 +3,7 @@
 Each :class:`EvalCase` declares:
 
 * a stable ``case_id`` and human ``description``;
-* a ``kind`` — one of the three input tiers from AGENTS.md §9
+* a ``kind`` — one of the three input tiers from docs/design/building.md (Input Formats)
   (``"minimal"`` / ``"structured"`` / ``"unstructured"``);
 * a ``prompt`` — the natural-language request handed to a *conversational* agent
   (the ReAct engine / tail agent) to drive the build;

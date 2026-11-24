@@ -110,7 +110,7 @@ export VITRO_ANTHROPIC_DRAFTER_MODEL="claude-haiku-4"
 
 `--interactive` runs the build: a **conversational ReAct agent** that decides the
 order of tool calls turn by turn, reading the folder's files on demand (see
-`AGENTS.md` §4.4 and D15).
+[the ReAct loop](design/react-loop.md) and [D15](adr/D15-the-react-loop-is-the-build.md)).
 
 ```bash
 # On a research data folder: it starts building at once.
@@ -168,7 +168,7 @@ uv run python -m main --smoke-test -i /path/to/experiment/
   crate **looks** real and is not. Treat its output as a build artifact, never as
   metadata.
 - Filesystem access is **not** widened: a scan-root escalation pre-selects the
-  refusal, so confirming the pre-selection denies it (see `AGENTS.md` D9).
+  refusal, so confirming the pre-selection denies it (see [D9](adr/D9-approved-scan-roots-security-guard-rail.md)).
 
 **Starting the ReAct agent.** Given an input folder, the agent starts building and
 checks back only when it genuinely needs you; `--prompt/-P` replaces that first
