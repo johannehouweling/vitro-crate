@@ -124,6 +124,7 @@ def _spec_with_shape_levels() -> str:
     loader = importlib.util.spec_from_file_location(
         "gen_spec_levels", Path(__file__).with_name("gen_spec_levels.py")
     )
+    assert loader and loader.loader
     levels = importlib.util.module_from_spec(loader)
     loader.loader.exec_module(levels)
     page, missing = levels.render(

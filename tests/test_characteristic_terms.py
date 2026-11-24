@@ -25,12 +25,13 @@ from builder.tools._crate_mapping import (
     _CELL_LINE_CHARACTERISTICS,
     CHARACTERISTIC_ONTOLOGIES,
     TERM_FIELDS,
+    draft_hints_schema,
     term_field,
 )
 from builder.tools.builder import assemble_crate
 from builder.tools.composites import resolve_cell_line, resolve_characteristic_terms
 from builder.tools.drafters import draft_cell_line_sample, draft_sample, draft_study
-from builder.tools.field_kinds import drafter_visible_fields, is_identifier_field
+from builder.tools.field_kinds import is_identifier_field
 from builder.tools.hitl import HumanResponse, InputResponse
 from builder.tools.management import set_fields
 from lookups._http import TransientLookupError, reset_circuit_breaker, reset_host_throttle
@@ -522,7 +523,7 @@ class TestATermIsNeverTakenFromProse:
     @pytest.mark.parametrize("field", sorted({"organ_term", "tissue_term", "cell_type_term"}))
     def test_it_is_an_identifier_no_model_is_asked_for(self, field: str) -> None:
         assert is_identifier_field(field)
-        assert field not in drafter_visible_fields("CellLineSample")
+        assert field not in draft_hints_schema("CellLineSample")["properties"]
 
 
 class _SilentHuman:

@@ -24,7 +24,9 @@ FIXTURE = Path(__file__).resolve().parent.parent / "eval" / "fixtures" / "arbitr
 
 
 def _step_of() -> dict[str, int]:
-    section = re.search(r"## Your Tools\n(.*?)\n## ", SYSTEM_PROMPT, re.S).group(1)
+    found = re.search(r"## Your Tools\n(.*?)\n## ", SYSTEM_PROMPT, re.S)
+    assert found, "the prompt has no Your Tools section"
+    section = found.group(1)
     steps, current = {}, 0
     for line in section.splitlines():
         if m := re.match(r"^(\d+)\. ", line):
