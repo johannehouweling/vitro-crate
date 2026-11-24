@@ -266,7 +266,7 @@ bucket and the off-crate reference keep their prose. The wording is decided **on
 `builder/writers/vendor/`, pinned by `manifest.json` (name, version, licence, origin, sha256) and
 verified at render time — a mismatch fails the render. They are inlined with a credit banner;
 React Flow's CSS joins the report's single `<style>`. The crate's metadata is copied in because
-`file://` cannot `fetch` a sibling. Tabs stay CSS-only. `@media print` hides the canvas and shows a
+`file://` cannot `fetch` a sibling. `@media print` hides the canvas and shows a
 note. The page is self-contained: `maturity_report.css` / `maturity_report.html` (`__STYLE__` /
 `__TITLE__` / `__BODY__`) are read (cached) and inlined by `build_maturity_html`; only data-driven
 markup is assembled in Python.
