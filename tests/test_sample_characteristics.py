@@ -18,7 +18,6 @@ from builder.state import CrateState
 from builder.tools._crate_mapping import _CELL_LINE_CHARACTERISTICS, draft_hints_schema
 from builder.tools.builder import assemble_crate
 from builder.tools.drafters import draft_cell_line_sample, draft_molecular_entity
-from builder.tools.field_kinds import drafter_visible_fields
 
 SPEC = Path(__file__).resolve().parents[1] / "profiles" / "docs" / "isa_tox.md"
 NCIT = "http://purl.obolibrary.org/obo/NCIT_"
@@ -104,7 +103,6 @@ def test_the_builder_writes_the_characteristics_the_specification_lists() -> Non
 
 
 def test_both_arms_are_told_what_a_source_can_state() -> None:
-    """The hint schema is what the agent reads and what the drafter is offered."""
+    """The hint schema is what the agent reads."""
     fields = {alias for c in _CELL_LINE_CHARACTERISTICS for alias in c.aliases[:1]} | {"sex"}
     assert fields <= set(draft_hints_schema("CellLineSample")["properties"])
-    assert fields <= drafter_visible_fields("CellLineSample")

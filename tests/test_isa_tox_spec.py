@@ -20,6 +20,7 @@ _GENERATOR = Path(__file__).resolve().parent.parent / "scripts" / "gen_spec_leve
 @pytest.fixture(scope="module")
 def gen():
     spec = importlib.util.spec_from_file_location("gen_spec_levels", _GENERATOR)
+    assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

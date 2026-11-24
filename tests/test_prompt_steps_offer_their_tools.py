@@ -17,7 +17,9 @@ from builder.agents.react.tools_spec import TOOL_SPECS
 
 
 def _steps() -> dict[int, set[str]]:
-    section = re.search(r"## Your Tools\n(.*?)\n## ", SYSTEM_PROMPT, re.S).group(1)
+    found = re.search(r"## Your Tools\n(.*?)\n## ", SYSTEM_PROMPT, re.S)
+    assert found, "the prompt has no Your Tools section"
+    section = found.group(1)
     steps: dict[int, set[str]] = {}
     current = 0
     for line in section.splitlines():

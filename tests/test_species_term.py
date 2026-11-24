@@ -19,11 +19,16 @@ import responses
 
 import builder.tools.composites as composites
 from builder.state import CrateState, Entity
-from builder.tools._crate_mapping import STATED_TERM_ONTOLOGIES, TERM_FIELDS, term_field
+from builder.tools._crate_mapping import (
+    STATED_TERM_ONTOLOGIES,
+    TERM_FIELDS,
+    draft_hints_schema,
+    term_field,
+)
 from builder.tools.builder import assemble_crate
 from builder.tools.composites import resolve_cell_line, resolve_characteristic_terms
 from builder.tools.drafters import draft_cell_line_sample
-from builder.tools.field_kinds import drafter_visible_fields, is_identifier_field
+from builder.tools.field_kinds import is_identifier_field
 from builder.tools.management import set_fields
 from lookups._http import reset_circuit_breaker, reset_host_throttle
 from lookups.bao import lookup_exact_term
@@ -126,7 +131,7 @@ class TestTheComposite:
 
     def test_it_is_an_identifier_no_model_is_asked_for(self) -> None:
         assert is_identifier_field(HELD)
-        assert HELD not in drafter_visible_fields("CellLineSample")
+        assert HELD not in draft_hints_schema("CellLineSample")["properties"]
 
     def test_a_caller_cannot_hand_the_term_in(self) -> None:
         state = CrateState()
