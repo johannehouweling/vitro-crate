@@ -59,11 +59,18 @@ _CASE = EvalCase(
 
 class TestTheShippedBudgetIsWhatGetsMeasured:
     def test_a_narrating_reply_auto_continues_instead_of_ending_the_build(
-        self, faked_loop
+        self, faked_loop, monkeypatch
     ) -> None:
-        """One bare invoke is one turn. The shipped loop keeps working."""
+        """One bare invoke is one turn. The shipped loop keeps working while each turn
+        works an item off what is left, as a working build does."""
+        from builder.agents.react import agent_loop
         from builder.agents.react.agent_loop import _MAX_AUTONOMOUS_TURNS
 
+        monkeypatch.setattr(
+            agent_loop,
+            "open_items",
+            lambda state, **kw: [f"item {i}" for i in range(100 - len(faked_loop))],
+        )
         outcome = make_react_agent_factory()().build(_CASE)
 
         assert len(faked_loop) == _MAX_AUTONOMOUS_TURNS + 1, faked_loop

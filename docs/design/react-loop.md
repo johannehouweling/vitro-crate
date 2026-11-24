@@ -75,6 +75,10 @@ engine to `run_interactive_agent`, which returns `{"stop_reason": ...}`.
 `interactive=False` says nobody can answer (the eval): the seeded turn and its autonomous
 continuation are the whole session, ended as Ctrl+D ends it.
 
+**The autonomous run ends** when the crate is complete, when only identifiers a person can
+give are missing, at a question, at the turn cap (`_MAX_AUTONOMOUS_TURNS`), or after a continued
+turn that leaves the open items and the gate verdicts as it found them (`_left_to_do`).
+
 **Session provenance is passed, never inferred (#410).** `resumed` comes from the CLI
 (`--resume`). `engine.initialize(--input)` populates state before the loop, so a
 populated `CrateState` is not evidence of a resume. Everything that branches on it (the
