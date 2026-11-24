@@ -417,3 +417,21 @@ class TestExportSourceSymlinkContained:
                     assert p.read_text(encoding="utf-8", errors="ignore") != "EXFIL"
                 except OSError:
                     pass
+
+
+class TestAForbiddenTargetIsRefusedUnderAnApprovedParent:
+    """Approving a parent folder never approves the home directory inside it.
+
+    The per-root denylist only refuses a forbidden *root*; this pins the check on
+    the resolved *target*, which nothing else exercised.
+    """
+
+    def test_home_is_refused_project_under_it_is_not(self, tmp_path, monkeypatch):
+        from builder.tools.scanner import _contain
+
+        home = tmp_path / "home"
+        (home / "project").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        roots = {str(tmp_path)}
+        assert _contain(home, roots) is None
+        assert _contain(home / "project", roots) == (home / "project").resolve()
