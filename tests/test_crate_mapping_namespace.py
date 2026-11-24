@@ -191,14 +191,16 @@ class TestSnakeCaseFieldsAreCheckedAgainstTheContext:
     def test_context_defined_snake_case_terms_survive(self) -> None:
         from builder.tools._crate_mapping import _context_terms, _scalar_props
 
-        # Pinned so this cannot pass vacuously if the context stops defining them.
-        assert {"has_molecular_initiating_event", "upstream_event"} <= _context_terms()
+        # Pinned so this cannot pass vacuously if the context stops defining it.
+        assert "short_name" in _context_terms()
 
         entity = _entity(
             "aop610", "AOP", has_molecular_initiating_event="ke1", short_name="MIE"
         )
         props = _scalar_props(entity)
         assert props.get("short_name") == "MIE"
+        # A link to the rest of a pathway is never written.
+        assert "has_molecular_initiating_event" not in props
 
     def test_a_misspelt_real_term_is_recovered_under_its_real_name(self) -> None:
         """The value is right; only the spelling is wrong. Keep the value."""
