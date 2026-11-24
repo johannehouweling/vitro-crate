@@ -540,51 +540,6 @@ def describe(action: Action) -> str:
     return f"{what} for {subject}." if what else f"Complete the metadata for {subject}."
 
 
-def describe_parts(action: Action, subject: str | None = None) -> tuple[str, str]:
-    """*(instruction, subject)* — the same sentence, split where it changes topic.
-
-    ``describe`` returns one string because callers that emit plain text want one
-    string. But the HTML list runs the instruction and a long entity list
-    together, and the entity list is by far the longer half — "Add an identifier
-    for proc thyroid hormone receptor activation endpoint readout raw
-    measurements.csv, proc … .csv, proc … .csv and 15 others." The reader is
-    scanning for the verb, and it is buried.
-
-    The two are returned separately so the renderer can give the entity list its
-    own visual weight. Joining them reproduces ``describe`` exactly, and a test
-    pins that, so the plain-text and HTML wordings cannot drift.
-
-    The subject half is empty when the sentence has no entity list to separate
-    (a deliberate non-action, whose text is a note about the whole finding).
-
-    Args:
-        action: The action to word.
-        subject: Optional pre-rendered replacement for ``action.subject`` — the
-            HTML list passes the same entities with each one marked up. Nothing
-            else about the sentence changes, so the two renderings stay one
-            wording.
-    """
-    if not action.actionable:
-        return describe(action), ""
-    if action.instruction:
-        # No entity list to break out — the subject is the whole deposit.
-        return action.instruction, ""
-    what = _instruction(action)
-    # An already-rendered subject (the HTML list marks each entity up) is
-    # substituted here rather than assembled by the caller, so this function
-    # stays the ONE place the sentence is composed.
-    subject = action.subject if subject is None else subject
-    n = action.cleared
-    plural = "entity is" if n == 1 else "entities are"
-    if action.kind == "orphan":
-        return "Connect", f"{subject} to the crate — {n} {plural} unreachable."
-    if action.kind == "property":
-        return "Supply", (
-            f"{subject} for the {n} {'entity' if n == 1 else 'entities'} missing it."
-        )
-    return (what or "Complete the metadata"), f"for {subject}."
-
-
 _CORRECT_IDENTIFIER = "Correct the identifier"
 
 # What a finding is asking for, keyed on words the message actually uses. Only

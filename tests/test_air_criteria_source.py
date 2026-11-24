@@ -299,57 +299,10 @@ class TestLocalScopeIsHonest:
             )
 
 
-class TestRemediesCannotClaimMoreThanTheLoopCanDo:
-    """Each criterion declares how it would be fixed; the generator refuses fictions."""
-
-    def test_every_criterion_declares_a_route(self, criteria):
-        routes = {c["remedy"]["route"] for c in criteria}
-        assert routes <= {"auto", "ask-user", "draft", "report-only"}
-
-    def test_no_remedy_asks_a_human_for_an_identifier(self, criteria):
-        """D5 — identifiers come from lookups, so the answer would be discarded."""
-        from builder.tools.field_kinds import is_identifier_field
-
-        for crit in criteria:
-            prop = crit["remedy"].get("property")
-            if prop and crit["remedy"]["route"] != "report-only":
-                assert not is_identifier_field(prop), f"{crit['id']} asks for {prop}"
-
-    def test_an_actionable_route_names_a_field_to_write(self, criteria):
-        for crit in criteria:
-            remedy = crit["remedy"]
-            if remedy["route"] != "report-only":
-                assert remedy["property"], f"{crit['id']} has nothing to set"
-
-    def test_nothing_claims_to_be_auto_fixable_yet(self, criteria):
-        """`auto_fixable` means precisely "fix_required_issues can clear it".
-
-        Claiming it without a matching rule in ``repair._RULES`` would put a gap in
-        front of the user that no tool can close.
-        """
-        assert all(c["remedy"]["route"] != "auto" for c in criteria)
-
-
 class TestTheGeneratorRefusesToLie:
     def test_an_unknown_criterion_id_raises(self, gen, monkeypatch):
-        monkeypatch.setitem(gen.LOCAL_SCOPE, "9.z", ("full", "nope", gen.REPORT_ONLY_REMEDY))
+        monkeypatch.setitem(gen.LOCAL_SCOPE, "9.z", ("full", "nope"))
         with pytest.raises(KeyError, match="absent from the published table"):
-            gen.build_data()
-
-    def test_a_remedy_naming_an_identifier_field_raises(self, gen, monkeypatch):
-        monkeypatch.setitem(
-            gen.LOCAL_SCOPE, "2.a", ("full", "descriptive_metadata_rich",
-                                     gen.Remedy(None, "doi", "ask-user"))
-        )
-        with pytest.raises(ValueError, match="identifier"):
-            gen.build_data()
-
-    def test_an_actionable_remedy_with_no_field_raises(self, gen, monkeypatch):
-        monkeypatch.setitem(
-            gen.LOCAL_SCOPE, "2.a", ("full", "descriptive_metadata_rich",
-                                     gen.Remedy(None, None, "ask-user"))
-        )
-        with pytest.raises(ValueError, match="no field"):
             gen.build_data()
 
 

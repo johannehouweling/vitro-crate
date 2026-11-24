@@ -1594,8 +1594,8 @@ def look_up_declared_funders(state: CrateState) -> None:
     ISA-Tox requires every Organization, a funder included, to be identified by a
     ROR ID, and the deposit names its funders in words. One ROR registers under
     exactly that name becomes that Organization; one it does not, such as a
-    funding programme, stays an open finding the depositor answers. Both build
-    arms run it: the pipeline in its spine, the ReAct arm before its loop starts.
+    funding programme, stays an open finding the depositor answers. The build
+    runs it before the ReAct loop starts.
     Enrichment: a failure costs the ROR IDs and nothing else.
     """
     try:
@@ -2773,11 +2773,8 @@ def resolve_cell_line(
 ) -> dict[str, Any]:
     """Resolve a cell-line name to a ``CellLineSample`` + Cellosaurus accession.
 
-    The cell-line counterpart of :func:`resolve_compound`, and the deterministic
-    arm's ONLY name→Cellosaurus path: before this existed the arm minted every
-    cell line through ``draft_cell_line_sample`` with empty hints, so
-    ``lookup_cell_line_by_name`` had no caller outside the ReAct arm and no
-    default-arm crate ever carried an accession (#372, #386).
+    The cell-line counterpart of :func:`resolve_compound`: the one call that takes
+    a cell-line name to its Cellosaurus accession (#372, #386).
 
     Two steps, both against Cellosaurus:
 
@@ -2798,7 +2795,7 @@ def resolve_cell_line(
     **A miss is NOT a failure.** The one deliberate divergence from
     :func:`resolve_compound`, which returns ``{"ok": False}`` and mints nothing.
     A ``CellLineSample`` carrying only a name is a valid ISA Sample and is
-    exactly what the arm produced before this composite existed, so refusing to
+    what the crate holds when no catalogue knows the line, so refusing to
     mint would delete the cell line from every crate whose line is not
     catalogued — taking the ``TestSystemPreparation.cell_line`` input and the Study's
     ``cell_lines`` mention with it. **Always mint; the accession is enrichment.**

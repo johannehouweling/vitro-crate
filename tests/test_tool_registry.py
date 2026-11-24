@@ -94,11 +94,3 @@ class TestEngineUsesRegistry:
         engine = AgentEngine()
         with pytest.raises(ValueError):
             engine.run_tool("definitely_not_a_tool")
-
-    def test_get_available_tools_excludes_leaked_classes(self):
-        tools = AgentEngine().get_available_tools()
-        assert "draft_investigation" in tools
-        assert "scan_files" in tools
-        # dir()-based discovery used to leak imported classes/typing aliases:
-        for junk in ("CrateState", "Entity", "FAIRReport", "Any"):
-            assert junk not in tools

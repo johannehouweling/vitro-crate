@@ -388,26 +388,6 @@ ENTITY_DRAFT_SCHEMA: dict[str, EntityDraftSchema] = {
 }
 
 
-# The LabProcess scalars that are experimental PARAMETERS — the single source of
-# truth for "what may be overlaid onto a process step's hints" (#379). Derived, not
-# hand-written, from the LabProcess draft schema, so the two cannot drift apart.
-#
-# Three deliberate exclusions:
-#   * `name` drives the process `@id` via `drafters._make_entity_id` and is merged
-#     separately — overlaying it would hijack the entity id;
-#   * `description` is never read by `_build_process`, so it would be a dead field;
-#   * `units` is advertised as a string but the code wants a dict keyed by
-#     ParameterValue DISPLAY NAME (`profiles/models/tox.py` does `units.get("Exposure
-#     Duration")`). A model that follows the advertised type passes a bare string and
-#     the build raises `'str' object has no attribute 'get'`, which surfaces as an
-#     error with zero routable issues. Excluded until that type is corrected.
-LABPROCESS_PARAMETER_FIELDS: frozenset[str] = (
-    frozenset(ENTITY_DRAFT_SCHEMA["LabProcess"].scalar_fields)
-    - _REF_FIELDS
-    - {"name", "description", "units"}
-)
-
-
 # Any other parameter a step states, under the name the deposit gives it
 # (docs/design/toolbox.md, "A step states any parameter the deposit names").
 NAMED_PARAMETERS_SCHEMA: dict[str, Any] = {

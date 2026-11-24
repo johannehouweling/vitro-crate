@@ -35,14 +35,17 @@ can be built at any point.
 ## Build-Path Wiring Contracts (`builder/tools/_crate_mapping.py`)
 
 `scaffold_isa_backbone(...)` alone passes base and ISA with zero issues and fails ISA-Tox on one
-finding: the Investigation MUST include an Exposure its root reaches (#781). Only deposit
+finding: the Investigation MUST include an Exposure its root reaches
+(`tox:InvestigationMustIncludeAnExposure`, #781). Only deposit
 evidence can supply one, and the finding names no property. Three **conditional Violation
 traps** fire only when the relevant entities exist:
 
 1. A `PropertyValue` named `DOI` / `PubMedID` MUST carry `propertyID` as an **`@id` node**
-   (`OBI_0002110` / `OBI_0001617`); `draft_property_value` defaults and wraps it. A string
+   (`OBI_0002110` / `OBI_0001617`; `tox:DOIPropertyValueMustHaveOBIPropertyID`,
+   `tox:PubMedIDPropertyValueMustHaveOBIPropertyID`); `draft_property_value` defaults and wraps it. A string
    literal is a Violation.
-2. `EndpointReadout` / `DataAnalysis` have **no `result` build-time fallback**. A readout MUST
+2. `EndpointReadout` / `DataAnalysis` have **no `result` build-time fallback**
+   (`tox:EndpointReadoutRequirements`, `tox:DataAnalysisRequirements`). A readout MUST
    name what it measured (`tox:EndpointReadoutConsumesExposedMaterial`), which
    `_floor_readout_objects` supplies when nothing upstream does; a DataAnalysis's `object` has
    no fallback (`fix_required_issues` wires a sole unambiguous candidate).
@@ -50,7 +53,8 @@ traps** fire only when the relevant entities exist:
    and `attach_files` completes any step still unwired. With no such file the Violation is
    **left to fire** (#592) — never a manufactured file. A step nothing evidences (no data, no
    procedure document) is not drafted.
-3. What an `Exposure` executes MUST name a test or control compound as a `reagent` (D17). The
+3. What an `Exposure` executes MUST name a test or control compound as a `reagent`
+   (`tox:ExposureRequirements`, D17). The
    build writes reagents from the step's `chemicals`, so the fix hint names `chemicals`
    (`validation.answering_field`), not `executesLabProtocol`. A compound the deposit does not
    name cannot be supplied, so the finding is **left to fire**.

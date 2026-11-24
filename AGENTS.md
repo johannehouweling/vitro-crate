@@ -99,8 +99,11 @@ when you add a rule, add its test.
 - A rule the profiles cannot evaluate is checked on our side and recorded as checked: the
   payload (`verify_payload`) and ISA reachability (`verify_isa_reachability`). An unassessed tier
   reads *not assessed*, never clean. — `tests/test_payload_verification.py`, `tests/test_isa_reachability.py`
-- The ISA-Tox shapes mint no classes or terms, and a shape's `sh:pattern` is derived from the
-  vendored Bioregistry record it cites. — `tests/test_profile_crate.py`,
+- **The shapes in `profiles/shapes/tox/` are the one specification.** The spec page
+  (`profiles/docs/isa_tox.md`) is held to them in both directions, the profile crate is
+  generated from the two, and no other doc restates a constraint: change the shape, then the
+  spec's table. The shapes mint no classes or terms, and every `sh:pattern` is derived from the
+  vendored Bioregistry record it cites. — `tests/test_isa_tox_spec.py`, `tests/test_profile_crate.py`,
   `tests/test_identifier_namespace_shapes.py`, `tests/test_shape_constraint_coverage.py`
 
 ### Assessments score the crate a reader receives ([assessments](docs/design/assessments.md))

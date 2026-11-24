@@ -778,7 +778,6 @@ def assess_air_readiness(state: CrateState, *, graph: Graph = None) -> AIRReport
             "scope": criterion.get("scope", "na"),
             "passed": verdict.value,
             "evidence": verdict.evidence,
-            "remedy": criterion.get("remedy", {}),
         }
         if criterion.get("check"):
             entry["check"] = criterion["check"]

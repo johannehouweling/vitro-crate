@@ -324,13 +324,7 @@ def _run_document_discovery(engine: AgentEngine) -> None:
         approved_roots=engine.state.approved_scan_roots,
         previews=previews,
     )
-    # Pass the scan size so the context can say what it left out: the ranking
-    # decides what the agent sees at all, and a silent cap reads as "this is
-    # everything" (#587).
-    # `to_dict()`, not a near-copy of it: hand-rolling the same seven fields
-    # dropped `path`, so a candidate rebuilt by `DocumentationCandidate.from_dict`
-    # had no identity to match against the inventory — and the "not surfaced"
-    # breakdown counted the whole deposit instead of the files it hid (#599).
+    # `to_dict()`, not a near-copy of it: a hand-rolled copy once dropped `path`.
     engine.state.documents = [c.to_dict() for c in candidates]
     if candidates and engine.state.metadata:
         logger.info("Documents that may describe the study: %d", len(candidates))
@@ -1537,16 +1531,6 @@ class AgentEngine:
     # ------------------------------------------------------------------
     # Status & introspection
     # ------------------------------------------------------------------
-
-    def get_available_tools(self) -> list[str]:
-        """Return the list of available tool names.
-
-        Returns:
-            Sorted list of all registered tool names.
-        """
-        registry = self._build_registry()
-        extra = ["scan_files", "read_file_sample", "preview_archive"]
-        return sorted(set(registry.list() + extra))
 
     @property
     def is_stuck(self) -> bool:
