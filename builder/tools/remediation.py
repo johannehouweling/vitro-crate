@@ -32,6 +32,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from profiles.identifier_namespaces import (
+    FUNDER_SHOULD_HAVE_ROR,
+    MALFORMED,
+    NAMESPACE_CHECKS,
+    ORGANIZATION_NEEDS_ROR,
+    namespace_of,
+)
+
 # Findings a crate cannot act on, and why. Recommending these would send a
 # reader after something that is either impossible or actively harmful — the
 # root identifier one breaks an ISA MUST if "fixed" (see `_crate_mapping`), and
@@ -521,7 +529,7 @@ def describe(action: Action) -> str:
         return action.note or "Left as-is deliberately."
     if action.instruction:
         return action.instruction
-    what = _wanted(action.findings)
+    what = _instruction(action)
     subject = action.subject
     n = action.cleared
     plural = "entity is" if n == 1 else "entities are"
@@ -561,7 +569,7 @@ def describe_parts(action: Action, subject: str | None = None) -> tuple[str, str
     if action.instruction:
         # No entity list to break out — the subject is the whole deposit.
         return action.instruction, ""
-    what = _wanted(action.findings)
+    what = _instruction(action)
     # An already-rendered subject (the HTML list marks each entity up) is
     # substituted here rather than assembled by the caller, so this function
     # stays the ONE place the sentence is composed.
@@ -577,13 +585,20 @@ def describe_parts(action: Action, subject: str | None = None) -> tuple[str, str
     return (what or "Complete the metadata"), f"for {subject}."
 
 
+_CORRECT_IDENTIFIER = "Correct the identifier"
+
 # What a finding is asking for, keyed on words the message actually uses. Only
 # phrasings the profiles emit are listed; anything else falls back to a generic
 # sentence rather than a confidently wrong one.
 _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
     # First: it lands on the root, whose one action gathers every root finding (#781).
     (("MUST include an Exposure",), "Record the exposure step"),
+    # An identifier outside its registry's form
+    # (profiles/shapes/tox/14_identifier_namespaces.ttl). Ahead of the ORCID entry:
+    # a malformed iD is not a missing one. `_instruction` names the namespace.
+    ((MALFORMED,), _CORRECT_IDENTIFIER),
     (("ORCID",), "Add an ORCID"),
+    ((ORGANIZATION_NEEDS_ROR, FUNDER_SHOULD_HAVE_ROR), "Add a ROR ID"),
     (("affiliation",), "Add an institutional affiliation"),
     (("contactPoint", "contact point"), "Add a contact email"),
     (("organization SHOULD have a URL", "URL"), "Add a website"),
@@ -620,7 +635,11 @@ _WANTED: tuple[tuple[tuple[str, ...], str], ...] = (
 # the reader to skip the column.
 _WHY: dict[str, str] = {
     "Record the exposure step": "It is not toxicology if nothing is exposed to a chemical.",
+    _CORRECT_IDENTIFIER: (
+        "An identifier in the wrong form resolves to nothing, or to something else."
+    ),
     "Add an ORCID": "Resolves the person unambiguously for credit and search.",
+    "Add a ROR ID": "Resolves the organisation unambiguously, whatever name it is given.",
     "Add an institutional affiliation": "Ties the person to an institution a registry can resolve.",
     "Add a contact email": "Gives a reuser someone to ask.",
     "Add a website": "Lets a reader confirm which organisation is meant.",
@@ -654,6 +673,23 @@ def why(action: Action) -> str:
         them = "it" if action.cleared == 1 else "them"
         return f"A consumer walking the crate from its root never reaches {them}."
     return _WHY.get(_wanted(action.findings), "")
+
+
+def _instruction(action: Action) -> str:
+    """What *action* asks for: `_wanted` of its findings, with the namespace named
+    where the finding is a malformed ``@id``.
+
+    The shape that checks an ``@id``'s form speaks one message for every
+    namespace, and the entity is shown by its name, so without this the row would
+    say an identifier is wrong and not which. The ``@id`` says which.
+    """
+    what = _wanted(action.findings)
+    if what != _CORRECT_IDENTIFIER:
+        return what
+    found = {namespace_of(str(i).removeprefix("./")) for i in action.entity_ids}
+    if len(found) == 1 and (prefix := found.pop()) is not None:
+        return f"Correct the {NAMESPACE_CHECKS[prefix]}"
+    return what
 
 
 def _wanted(messages: list[str]) -> str:

@@ -9,6 +9,11 @@ conforming crate the way that constraint forbids:
 * ``sh:maxCount``                            -> add a second value
 * ``sh:class`` (alone)                       -> point at a node of another type
 * ``sh:in`` / ``sh:or``                      -> an IRI outside the list
+* ``sh:pattern`` on a property               -> a value the pattern refuses
+* ``sh:pattern`` on the node itself          -> an @id the pattern refuses
+* ``sh:or`` of patterns on the node          -> per member: an @id in that member's
+                                                namespace its pattern refuses, or a
+                                                value its scheme's pattern refuses
 * the root's SPARQL rule                     -> unlink the Exposure from the chain
 
 and asserts the constraint's own ``sh:message`` is reported, at its declared
@@ -16,12 +21,15 @@ severity, twice: by the production ISA-Tox pass (``validate_crate_dict``), and b
 the shape files run alone with pyshacl, which is what anyone outside
 rocrate-validator gets. A shape that selects a class only rocrate-validator infers
 passes the first and finds nothing in the second. A constraint that gains a kind
-with no recipe here fails loudly rather than going untested.
+with no recipe here fails loudly rather than going untested, and a targeted shape
+that yields no case at all fails too.
 
 The crate is built by the real builder from a ``CrateState`` that reaches every
-tox class, with three nodes the builder does not write added by hand: a
-co-culture Sample, and a DOI and a PubMedID identifier. The fixture itself must
-pass clean at recommended severity, so every finding below is the perturbation.
+tox class, with the nodes the builder does not write added by hand: a co-culture
+Sample, a DOI and a PubMedID identifier, a chemical at its Compound Wiki address,
+a grant at its CORDIS address, and a term in each ontology the build does not
+already describe. The fixture itself must pass clean at recommended severity, so
+every finding below is the perturbation.
 """
 
 from __future__ import annotations
@@ -37,15 +45,16 @@ from pathlib import Path
 import pyshacl
 import pytest
 from rdflib import Graph, URIRef
+from rdflib.collection import Collection
 from rdflib.namespace import RDF, SH
 
 from builder.state import CrateState, Entity, EntityProvenance
 from builder.tools.builder import build_crate
-from profiles.validator import _LOCAL_CONTEXTS, validate_crate_dict
+from profiles.validator import _LOCAL_CONTEXTS, SHAPES_DIR, validate_crate_dict
 
 pytestmark = pytest.mark.timeout(900)
 
-_SHAPES_DIR = Path(__file__).resolve().parent.parent / "profiles" / "shapes" / "tox"
+_SHAPES_DIR = SHAPES_DIR / "tox"
 _SCHEMA = "http://schema.org/"
 
 CO_CULTURE = "http://purl.obolibrary.org/obo/NCIT_C93168"
@@ -77,11 +86,16 @@ class Case:
     kind: str
     path: str | None
     # ("class", local name) | ("sparql", "pred=values") | ("root", "./")
-    # | ("subjectsOf"|"objectsOf", IRI)
+    # | ("subjectsOf"|"objectsOf", IRI) | ("namespace", "IRI prefix")
+    # | ("select", shape IRI): the shape's own SPARQL target, run over the fixture
     target: tuple[str, str]
+    # The member of a node-level sh:or this case is about: the namespace an @id
+    # starts with, or the name of an identifier scheme.
+    member: str = ""
 
     def __str__(self) -> str:
-        return f"{self.shape}:{(self.path or 'node').rsplit('/', 1)[-1].rsplit('#', 1)[-1]}"
+        where = (self.path or "node").rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+        return f"{self.shape}:{where}" + (f"[{self.member}]" if self.member else "")
 
 
 def _local(iri) -> str:
@@ -102,7 +116,66 @@ def _kind(g: Graph, prop) -> str:
         return "wrong_type"
     if g.value(prop, SH["in"]) is not None or g.value(prop, SH["or"]) is not None:
         return "unknown_value"
+    if g.value(prop, SH.pattern) is not None:
+        return "bad_value"
     return "unsupported"
+
+
+# A target that selects every @id starting with one of several namespaces, and one
+# that selects identifier PropertyValues by the name of their scheme.
+_NAMESPACE_FILTER = "REGEX(STR(?this)"
+_NAME_FILTER = re.compile(r"FILTER\(\?name IN \(([^)]*)\)\)")
+
+
+def _literal_prefix(pattern: str) -> str:
+    """What every string *pattern* accepts starts with: its text up to the first group."""
+    out, escaped = [], False
+    for char in pattern.removeprefix("^"):
+        if escaped:
+            out.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char in "([":
+            break
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def _member_cases(g: Graph, shape, message: str, severity: str) -> list[Case]:
+    """One case per member of a node-level ``sh:or``.
+
+    Every member must be tested, not the shape once: a typo in one namespace's
+    pattern passes a test that perturbs another's.
+    """
+    cases = []
+    for member in Collection(g, g.value(shape, SH["or"])):
+        if (pattern := g.value(member, SH.pattern)) is not None:
+            start = _literal_prefix(str(pattern))
+            cases.append(
+                Case(_local(shape), message, severity, "bad_id", None, ("namespace", start), start)
+            )
+            continue
+        props = [(g.value(p, SH.path), g.value(p, SH.hasValue)) for p in g.objects(member, SH.property)]
+        named = [(path, value) for path, value in props if value is not None]
+        checked = [path for path, value in props if value is None]
+        if len(named) == 1 and len(checked) == 1:
+            (key, scheme), = named
+            cases.append(
+                Case(
+                    _local(shape),
+                    message,
+                    severity,
+                    "bad_value",
+                    str(checked[0]),
+                    ("sparql", f"{_local(key)}={scheme}"),
+                    str(scheme),
+                )
+            )
+            continue
+        cases.append(Case(_local(shape), message, severity, "unsupported", None, ("class", "")))
+    return cases
 
 
 @cache
@@ -139,14 +212,26 @@ def _cases() -> list[Case]:
             if "ro-crate-metadata.json" in select:
                 # The root: the Dataset the metadata descriptor is about.
                 target = ("root", "./")
+            elif _NAMESPACE_FILTER in select:
+                target = ("namespace", "")  # each member names its own namespace
+            elif names := _NAME_FILTER.search(select):
+                values = re.findall(r'"([^"]+)"', names.group(1))
+                target = ("sparql", f"name={'|'.join(values)}")
             elif pairs:
                 pred = pairs[0][0]
                 values = [iri or lit for p, iri, lit in pairs if p == pred]
                 target = ("sparql", f"{_local(URIRef(pred))}={'|'.join(values)}")
             else:
-                continue
+                # A target no recipe above reads (an Organization named only as a
+                # funder): its own query picks the focus node from the fixture.
+                target = ("select", str(shape))
         else:
             continue
+        if g.value(shape, SH.pattern) is not None and (message := g.value(shape, SH.message)):
+            # A node-level constraint: the pattern applies to the focus node's own @id.
+            cases.append(Case(_local(shape), str(message), _severity(g, shape), "bad_id", None, target))
+        if g.value(shape, SH["or"]) is not None and (message := g.value(shape, SH.message)):
+            cases += _member_cases(g, shape, str(message), _severity(g, shape))
         for prop in g.objects(shape, SH.property):
             if (message := g.value(prop, SH.message)) is None:
                 continue
@@ -201,12 +286,18 @@ def _state() -> CrateState:
     s.add_entity(
         _ent("assay_1", "Assay", name="Deiodinase Assay", key_event=ke, study_id="study_1")
     )
+    # Identified by its PubChem address, with the CAS, PubChem CID and DTXSID
+    # PropertyValues the build writes for a chemical. The shapes read the form of
+    # an identifier, so these need to be well-formed, not looked up.
     s.add_entity(
         _ent(
             "chem_1",
             "MolecularEntity",
             name="Iopanoic acid",
             identifier="96-83-3",
+            cas="96-83-3",
+            pubchem_cid="3735",
+            dtxsid="DTXSID2023157",
             inchikey="XQZYPMVTSDWCCE-UHFFFAOYSA-N",
             smiles="CCC(C(=O)O)c1c(I)cc(I)c(N)c1I",
         )
@@ -293,11 +384,41 @@ def _state() -> CrateState:
         )
     )
     s.add_entity(_ent("pub_1", "Publication", name="Reference paper", doi="10.1234/paper"))
+    # ISA-Tox identifies a Person by an ORCID iD and an Organization by a ROR ID.
+    s.add_entity(
+        _ent(
+            "person_1",
+            "Person",
+            name="Jente Houweling",
+            givenName="Jente",
+            familyName="Houweling",
+            orcid="0009-0005-3680-0645",
+        )
+    )
+    s.add_entity(_ent("org_1", "Organization", name="Utrecht University", ror="04pp8hn57"))
+    # A funder the crate names only as one, so the funder shape has a node to perturb.
+    s.add_entity(_ent("org_2", "Organization", name="Dutch Research Council", ror="04jsz6e67"))
+    s.metadata.funding = [{"funder": "Dutch Research Council", "identifier": "1292.19.272"}]
     return s
 
 
+# A well-formed term in each ontology namespace the build does not describe on its
+# own, so every ontology-term shape has a node to perturb.
+_ONTOLOGY_TERMS = {
+    "http://purl.obolibrary.org/obo/CHEBI_23367": "molecular entity",
+    "http://purl.obolibrary.org/obo/CL_0000062": "osteoblast",
+    "http://purl.obolibrary.org/obo/GO_0030154": "cell differentiation",
+    "http://purl.obolibrary.org/obo/IAO_0000030": "information content entity",
+    "http://purl.obolibrary.org/obo/MSIO_0000062": "measurement",
+    "http://purl.obolibrary.org/obo/NCBITaxon_9606": "Homo sapiens",
+    "http://purl.obolibrary.org/obo/PATO_0000033": "concentration of",
+    "http://purl.obolibrary.org/obo/UBERON_0002113": "kidney",
+    "http://purl.obolibrary.org/obo/UO_0000064": "micromolar",
+}
+
+
 def _add_handwritten_nodes(doc: dict) -> None:
-    """The three tox targets the builder never writes."""
+    """The tox targets the builder never writes."""
     graph = doc["@graph"]
     cell_line_id = next(n["@id"] for n in graph if n.get("name") == "SK-N-AS")
     graph += [
@@ -326,6 +447,34 @@ def _add_handwritten_nodes(doc: dict) -> None:
     ]
     article = next(n for n in graph if n.get("@type") == "ScholarlyArticle")
     article["identifier"] = [{"@id": "#pv_doi"}, {"@id": "#pv_pmid"}]
+    # The build identifies a chemical by its Compound Wiki item only when a lookup
+    # found one, which this offline fixture does not do.
+    graph += [
+        {
+            "@id": "https://compoundcloud.wikibase.cloud/entity/Q2026",
+            "@type": "MolecularEntity",
+            "name": "Sodium iodide",
+            "identifier": ["7681-82-5", {"@id": "#pv_compoundwiki"}],
+            "inChIKey": "FVAUCKIRQBBSSJ-UHFFFAOYSA-M",
+            "smiles": "[Na+].[I-]",
+        },
+        {
+            "@id": "#pv_compoundwiki",
+            "@type": "PropertyValue",
+            "name": "Compound Wiki",
+            "value": "Q2026",
+            "propertyID": {"@id": "https://compoundcloud.wikibase.cloud/entity"},
+        },
+        # A grant CORDIS holds and the EU Publications Office gave no DOI is written
+        # at its CORDIS address.
+        {"@id": "https://cordis.europa.eu/project/id/825161", "@type": "Grant", "name": "ATHENA"},
+    ]
+    described = {n["@id"] for n in graph}
+    graph += [
+        {"@id": iri, "@type": "DefinedTerm", "name": name}
+        for iri, name in _ONTOLOGY_TERMS.items()
+        if iri not in described
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -346,14 +495,20 @@ def _tox_issues(doc: dict):
     return result.issues
 
 
+_BASE = "https://example.org/crate/"
+
+
+def _data_graph(doc: dict) -> Graph:
+    """The crate as RDF, its relative @ids resolved against ``_BASE``."""
+    context = [_LOCAL_CONTEXTS[c]["@context"] if isinstance(c, str) else c for c in doc["@context"]]
+    return Graph().parse(
+        data=json.dumps({**doc, "@context": context}), format="json-ld", base=_BASE
+    )
+
+
 def _standalone_issues(doc: dict) -> list[tuple[str, str]]:
     """The findings of the shape files run alone: pyshacl over the crate's graph."""
-    context = [_LOCAL_CONTEXTS[c]["@context"] if isinstance(c, str) else c for c in doc["@context"]]
-    data = Graph().parse(
-        data=json.dumps({**doc, "@context": context}),
-        format="json-ld",
-        base="https://example.org/crate/",
-    )
+    data = _data_graph(doc)
     _, report, _ = pyshacl.validate(data, shacl_graph=_shapes(), advanced=True)
     return [
         (str(report.value(r, SH.resultMessage)), _SEVERITY[report.value(r, SH.resultSeverity)])
@@ -401,6 +556,12 @@ def _focus(doc: dict, case: Case) -> dict:
             ]
     elif kind == "root":
         nodes = [n for n in graph if n["@id"] == name]
+    elif kind == "namespace":
+        nodes = [n for n in graph if n["@id"].startswith(name) and "@type" in n]
+    elif kind == "select":
+        select = str(_shapes().value(_shapes().value(URIRef(name), SH.target), SH.select))
+        selected = sorted(str(row[0]).removeprefix(_BASE) for row in _data_graph(doc).query(select))
+        nodes = [n for focus in selected for n in graph if n["@id"] == focus]
     elif kind == "subjectsOf":
         key = _local(name)
         nodes = [n for n in graph if key in n]
@@ -434,7 +595,8 @@ def _keys_for(doc: dict, iri: str) -> set[str]:
     return keys
 
 
-def _mutate(doc: dict, case: Case) -> None:
+def _mutate(doc: dict, case: Case) -> str:
+    """Perturb *doc* the way *case* forbids; the @id of the node perturbed."""
     node = _focus(doc, case)
     step_term = _step_type(doc, node)  # read before a removal can take the record away
     keys = [k for k in _keys_for(doc, case.path) if k in node] if case.path else []
@@ -460,6 +622,16 @@ def _mutate(doc: dict, case: Case) -> None:
     elif case.kind == "unknown_value":
         assert keys, f"{case}: the focus node carries no {case.path} to replace"
         node[keys[0]] = {"@id": "https://example.org/not-a-known-term"}
+    elif case.kind == "bad_value":
+        assert keys, f"{case}: the focus node carries no {case.path} to malform"
+        node[keys[0]] = "not well-formed!"
+    elif case.kind == "bad_id":
+        # Still in the namespace the target selects, so the shape still reaches
+        # it; no registry's identifier ends in "!".
+        kind, name = case.target
+        bad = name + "!" if kind == "namespace" else "#not-a-registry-id"
+        _rename(doc, node["@id"], bad)
+        return bad
     elif case.kind == "sparql":
         exposure = _focus(doc, Case("", "", "", "", None, ("sparql", f"intendedUse={EXPOSURE}")))
         for n in doc["@graph"]:
@@ -468,20 +640,43 @@ def _mutate(doc: dict, case: Case) -> None:
                     n[key] = [v for v in _as_list(n[key]) if v.get("@id") != exposure["@id"]]
     else:
         pytest.fail(f"{case}: no mutation recipe for a {case.kind} constraint")
+    return node["@id"]
 
 
 def _as_list(value) -> list:
     return value if isinstance(value, list) else [value]
 
 
+def _rename(doc: dict, old: str, new: str) -> None:
+    """Give the node *old* the @id *new*, and every reference to it with it."""
+
+    def visit(value):
+        if isinstance(value, dict):
+            if value.get("@id") == old:
+                value["@id"] = new
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(doc["@graph"])
+
+
 @pytest.mark.parametrize("case", CASES, ids=str)
 def test_each_constraint_fires_on_its_own_violation(conforming_doc, case):
     doc = copy.deepcopy(conforming_doc)
-    _mutate(doc, case)
-    fired = [(i.message, i.severity) for i in _tox_issues(doc)]
+    perturbed = _mutate(doc, case)
+    issues = _tox_issues(doc)
+    fired = [(i.message, i.severity) for i in issues]
     assert (case.message, case.severity) in fired, (
         f"{case} did not fire after its perturbation; findings were: {fired}"
     )
+    if case.member:
+        # One message speaks for every member, so the finding must be about the
+        # node this member's perturbation touched.
+        about = {(i.entity_id or "").removeprefix("./") for i in issues if i.message == case.message}
+        assert perturbed in about, (case, about)
     alone = _standalone_issues(doc)
     assert (case.message, case.severity) in alone, (
         f"{case} fires under rocrate-validator but not when the shapes run alone; "
@@ -494,3 +689,20 @@ def test_every_constraint_has_a_case():
     assert all(c.kind != "unsupported" for c in CASES), [
         str(c) for c in CASES if c.kind == "unsupported"
     ]
+
+
+def test_every_targeted_shape_yields_a_case():
+    """A shape the case reader cannot parse is not tested, and nothing says so.
+
+    A SPARQL target with no `<predicate> <value>` pair used to be skipped in
+    silence, which is how a shape selecting by namespace would have gone
+    untested. Every named, targeted shape must give at least one case.
+    """
+    g = _shapes()
+    targets = (SH.targetClass, SH.targetSubjectsOf, SH.targetObjectsOf, SH.target)
+    targeted = {
+        _local(shape)
+        for shape in g.subjects(RDF.type, SH.NodeShape)
+        if isinstance(shape, URIRef) and any(g.value(shape, t) is not None for t in targets)
+    }
+    assert targeted - {c.shape for c in CASES} == set()

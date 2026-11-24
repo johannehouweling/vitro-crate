@@ -26,6 +26,7 @@ from builder.tools._crate_mapping import (
     STATED_TERM_ONTOLOGIES,
     TERM_FIELDS,
     confirmed_term,
+    organizations_named,
     term_field,
 )
 from builder.tools._resolve_cache import (
@@ -78,6 +79,7 @@ from builder.tools.verification import verify_identifier
 from lookups._http import TransientLookupError
 from lookups.affiliation_from_works import cached_affiliation_from_works, institution_of
 from lookups.compoundwiki import compound_wiki_id
+from lookups.cordis import fetch_cordis_project
 from lookups.crossref import search_works_by_title
 from lookups.orcid import lookup_orcid_by_name
 from lookups.ror import fetch_ror_by_id, find_registered
@@ -1453,6 +1455,158 @@ def registered_organization(name: str) -> dict[str, Any]:
     except Exception:
         logger.debug("ROR search failed for %r", name, exc_info=True)
         return {}
+
+
+# The EU framework programmes CORDIS lists a project under, by code, with the names
+# a deposit uses for them. A declared funder naming one of these, or the EU itself,
+# confirms a grant number CORDIS returns under that programme.
+_FRAMEWORK_PROGRAMMES: dict[str, tuple[str, ...]] = {
+    "HORIZON": ("Horizon Europe",),
+    "H2020": ("Horizon 2020",),
+    "FP7": ("Seventh Framework Programme", "FP7"),
+    "FP6": ("Sixth Framework Programme", "FP6"),
+}
+_THE_EU = ("European Commission", "European Union")
+
+# What funds every grant CORDIS records under a framework programme, by its name as
+# ROR registers it. CORDIS states the Commission's contribution to each grant.
+EU_FUNDER = "European Commission"
+
+
+def _words(text: str) -> str:
+    """*text* as lower-case words, so a name is found whatever its punctuation."""
+    return " " + " ".join(re.findall(r"[0-9a-z]+", text.casefold())) + " "
+
+
+def cordis_grant(funder: str, number: str) -> dict[str, Any]:
+    """The CORDIS record of the grant the deposit declares, or ``{}``.
+
+    Two facts must agree, as an ORCID record must state the name it is attached to:
+    CORDIS holds a project under *number*, and *funder*, the deposit's own words,
+    names the framework programme CORDIS lists it under ("EU Horizon 2020" for
+    ``H2020``) or the EU itself. A number CORDIS holds under another programme is
+    another grant. CORDIS out of reach is no answer, and gives ``{}`` as well.
+    """
+    number = str(number or "").strip()
+    declared = _words(str(funder or ""))
+    if not number or declared.strip() == "":
+        return {}
+    try:
+        record = fetch_cordis_project(number)
+    except TransientLookupError as exc:
+        logger.info("CORDIS could not be reached for grant %s: %s", number, exc)
+        return {}
+    names = [
+        name
+        for code in record.get("framework_programmes") or []
+        for name in (code, *_FRAMEWORK_PROGRAMMES.get(code, ()))
+    ]
+    if not names or not any(_words(name) in declared for name in (*names, *_THE_EU)):
+        return {}
+    return record
+
+
+def resolve_declared_funders(state: CrateState) -> list[str]:
+    """Give each funder the deposit declares an organisation with a ROR ID.
+
+    A declared funder is written as the crate's Organization of that name, or as an
+    Organization stating the name and nothing more
+    (``_crate_mapping._declared_funder``), and ISA-Tox asks every Organization to
+    be identified by a ROR ID. Two lookups answer, and neither guesses (D5):
+
+    * an EU grant. Where CORDIS confirms the grant number the deposit states under
+      the programme it names (:func:`cordis_grant`), the grant is recorded in
+      ``metadata.grants`` and its funder is the European Commission, the
+      Organization ROR registers under exactly that name. "EU Horizon 2020" names
+      a programme; the grant it awarded is what CORDIS identifies.
+    * the name. One ROR record that registers exactly the declared name, as an
+      affiliation is matched (:func:`registered_organization`). The funder is then
+      the Organization the crate holds under that ROR ID or under the declared
+      name, else a new one. Where that Organization goes by another name, the
+      declared one is added as an ``alternateName`` so the funder is found by it.
+
+    Running it again changes nothing. Returns the declared names neither answers
+    ("Dutch Research Agenda (NWA)" names a programme, and its grants are not in
+    CORDIS). The profile recommends a ROR ID for such a funder.
+    """
+    unregistered: list[str] = []
+    for stated in state.metadata.funding:
+        name = str(stated.get("funder") or "").strip()
+        number = str(stated.get("identifier") or "").strip()
+        if number and number in state.metadata.grants:
+            continue
+        if number and (grant := cordis_grant(name, number)):
+            ror = str(registered_organization(EU_FUNDER).get("@id") or "")
+            if ror:
+                _organization_with_ror(state, EU_FUNDER, ror)
+                state.metadata.grants[number] = {
+                    "acronym": grant["acronym"],
+                    "title": grant["title"],
+                    "url": grant["url"],
+                    "doi": grant["grant_doi"],
+                    "programme": ", ".join(grant["framework_programmes"]),
+                    "funder_ror": ror,
+                }
+                continue
+        if not name:
+            continue
+        named = organizations_named(state, name)
+        if named and named[0].fields.get("ror"):
+            continue
+        match = registered_organization(name)
+        ror = str(match.get("@id") or "")
+        if not ror:
+            unregistered.append(name)
+            continue
+        _organization_with_ror(state, name, ror, named=named[:1])
+    return unregistered
+
+
+def _organization_with_ror(
+    state: CrateState, name: str, ror: str, *, named: list[Entity] | None = None
+) -> list[Entity]:
+    """The Organization the crate holds under *ror*, given that ID, else a new one.
+
+    The Organization under that ROR ID and one under the declared *name* (*named*)
+    are one organisation, whichever of them the crate holds. Both take the ROR ID,
+    and the build writes two entities at one address as one node. Where one goes by
+    another name, *name* is added as an ``alternateName`` so it is found by it.
+    """
+    facts = {"ror": ror, **_ror_facts(ror)}
+    holder = _existing_organization(state, ror)
+    found = [holder] if holder is not None else []
+    found += [org for org in named or [] if org is not holder]
+    if not found:
+        found = [draft_organization(state, name, facts)]
+    for org in found:
+        missing = {k: v for k, v in facts.items() if not org.fields.get(k)}
+        if missing:
+            org.set_fields_from_dict(missing, source="lookup")
+        org.set_field_status("ror", "verified", "lookup")
+        if str(org.fields.get("name") or "").strip().casefold() != name.casefold():
+            _append_alternate_name(org, name)
+    return found
+
+
+def look_up_declared_funders(state: CrateState) -> None:
+    """:func:`resolve_declared_funders` as a build step: it never raises.
+
+    ISA-Tox requires every Organization, a funder included, to be identified by a
+    ROR ID, and the deposit names its funders in words. One ROR registers under
+    exactly that name becomes that Organization; one it does not, such as a
+    funding programme, stays an open finding the depositor answers. Both build
+    arms run it: the pipeline in its spine, the ReAct arm before its loop starts.
+    Enrichment: a failure costs the ROR IDs and nothing else.
+    """
+    try:
+        unregistered = resolve_declared_funders(state)
+    except Exception as exc:  # noqa: BLE001 - a lookup must not break a build
+        logger.warning("The declared funders were not looked up in ROR: %s", exc)
+        return
+    if unregistered:
+        logger.info(
+            "Declared funders ROR registers no organisation for: %s.", ", ".join(unregistered)
+        )
 
 
 def _registered_institution(affiliation: str) -> tuple[str, str | None]:

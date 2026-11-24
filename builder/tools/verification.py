@@ -145,6 +145,54 @@ def _cell_line_mismatch(entity, field: str, result: dict, lookup_name: str | Non
     }
 
 
+def _person_mismatch(entity, field: str, result: dict) -> dict | None:
+    """Reject, and clear, an ORCID iD whose record names somebody else.
+
+    Existence is not identity here either. ISA-Tox requires an ORCID iD of every
+    person, which gives a model every reason to produce one, and the iD is written
+    as the person's ``@id``: one that resolves to another researcher says this
+    person IS that one. The record's family name is compared with the entity's,
+    the rule every route that attaches an iD applies (``composites._verify_orcid``).
+
+    Unlike a cell line's accession, the value is **cleared**. An accession that
+    cannot be name-matched is often right (an engineered derivative of the line).
+    An iD under another family name is not this person's on any reading the build
+    can check, and kept it would be the crate's statement of who they are.
+
+    Returns ``None`` to let verification proceed: the names match, or one of them
+    is not stated and there is nothing to compare.
+    """
+    if entity.type != "Person":
+        return None
+    from builder.tools.composites import _norm
+    from builder.tools.drafters import split_person_name
+
+    own = entity.fields.get("familyName") or split_person_name(
+        str(entity.fields.get("name") or "")
+    )[1]
+    resolved = (result.get("data") or {}).get("familyName")
+    if not _norm(own) or not _norm(resolved) or _norm(own) == _norm(resolved):
+        return None
+
+    value = entity.fields.pop(field, None)
+    entity.set_field_status(field, "missing", "lookup")
+    return {
+        "verified": False,
+        "mismatch": True,
+        "entity_id": entity.entity_id,
+        "field": field,
+        "resolved_name": str(resolved),
+        "message": (
+            f"{field} '{value}' is the ORCID iD of a person with the family name "
+            f"'{resolved}', not '{own}'; value cleared from entity."
+        ),
+        "suggested_fix": (
+            "Do not try another iD by guessing. Ask the person, or the depositor, for "
+            "the iD with request_input; the person stays an open finding until then."
+        ),
+    }
+
+
 def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     """Check that an identifier resolves at its source.
 
@@ -192,7 +240,9 @@ def verify_identifier(state: CrateState, entity_id: str, field: str) -> dict:
     if result.get("found"):
         # Resolving is necessary but not sufficient: the record must also be
         # this entity's record (#383).
-        mismatch = _cell_line_mismatch(entity, field, result, lookup_name)
+        mismatch = _cell_line_mismatch(entity, field, result, lookup_name) or _person_mismatch(
+            entity, field, result
+        )
         if mismatch is not None:
             return mismatch
         entity.set_field_status(field, "verified", "lookup")

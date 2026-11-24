@@ -1,6 +1,6 @@
 # ISA-Tox RO-Crate Profile
 
-* Version: 1.0.0
+* Version: 1.1.0
 * Permalink: <https://w3id.org/ro/crate/isa-tox/1.0> (registration pending)
 * Published at: <https://vitro-crate.github.io/isa-tox-ro-crate-profile/1.0/>
 * Licence: this text [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the SHACL shapes MIT
@@ -22,6 +22,7 @@
     * [LabProcess - Endpoint Readout](#labprocess---endpoint-readout)
     * [LabProcess - Data Analysis](#labprocess---data-analysis)
     * [LabProtocol - Protocol record](#labprotocol---protocol-record)
+  * [Identifier Namespaces](#identifier-namespaces)
 
 ## Overview
 
@@ -96,7 +97,7 @@ the profile extends. Both referenced profiles are declared as contextual entitie
   "@id": "https://w3id.org/ro/crate/isa-tox/1.0",
   "@type": ["CreativeWork", "Profile"],
   "name": "ISA-Tox RO-Crate Profile",
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
 ```
 
@@ -193,7 +194,7 @@ Concentration is **not** a property of the compound. It is recorded per well in 
 
 | Property | Required | Expected Type | Description |
 |----------|----------|---------------|-------------|
-|@id|MUST|Text or URL|SHOULD be an absolute, resolvable compound IRI — a [PubChem](https://pubchem.ncbi.nlm.nih.gov/), [CompTox](https://comptox.epa.gov/dashboard/) or [CompoundWiki](https://compoundcloud.wikibase.cloud/) entry (`https://compoundcloud.wikibase.cloud/entity/Q<n>`). A crate-local identifier (`#iopanoic-acid`) is allowed, and is the only option for a coded or proprietary test item with no public record; the compound's identity is carried by `inChIKey` and `identifier` either way.|
+|@id|MUST|Text or URL|SHOULD be an absolute, resolvable compound IRI — a [PubChem](https://pubchem.ncbi.nlm.nih.gov/), [CompTox](https://comptox.epa.gov/dashboard/) or [CompoundWiki](https://compoundcloud.wikibase.cloud/) entry (`https://compoundcloud.wikibase.cloud/entity/Q<n>`). A crate-local identifier (`#iopanoic-acid`) is allowed, and is the only option for a coded or proprietary test item with no public record; the compound's identity is carried by `inChIKey` and `identifier` either way. An `@id` at a PubChem or Compound Wiki address MUST be [well-formed](#identifier-namespaces).|
 |@type|MUST|[bioschemas.org/MolecularEntity](https://bioschemas.org/MolecularEntity)|—|
 |name|MUST|Text|The compound name.|
 |identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|A compound identifier (e.g. InChIKey, CAS, PubChem CID, or a [CompoundWiki](https://compoundcloud.wikibase.cloud/) `Q` id), ideally a PropertyValue carrying its scheme, resolving to an authoritative resource.|
@@ -252,7 +253,7 @@ identified by its Cellosaurus accession.
 |@type|MUST|[BioSample](https://bioschemas.org/BioSample), a Bioschemas subtype of [bioschemas.org/Sample](https://bioschemas.org/Sample)|The array `["BioSample", "Sample"]`, most specific first; `Sample` MUST be present.|
 |sampleType|MUST|[schema.org/DefinedTerm](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#definedterm)|"cell line" → [NCIT:C16403](http://purl.obolibrary.org/obo/NCIT_C16403).|
 |name|MUST|Text|A name identifying the sample, e.g. the cell-line name.|
-|identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|The cell-line identity resolved to a [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`).|
+|identifier|SHOULD|Text, URL or [schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue)|The cell line's [Cellosaurus](https://www.cellosaurus.org/) accession (e.g. `CVCL_0027`, also written `RRID:CVCL_0027`), its Cellosaurus address, or a PropertyValue whose value is the accession. A name is not an accession, and does not count.|
 |additionalProperty|SHOULD|[schema.org/PropertyValue](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue) ([Characteristic](https://github.com/nfdi4plants/isa-ro-crate-profile/blob/1.0.0-draft.1/profile/isa_ro_crate.md#propertyvalue---characteristic))|Characteristics of the sample, e.g. passage number or growth conditions.|
 |url|MAY|URL|Link to the [Cellosaurus](https://www.cellosaurus.org/) entry.|
 
@@ -489,3 +490,50 @@ record that refers to its documents through `isBasedOn`.
 |Exposure|[EFO:0003969](http://www.ebi.ac.uk/efo/EFO_0003969) *treatment protocol*|
 |Endpoint Readout|[BAO:0000523](http://www.bioassayontology.org/bao#BAO_0000523) *assay protocol*|
 |Data Analysis|[OBI:0200000](http://purl.obolibrary.org/obo/OBI_0200000) *data transformation*|
+
+## Identifier Namespaces
+
+An identifier this profile checks MUST have the form its registry gives it. The form is the one the
+[Bioregistry](https://bioregistry.io) publishes for that namespace: the pattern of the local identifier, and the
+URI format that turns it into an address. The shapes name the record each pattern comes from, and a test holds
+every pattern to a vendored copy of the records, so no form is typed from memory. The record is where a form is
+looked up; it is never the identifier. A Person is `https://orcid.org/0000-0002-1825-0097`, not a Bioregistry
+address.
+
+Two checks apply to every entity of their type. Every Person MUST be identified by an ORCID iD, and every
+Organization, an affiliation included, MUST be identified by a ROR ID. An Organization the crate names only as a
+`funder` SHOULD be identified by a ROR ID: a funding programme is often named as a funder and has no ROR record
+to give, while the organisation that awarded the grant does (an EU grant's funder is the European Commission, and
+its grant agreement is identified by its DOI, `https://doi.org/10.3030/<number>`, or its CORDIS address). None may
+be invented to satisfy the profile: a person or an organisation no registry confirms an identifier for is
+reported, and only the depositor can answer it.
+
+Every other check applies only where the crate claims the namespace. An entity whose `@id` starts with one of the
+addresses below MUST have that namespace's form; a chemical with a crate-local `@id` (`#iopanoic-acid`) is not
+checked against PubChem. The address is matched in full, so an ontology's own IRI
+(`http://purl.obolibrary.org/obo/ncit.owl`) is not a term, and neither is the scheme an identifier PropertyValue
+names in its `propertyID` (`https://orcid.org`).
+
+| Namespace | An `@id` that starts with | Bioregistry record |
+|-----------|---------------------------|--------------------|
+|ORCID iD|`https://orcid.org/`|[orcid](https://bioregistry.io/registry/orcid)|
+|ROR ID|`https://ror.org/`|[ror](https://bioregistry.io/registry/ror)|
+|PubChem compound|`https://pubchem.ncbi.nlm.nih.gov/compound/`|[pubchem.compound](https://bioregistry.io/registry/pubchem.compound)|
+|Compound Wiki item|`https://compoundcloud.wikibase.cloud/entity/`|none: the Bioregistry holds no record, and the form is the profile's (`Q` and digits)|
+|Cellosaurus|`https://www.cellosaurus.org/`|[cellosaurus](https://bioregistry.io/registry/cellosaurus)|
+|DOI|`https://doi.org/`|[doi](https://bioregistry.io/registry/doi)|
+|CORDIS project|`https://cordis.europa.eu/project/id/`|[cordis.project](https://bioregistry.io/registry/cordis.project)|
+|AOP-Wiki pathway|`https://aopwiki.org/aops/`|[aop](https://bioregistry.io/registry/aop)|
+|AOP-Wiki key event|`https://aopwiki.org/events/`|[aop.events](https://bioregistry.io/registry/aop.events)|
+|Ontology terms|the ontology's term prefix, e.g. `http://purl.obolibrary.org/obo/NCIT_`|one per ontology: BAO, ChEBI, CL, EFO, GO, IAO, MSIO, NCBITaxon, NCIT, OBI, PATO, UBERON, UO|
+
+The `value` of an identifier PropertyValue is checked by the name that states its scheme: `ORCID`, `CAS`,
+`PubChem CID`, `DTXSID`, `Compound Wiki`, `DOI` and `PubMedID`, each against its record (`comptox` for a DTXSID,
+`pubmed` for a PubMed identifier), and a DOI is stated bare (`10.1038/s41597-022-01807-3`). A chemical's
+`inChIKey` is checked against the [inchikey](https://bioregistry.io/registry/inchikey) record. Every one of these
+is a Violation where it applies, and so is a missing ORCID iD or ROR ID; a funder's missing ROR ID is a Warning.
+
+Three checks elsewhere in the profile take their form from the same records: a [cell line](#source-cells---cell-line)
+SHOULD carry its Cellosaurus accession (`CVCL_0440`, also written `RRID:CVCL_0440`), a
+[Study](#study---adverse-outcome-pathway) SHOULD mention its pathway at its AOP-Wiki address, and an
+[Assay](#assay---key-event) SHOULD mention the key event it measures at its AOP-Wiki address.

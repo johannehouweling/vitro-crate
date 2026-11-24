@@ -1,0 +1,226 @@
+{
+  "source": {
+    "name": "Bioregistry",
+    "url": "https://bioregistry.io",
+    "package": "bioregistry",
+    "license": "CC0-1.0 for the records the Bioregistry curates; records it aggregates from other registries keep the licence of the registry they came from",
+    "citation": "https://doi.org/10.1038/s41597-022-01807-3",
+    "version": "0.15.15",
+    "retrieved": "2026-11-23"
+  },
+  "prefixes": {
+    "orcid": {
+      "name": "Open Researcher and Contributor",
+      "pattern": "^\\d{4}-\\d{4}-\\d{4}-\\d{3}(\\d|X)$",
+      "uri_format": "https://orcid.org/$1",
+      "example": "0000-0003-4423-4370",
+      "record": "https://bioregistry.io/registry/orcid"
+    },
+    "ror": {
+      "name": "Research Organization Registry",
+      "pattern": "^0[a-hj-km-np-tv-z|0-9]{6}[0-9]{2}$",
+      "uri_format": "https://ror.org/$1",
+      "example": "03yrm5c26",
+      "record": "https://bioregistry.io/registry/ror"
+    },
+    "aop": {
+      "name": "AOPWiki",
+      "pattern": "^\\d+$",
+      "uri_format": "https://aopwiki.org/aops/$1",
+      "example": "98",
+      "record": "https://bioregistry.io/registry/aop"
+    },
+    "aop.events": {
+      "name": "AOPWiki (Key Event)",
+      "pattern": "^\\d+$",
+      "uri_format": "https://aopwiki.org/events/$1",
+      "example": "3",
+      "record": "https://bioregistry.io/registry/aop.events"
+    },
+    "cellosaurus": {
+      "name": "Cellosaurus",
+      "pattern": "^[A-Z0-9]{4}$",
+      "uri_format": "https://www.cellosaurus.org/CVCL_$1",
+      "example": "0440",
+      "record": "https://bioregistry.io/registry/cellosaurus",
+      "banana": "CVCL",
+      "banana_peel": "_"
+    },
+    "rrid": {
+      "name": "Research Resource Identification",
+      "pattern": "^[a-zA-Z]+.+$",
+      "uri_format": "https://scicrunch.org/resolver/RRID:$1",
+      "example": "AB_262044",
+      "record": "https://bioregistry.io/registry/rrid",
+      "banana": "RRID",
+      "banana_peel": ":"
+    },
+    "cas": {
+      "name": "Chemical Abstracts Service Registry Number",
+      "pattern": "^\\d{1,7}\\-\\d{2}\\-\\d$",
+      "uri_format": "https://commonchemistry.cas.org/detail?cas_rn=$1",
+      "example": "50-00-0",
+      "record": "https://bioregistry.io/registry/cas"
+    },
+    "pubchem.compound": {
+      "name": "PubChem compound",
+      "pattern": "^\\d+$",
+      "uri_format": "https://pubchem.ncbi.nlm.nih.gov/compound/$1",
+      "example": "100101",
+      "record": "https://bioregistry.io/registry/pubchem.compound"
+    },
+    "comptox": {
+      "name": "DSSTox substance",
+      "pattern": "^DTXSID\\d+$",
+      "uri_format": "https://comptox.epa.gov/dashboard/$1",
+      "example": "DTXSID2021028",
+      "record": "https://bioregistry.io/registry/comptox"
+    },
+    "inchikey": {
+      "name": "InChIKey",
+      "pattern": "^[A-Z]{14}\\-[A-Z]{10}(\\-[A-Z])?$",
+      "uri_format": "https://www.chemspider.com/search?params=$1",
+      "example": "RYYVLZVUVIJVGH-UHFFFAOYSA-N",
+      "record": "https://bioregistry.io/registry/inchikey"
+    },
+    "doi": {
+      "name": "Digital Object Identifier",
+      "pattern": "^10.\\d{2,9}/.*$",
+      "uri_format": "https://doi.org/$1",
+      "example": "10.1038/s41597-022-01807-3",
+      "record": "https://bioregistry.io/registry/doi",
+      "banana": "doi",
+      "banana_peel": ":"
+    },
+    "pubmed": {
+      "name": "PubMed",
+      "pattern": "^\\d+$",
+      "uri_format": "https://pubmed.ncbi.nlm.nih.gov/$1/",
+      "example": "16333295",
+      "record": "https://bioregistry.io/registry/pubmed"
+    },
+    "cordis.project": {
+      "name": "CORDIS Project",
+      "pattern": "^\\d+$",
+      "uri_format": "https://cordis.europa.eu/project/id/$1",
+      "example": "817732",
+      "record": "https://bioregistry.io/registry/cordis.project"
+    },
+    "bao": {
+      "name": "BioAssay Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://www.bioassayontology.org/bao#BAO_$1",
+      "example": "0002989",
+      "record": "https://bioregistry.io/registry/bao"
+    },
+    "chebi": {
+      "name": "Chemical Entities of Biological Interest",
+      "pattern": "^\\d+$",
+      "uri_format": "http://purl.obolibrary.org/obo/CHEBI_$1",
+      "example": "138488",
+      "record": "https://bioregistry.io/registry/chebi",
+      "banana": "CHEBI",
+      "banana_peel": ":"
+    },
+    "cl": {
+      "name": "Cell Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/CL_$1",
+      "example": "0000062",
+      "record": "https://bioregistry.io/registry/cl",
+      "banana": "CL",
+      "banana_peel": ":"
+    },
+    "efo": {
+      "name": "Experimental Factor Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://www.ebi.ac.uk/efo/EFO_$1",
+      "example": "0005147",
+      "record": "https://bioregistry.io/registry/efo"
+    },
+    "go": {
+      "name": "Gene Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/GO_$1",
+      "example": "0032571",
+      "record": "https://bioregistry.io/registry/go",
+      "banana": "GO",
+      "banana_peel": ":"
+    },
+    "iao": {
+      "name": "Information Artifact Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/IAO_$1",
+      "example": "0000030",
+      "record": "https://bioregistry.io/registry/iao"
+    },
+    "msio": {
+      "name": "Metabolomics Standards Initiative Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/MSIO_$1",
+      "example": "0000111",
+      "record": "https://bioregistry.io/registry/msio"
+    },
+    "ncbitaxon": {
+      "name": "NCBI Taxonomy",
+      "pattern": "^(\\d+)|([a-zA-Z_]+)$",
+      "uri_format": "http://purl.obolibrary.org/obo/NCBITaxon_$1",
+      "example": "2170610",
+      "record": "https://bioregistry.io/registry/ncbitaxon"
+    },
+    "ncit": {
+      "name": "National Cancer Institute Thesaurus",
+      "pattern": "^(C|R|P|A|NHC)\\d+$",
+      "uri_format": "http://purl.obolibrary.org/obo/NCIT_$1",
+      "example": "C138986",
+      "record": "https://bioregistry.io/registry/ncit"
+    },
+    "obi": {
+      "name": "Ontology for Biomedical Investigations",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/OBI_$1",
+      "example": "0400109",
+      "record": "https://bioregistry.io/registry/obi",
+      "banana": "OBI",
+      "banana_peel": "_"
+    },
+    "pato": {
+      "name": "Phenotype And Trait Ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/PATO_$1",
+      "example": "0001998",
+      "record": "https://bioregistry.io/registry/pato",
+      "banana": "PATO",
+      "banana_peel": ":"
+    },
+    "uberon": {
+      "name": "Uber Anatomy Ontology",
+      "pattern": "^\\d+$",
+      "uri_format": "http://purl.obolibrary.org/obo/UBERON_$1",
+      "example": "2005080",
+      "record": "https://bioregistry.io/registry/uberon",
+      "banana": "UBERON",
+      "banana_peel": ":"
+    },
+    "uo": {
+      "name": "Units of measurement ontology",
+      "pattern": "^\\d{7}$",
+      "uri_format": "http://purl.obolibrary.org/obo/UO_$1",
+      "example": "0000080",
+      "record": "https://bioregistry.io/registry/uo",
+      "banana": "UO",
+      "banana_peel": ":"
+    }
+  },
+  "decisions": {
+    "compoundwiki": {
+      "name": "VHP4Safety Compound Wiki",
+      "pattern": "^Q[0-9]+$",
+      "uri_format": "https://compoundcloud.wikibase.cloud/entity/$1",
+      "example": "Q2026",
+      "record": "https://compoundcloud.wikibase.cloud",
+      "source": "project decision — NOT a Bioregistry record",
+      "rationale": "The Bioregistry holds no record for the Compound Wiki, a Wikibase instance curated for the compounds these studies test, and the builder identifies a chemical by its item there when a lookup found one (lookups/compoundwiki.py, _crate_mapping._compound_wiki_iri). Every Wikibase names an item Q followed by its number, the form _compound_wiki_iri already requires. Delete this entry, and the shape that cites it, to stop checking the namespace."
+    }
+  }
+}

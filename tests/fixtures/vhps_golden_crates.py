@@ -32,6 +32,8 @@ class VhpsStudySpec:
     author_name: str
     author_orcid: str
     organization: str
+    # ISA-Tox identifies every Organization by a ROR ID (14_identifier_namespaces.ttl).
+    organization_ror: str
     assay_name: str
     cell_line: str
     compound: str
@@ -102,7 +104,7 @@ def build_state(spec: VhpsStudySpec) -> CrateState:
             orcid=spec.author_orcid,
         )
     )
-    state.add_entity(_ent("org", "Organization", name=spec.organization))
+    state.add_entity(_ent("org", "Organization", name=spec.organization, ror=spec.organization_ror))
 
     # Domain entities and the Exposure that anchors the assay's derivation chain.
     state.add_entity(_ent("cell", "CellLineSample", name=spec.cell_line))
@@ -141,6 +143,7 @@ VHPS_STUDIES: dict[str, VhpsStudySpec] = {
         author_name="Fabian Wagenaars",
         author_orcid="0000-0003-4766-7358",
         organization="Universiteit Utrecht",
+        organization_ror="04pp8hn57",
         assay_name="MCT8-MDCK1 cellular uptake assay",
         cell_line="MDCK1 MCT8-overexpressing cells",
         compound="Triiodothyronine",

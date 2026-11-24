@@ -469,9 +469,155 @@ _TOOL_FIXES: tuple[tuple[str, str], ...] = (
 )
 
 
-def _synthesize_fix(issue: RoutableIssue) -> str:
-    """Build a short, actionable fix hint for a routable issue."""
+# --- the identifier-namespace findings ---------------------------------------
+#
+# profiles/shapes/tox/14_identifier_namespaces.ttl. Each is about an identifier,
+# which is looked up and never typed or guessed (D5), and none is cleared by
+# deleting the entity it is about. The shape that checks an @id's form speaks one
+# message for every namespace, so the hint reads the namespace off the @id.
+
+# What answers a malformed @id in each namespace: the tool that returns a
+# well-formed one. An ontology has no entry of its own, since every ontology term
+# comes from one lookup.
+_NAMESPACE_ANSWERS: dict[str, str] = {
+    "orcid": (
+        "Re-read the iD from its source or ask for it with `request_input`, set it as "
+        "`orcid`, and run `verify_identifier` on that field"
+    ),
+    "ror": (
+        "Look the organisation up with `lookup_ror` by its name, and set `ror` only "
+        "when the record returned registers exactly that name"
+    ),
+    "pubchem.compound": "Resolve the chemical again with `resolve_compound`",
+    "compoundwiki": "Resolve the chemical again with `resolve_compound`",
+    "cellosaurus": "Resolve the cell line again with `resolve_cell_line`",
+    "doi": "Resolve the publication again with `resolve_publication`",
+    "cordis.project": (
+        "The grant's address comes from CORDIS, for the grant number the deposit "
+        "states; check that number"
+    ),
+    "aop": "Resolve the pathway again with `resolve_aop`",
+    "aop.events": "Link the assay to its key event again with `link_assay_to_key_event`",
+}
+_TERM_ANSWER = "Look the term up with `lookup_ontology_term` and use the IRI it returns"
+
+# The state field an identifier PropertyValue is written from, by the name that
+# states its scheme (`_crate_mapping._MOLECULAR_IDENTIFIERS`, the Person's ORCID).
+# A DOI or PubMedID PropertyValue is drafted as an entity of its own, so its
+# `value` is its own field.
+_VALUE_FIELDS: dict[str, str] = {
+    "ORCID": "orcid",
+    "CAS": "cas",
+    "PubChem CID": "pubchem_cid",
+    "DTXSID": "dtxsid",
+    "Compound Wiki": "compoundwiki_id",
+}
+
+_NEVER_TYPED = "Never type or correct an identifier by hand."
+
+
+def _identifier_fix(issue: RoutableIssue, graph: list[Any] | None = None) -> str | None:
+    """The fix hint for a finding of the identifier-namespace shapes, or ``None``.
+
+    *graph* is the validated document's ``@graph``. With it, a finding on a
+    generated identifier PropertyValue names the entity it identifies, which is
+    the one the agent can act on: the PropertyValue is rewritten from that
+    entity's field on every build.
+
+    A hint quotes the registry's pattern and never its example: an example is a
+    real identifier, and a model shown one beside a malformed id may copy it.
+    """
+    from profiles.identifier_namespaces import (
+        FUNDER_SHOULD_HAVE_ROR,
+        MALFORMED,
+        NAMESPACE_CHECKS,
+        ORGANIZATION_NEEDS_ROR,
+        PERSON_NEEDS_ORCID,
+        VALUE_CHECKS,
+        namespace_of,
+        record,
+    )
+
+    message = issue.message or ""
     entity = issue.entity_id or "the affected entity"
+    if PERSON_NEEDS_ORCID in message:
+        return (
+            f"Find `{entity}`'s ORCID iD: ask for it with `request_input`, set it with "
+            "`set_fields` as `orcid`, then `verify_identifier` on that field, which "
+            "clears an iD ORCID does not confirm for a person of that family name. "
+            "Never guess an iD, and do not remove the person to clear this finding."
+        )
+    if ORGANIZATION_NEEDS_ROR in message:
+        return (
+            f"Find `{entity}`'s ROR ID with `lookup_ror` by its name, and set it with "
+            "`set_fields` as `ror` only when the record returned registers exactly "
+            "this organisation's name; otherwise leave the finding for the depositor "
+            "to answer. Never guess an ID, and do not remove the organisation to "
+            "clear this finding."
+        )
+    if FUNDER_SHOULD_HAVE_ROR in message:
+        return (
+            f"`{entity}` is named only as a funder and ROR registers no organisation "
+            "under that name; a funding programme has none. Where the deposit states "
+            "the grant number of an EU grant, the CORDIS lookup names the European "
+            "Commission as funder. Otherwise the depositor can name the organisation "
+            "that awarded the grant. Never guess an ID."
+        )
+    if MALFORMED not in message:
+        return None
+
+    node_id = str(issue.entity_id or "").removeprefix("./")
+    prefix = namespace_of(node_id)
+    if prefix is not None:
+        entry = record(prefix)
+        form = entry["uri_format"].replace("$1", "<identifier>")
+        return (
+            f"`{entity}` is not a well-formed {NAMESPACE_CHECKS[prefix]}: that is "
+            f"{form}, the identifier matching `{entry['pattern']}`. "
+            f"{_NAMESPACE_ANSWERS.get(prefix, _TERM_ANSWER)}. {_NEVER_TYPED}"
+        )
+
+    nodes = [n for n in graph or [] if isinstance(n, dict)]
+    node = next((n for n in nodes if n.get("@id") == node_id), None)
+    name = node.get("name") if node else None
+    if isinstance(name, str) and name in VALUE_CHECKS:
+        owner = next(
+            (n.get("@id") for n in nodes if _references(n.get("identifier"), node_id)), None
+        )
+        field = _VALUE_FIELDS.get(name)
+        where = (
+            f"It is written from `{field}` on `{owner}`: look that entity up again, "
+            "or clear the field."
+            if owner and field
+            else "Use the identifier a lookup returns, or remove it."
+        )
+        return (
+            f"The {name} identifier `{entity}` is not in its scheme's form "
+            f"(`{record(VALUE_CHECKS[name])['pattern']}`). {where} {_NEVER_TYPED}"
+        )
+    prop = _local_name(issue.property)
+    target = f"`{prop}` on `{entity}`" if prop else f"`{entity}`"
+    return (
+        f"{target} is not in the form its registry gives it. Look the entity up again "
+        f"and use the identifier the lookup returns, or clear it. {_NEVER_TYPED}"
+    )
+
+
+def _references(value: Any, node_id: str) -> bool:
+    """Whether *value*, a property's value, references the node *node_id*."""
+    items = value if isinstance(value, list) else [value]
+    return any(isinstance(item, dict) and item.get("@id") == node_id for item in items)
+
+
+def _synthesize_fix(issue: RoutableIssue, graph: list[Any] | None = None) -> str:
+    """Build a short, actionable fix hint for a routable issue.
+
+    *graph* is the validated document's ``@graph``, for the one kind of finding
+    whose hint needs to look beyond the finding (:func:`_identifier_fix`).
+    """
+    entity = issue.entity_id or "the affected entity"
+    if (identifier_fix := _identifier_fix(issue, graph)) is not None:
+        return identifier_fix
     for words, fix in _TOOL_FIXES:
         if words in issue.message:
             return fix.format(entity=entity)
@@ -659,13 +805,20 @@ def _is_unanswerable(issue: dict[str, Any]) -> bool:
 def _partition_citations(
     issues: list[dict[str, Any]], cited: set[str]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split findings into real gaps and findings about cited vocabulary."""
+    """Split findings into real gaps and findings about cited vocabulary.
+
+    A REQUIRED finding is never set aside, whatever it is about. It is what fails
+    the layer, so filing it under citations would report a crate that does not
+    conform with nothing listed to fix: a malformed ontology term IRI that the crate
+    only cites is still a malformed IRI in the crate.
+    """
     gaps, citations = [], []
     for issue in issues:
         if _is_unanswerable(issue):
             continue  # see `_UNANSWERABLE` — no one can act on it, including us
         entity = issue.get("entity_id") or ""
-        (citations if entity in cited else gaps).append(issue)
+        cited_here = entity in cited and issue.get("severity") != "required"
+        (citations if cited_here else gaps).append(issue)
     return gaps, citations
 
 
@@ -674,6 +827,8 @@ def _findings(
 ) -> tuple[dict[str, bool], list[dict[str, Any]], list[dict[str, Any]]]:
     """The verdict of *metadata_doc*: conformance per layer, its issues, its citations."""
     conformance = {r.profile: r.passed_required for r in results}
+    graph = metadata_doc.get("@graph") if isinstance(metadata_doc, dict) else None
+    graph = graph if isinstance(graph, list) else None
     # Findings about vocabulary the crate CITES are separated from findings about
     # what the crate ASSERTS — see `_cited_iris` for how that line is drawn, and
     # why it is drawn from the crate's own structure rather than from a list of
@@ -689,7 +844,7 @@ def _findings(
             "entity_id": issue.entity_id,
             "property": issue.property,
             "message": issue.message,
-            "fix": _synthesize_fix(issue),
+            "fix": _synthesize_fix(issue, graph),
             "severity": issue.severity,
             "profile": issue.profile,
         }

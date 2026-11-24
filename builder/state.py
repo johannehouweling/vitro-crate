@@ -670,6 +670,14 @@ class CrateMetadata:
     # "identifier": <grant number>}`` per statement, either key absent when unstated.
     # The build writes the funder as an Organization and the grant as a Grant.
     funding: list[dict[str, str]] = field(default_factory=list)
+    # The grants a lookup confirmed, keyed by the number the deposit states for them:
+    # an EU grant CORDIS holds under the programme the deposit names
+    # (``composites.resolve_declared_funders``), with its ``acronym``, ``title``,
+    # ``url`` (its CORDIS address), ``doi``, ``programme`` and the ``funder_ror`` of
+    # the organisation that awarded it. Kept apart from ``funding``, which holds
+    # only what the deposit said. The build writes such a grant at its DOI, its
+    # funder as that Organization.
+    grants: dict[str, dict[str, str]] = field(default_factory=dict)
     # The people and organisations the deposit identifies, as it states them: one
     # ``{"name": <name>, "orcid": <ORCID iD>}`` per person and one ``{"name": <name>,
     # "ror": <ROR id>}`` per organisation, and nothing else of them. Drafting a Person
@@ -714,6 +722,8 @@ class CrateMetadata:
             d["doi"] = self.doi
         if self.funding:
             d["funding"] = [dict(stated) for stated in self.funding]
+        if self.grants:
+            d["grants"] = {number: dict(grant) for number, grant in self.grants.items()}
         if self.people:
             d["people"] = [dict(stated) for stated in self.people]
         if self.organizations:
@@ -747,6 +757,11 @@ class CrateMetadata:
             license_from_deposit=bool(data.get("license_from_deposit", False)),
             doi=data.get("doi"),
             funding=[dict(f) for f in data.get("funding") or [] if isinstance(f, dict)],
+            grants={
+                str(number): dict(grant)
+                for number, grant in (data.get("grants") or {}).items()
+                if isinstance(grant, dict)
+            },
             people=[dict(p) for p in data.get("people") or [] if isinstance(p, dict)],
             organizations=[
                 dict(o) for o in data.get("organizations") or [] if isinstance(o, dict)

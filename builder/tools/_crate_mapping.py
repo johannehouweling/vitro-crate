@@ -37,6 +37,7 @@ from builder.tools.deposit_structure import ROOT as DEPOSIT_ROOT
 from builder.tools.deposit_structure import _contains, normalise_structure
 from builder.tools.document_discovery import CLASS_PROTOCOL, SCRIPT_SUFFIXES
 from lookups.compoundwiki import BASE as COMPOUND_WIKI
+from profiles.identifier_namespaces import uri_prefix, value_pattern
 from profiles.licenses import describe_license
 from profiles.models.isa import CharacteristicValue, LabProcess, LabProtocol, Sample, param_id
 from profiles.models.tox import (
@@ -1082,12 +1083,72 @@ def _bare_doi(raw: str) -> str:
     ``https://doi.org/<bare>`` @id from whatever DOI form a field carries (#179).
     """
     value = raw.strip()
-    for prefix in ("https://doi.org/", "http://doi.org/"):
+    for prefix in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/"):
         if value.startswith(prefix):
             return value[len(prefix) :]
     if value.lower().startswith("doi:"):
         return value[len("doi:") :]
     return value
+
+
+def _registry_iri(prefix: str, local: str) -> str | None:
+    """*local* as an IRI in *prefix*'s namespace, when it is an identifier there.
+
+    The form is the registry's own (`profiles.identifier_namespaces`), the same the
+    ISA-Tox shapes check, so an identifier written as `http://orcid.org/…` or
+    `https://dx.doi.org/…` is written as the address the shape expects instead of
+    becoming a finding the build caused. ``None`` for anything that does not match:
+    the caller keeps what it was given, and the shape reports it.
+    """
+    if re.search(value_pattern(prefix), local):
+        return uri_prefix(prefix) + local
+    return None
+
+
+def _bare_orcid(raw: Any) -> str:
+    """The iD an ``orcid`` field states, without the address it may be written at.
+
+    A final ``x`` is written ``X`` where that makes it an ORCID iD, the one
+    difference in spelling that is not a difference in iD. Anything else is
+    returned as given, for the shape to report.
+    """
+    bare = str(raw).strip().rstrip("/").rsplit("/", 1)[-1]
+    return bare.upper() if _registry_iri("orcid", bare.upper()) else bare
+
+
+# The field that states the registry identifier `_mint_id` identifies an entity
+# by, and the address a bare identifier is written under.
+_REGISTRY_FIELDS: dict[str, tuple[tuple[str, ...], str]] = {
+    "Person": (("orcid",), "https://orcid.org/"),
+    "Organization": (("ror",), "https://ror.org/"),
+    "CellLineSample": (("accession", "rrid"), "https://www.cellosaurus.org/"),
+    "Publication": (("doi", "identifier"), "https://doi.org/"),
+}
+
+
+def _stated_addresses(entity: Entity) -> list[str]:
+    """The forms a reference may hold for an entity a registry identifies.
+
+    :func:`_mint_id` writes the registry's own address. A reference written
+    before the entity had it, or copied from the deposit, holds the identifier as
+    the field states it (``http://orcid.org/…``, a bare iD) or the address that
+    form was written at. The build index knows the entity by each, as it knows a
+    chemical by each of its addresses (:func:`_compound_addresses`), so such a
+    reference reaches the node instead of pointing beside it.
+    """
+    fields, base = _REGISTRY_FIELDS.get(entity.type, ((), ""))
+    forms: list[str] = []
+    for name in fields:
+        value = str(entity.fields.get(name) or "").strip()
+        if not value:
+            continue
+        forms.append(value)
+        if "://" in value:
+            continue
+        bare = _bare_doi(value) if entity.type == "Publication" else value.lstrip("/")
+        if entity.type != "Publication" or bare.startswith("10."):
+            forms.append(base + bare)
+    return forms
 
 
 def _compound_wiki_iri(entity: Entity) -> str | None:
@@ -1161,9 +1222,13 @@ def _mint_id(entity: Entity, folders: dict[tuple[str, str], str] | None = None) 
         return urllib.parse.quote(folder) + "/"
     if t == "Person" and f.get("orcid"):
         o = str(f["orcid"]).strip()
+        if canonical := _registry_iri("orcid", _bare_orcid(o)):
+            return canonical
         return o if o.startswith("http") else f"https://orcid.org/{o}"
     if t == "Organization" and f.get("ror"):
         r = str(f["ror"]).strip()
+        if canonical := _registry_iri("ror", r.rstrip("/").rsplit("/", 1)[-1].lower()):
+            return canonical
         return r if r.startswith("http") else f"https://ror.org/{r.lstrip('/')}"
     if t == "MolecularEntity":
         # A chemical is identified by its Compound Wiki address where a lookup
@@ -1189,6 +1254,9 @@ def _mint_id(entity: Entity, folders: dict[tuple[str, str], str] | None = None) 
         # work this way; the cell line was the gap.
         accession = str(f.get("accession") or f.get("rrid") or "").strip()
         accession = accession.removeprefix("RRID:").removeprefix("CVCL:").strip()
+        tail = accession.rstrip("/").rsplit("/", 1)[-1].upper()
+        if tail.startswith("CVCL_") and (canonical := _registry_iri("cellosaurus", tail[5:])):
+            return canonical
         if accession.startswith("http"):
             return accession
         if accession.upper().startswith("CVCL_"):
@@ -1205,6 +1273,8 @@ def _mint_id(entity: Entity, folders: dict[tuple[str, str], str] | None = None) 
         raw = str(f.get("doi") or f.get("identifier") or "").strip()
         is_doi = raw.startswith("10.") or "doi.org/" in raw or raw.lower().startswith("doi:")
         if is_doi:
+            if canonical := _registry_iri("doi", _bare_doi(raw)):
+                return canonical
             return raw if raw.startswith("http") else f"https://doi.org/{_bare_doi(raw)}"
     if eid.startswith(("#", "http://", "https://", "./")) or "://" in eid:
         return eid
@@ -1639,7 +1709,27 @@ def _idx_add(idx: dict[str, Any], entity: Entity, node: Any) -> Any:
     idx[typed] = node
     if bare not in idx:
         idx[bare] = node
+    for address in _stated_addresses(entity):
+        idx.setdefault(address, node)
     return node
+
+
+def _written_as_one(idx: dict[str, Any], entity: Entity, node: Any, kind: str) -> None:
+    """Write *entity* as *node*, the one already at the ``@id`` it would take.
+
+    Two entities one registry identifier names are one thing and one node: two
+    names the Compound Wiki holds as one item, a person drafted twice with one
+    ORCID iD written two ways. The first in state describes the node, the name of
+    a later one is an alternate name, and a reference to either reaches it.
+    ``crate.add`` would replace the first without a word.
+    """
+    name = entity.fields.get("name")
+    if name and name not in (node.get("name"), *_child_ids(node, "alternateName")):
+        node.append_to("alternateName", name)
+    logger.info(
+        "%s is written as the %s already at %s", entity.entity_id, kind, node.id
+    )
+    _idx_add(idx, entity, node)
 
 
 # ---------------------------------------------------------------------------
@@ -1806,7 +1896,7 @@ def _populate_root_and_conformance(state: CrateState, crate: ROCrate) -> None:
     # (``metadata.profile``): a study without an exposure claims ISA alone.
     profiles = {
         "isa": (PROFILE_ISA, {"name": "ISA RO-Crate Profile"}),
-        "tox": (PROFILE_ISATOX, {"name": "ISA-Tox RO-Crate Profile", "version": "1.0.0"}),
+        "tox": (PROFILE_ISATOX, {"name": "ISA-Tox RO-Crate Profile", "version": "1.1.0"}),
     }
     for layer in state.layers:
         if layer not in profiles:
@@ -2156,11 +2246,16 @@ def _add_leaves(
             ),
         )
 
+    agent_nodes: dict[str, Any] = {}
     for org in state.list_entities("Organization"):
-        org_node = crate.add(
+        org_id = _mint_id(org)
+        if (held := agent_nodes.get(org_id)) is not None:
+            _written_as_one(idx, org, held, "organisation")
+            continue
+        org_node = agent_nodes[org_id] = crate.add(
             ContextEntity(
                 crate,
-                _mint_id(org),
+                org_id,
                 properties={
                     "@type": "Organization",
                     **_scalar_props(org, skip=(*_CONTACT_FIELDS, *_COUNTRY_FIELDS)),
@@ -2174,10 +2269,14 @@ def _add_leaves(
     for person in state.list_entities("Person"):
         # affiliation is a reference, not a literal: resolve it to the in-crate
         # Organization node (or keep a bare IRI), and never emit it as a string.
-        node = crate.add(
+        person_id = _mint_id(person)
+        if (held := agent_nodes.get(person_id)) is not None:
+            _written_as_one(idx, person, held, "person")
+            continue
+        node = agent_nodes[person_id] = crate.add(
             Person(
                 crate,
-                _mint_id(person),
+                person_id,
                 properties=_scalar_props(
                     person, skip=("affiliation", "jobTitle", *_CONTACT_FIELDS)
                 ),
@@ -2185,11 +2284,13 @@ def _add_leaves(
         )
         _attach_contact_point(crate, node, person)
         _idx_add(idx, person, node)
-        # A looked-up ORCID round-trips as an ORCID PropertyValue identifier (#180).
+        # A looked-up ORCID round-trips as an ORCID PropertyValue identifier (#180),
+        # its value the iD as the @id spells it.
         orcid = person.fields.get("orcid")
         if orcid not in (None, ""):
-            bare = str(orcid).strip().rsplit("/", 1)[-1]
-            node.append_to("identifier", _identifier_pv(crate, "ORCID", bare, "https://orcid.org"))
+            node.append_to(
+                "identifier", _identifier_pv(crate, "ORCID", _bare_orcid(orcid), "https://orcid.org")
+            )
         _wire_reference(
             node, "affiliation", person.fields.get("affiliation"), idx, keep_literal=True
         )
@@ -2197,18 +2298,12 @@ def _add_leaves(
         crate.root_dataset.append_to("author", node)
 
     # Two chemicals that mint one @id are one molecule and one node: two names
-    # the Compound Wiki holds as one item. The first gives the node its name and
-    # identifiers, and the name of a later one is an alternate name. `crate.add`
-    # would replace the first without a word.
+    # the Compound Wiki holds as one item (`_written_as_one`).
     chem_nodes: dict[str, Any] = {}
     for chem in state.list_entities("MolecularEntity"):
         chem_id = _mint_id(chem)
         if (node := chem_nodes.get(chem_id)) is not None:
-            name = chem.fields.get("name")
-            if name and name not in (node.get("name"), *_child_ids(node, "alternateName")):
-                node.append_to("alternateName", name)
-            logger.info("%s is written as the chemical already at %s", chem.entity_id, chem_id)
-            _idx_add(idx, chem, node)
+            _written_as_one(idx, chem, node, "chemical")
             continue
         props = _scalar_props(chem)
         # The Compound Wiki's by-name record states its item as sameAs. Once that
@@ -4736,16 +4831,36 @@ def _append_unique_ref(node: Any, prop: str, ref_id: str) -> None:
         node.append_to(prop, {"@id": ref_id})
 
 
+def organizations_named(state: CrateState, name: str) -> list[Entity]:
+    """The Organizations whose name, or one of whose other names, is *name*.
+
+    Case aside, because a name is all a funding declaration gives. One that holds
+    a ROR ID comes first: where the crate holds an organisation twice, once by
+    name alone and once under its ROR ID, the identified one is the one meant.
+    """
+    wanted = name.strip().casefold()
+    found = []
+    for org in state.list_entities("Organization"):
+        aliases = org.fields.get("alternateName") or []
+        names = [org.fields.get("name"), *([aliases] if isinstance(aliases, str) else aliases)]
+        if any(str(n or "").strip().casefold() == wanted for n in names):
+            found.append(org)
+    return sorted(found, key=lambda org: not org.fields.get("ror"))
+
+
 def _declared_funder(state: CrateState, crate: ROCrate, idx: dict[str, Any], name: str) -> Any:
     """The Organization a declared funder names: the crate's own, when it describes one.
 
-    Matched on the name alone, whatever its case, because a name is all a declaration
-    gives. A funder nothing else describes is written as that name and nothing more.
+    Matched on the name (:func:`organizations_named`): the Organization's name or
+    one of its ``alternateName`` values, which is where
+    ``composites.resolve_declared_funders`` puts a declared name ROR registers for
+    an Organization the crate holds under another. A funder nothing else describes
+    is written as that name and nothing more, and the ISA-Tox shape for an
+    Organization then reports that it has no ROR ID.
     """
-    for org in state.list_entities("Organization"):
-        if str(org.fields.get("name") or "").strip().casefold() == name.casefold():
-            if (node := _node_for(idx, org)) is not None:
-                return node
+    for org in organizations_named(state, name):
+        if (node := _node_for(idx, org)) is not None:
+            return node
     properties = {"@type": "Organization", "name": name}
     return crate.add(ContextEntity(crate, f"#funder_{_slug(name)}", properties=properties))
 
@@ -4756,12 +4871,21 @@ def _add_declared_funding(state: CrateState, crate: ROCrate, idx: dict[str, Any]
     The funder is the root's ``funder``, an Organization, as RO-Crate asks. A grant
     number is no property of an organization, so it is a ``Grant`` the root's
     ``funding`` references, and the grant names its funder.
+
+    A grant a lookup confirmed (``metadata.grants``, an EU grant CORDIS holds) is
+    written as what the lookup found: at its DOI, else its CORDIS address, with its
+    title, acronym and CORDIS page, and the organisation that awarded it as funder
+    in place of the programme the deposit named.
     """
     root = crate.root_dataset
     for stated in state.metadata.funding:
         name = str(stated.get("funder") or "").strip()
         number = str(stated.get("identifier") or "").strip()
-        funder = _declared_funder(state, crate, idx, name) if name else None
+        found = state.metadata.grants.get(number) if number else None
+        if found:
+            funder = _organization_at(state, idx, found.get("funder_ror"))
+        else:
+            funder = _declared_funder(state, crate, idx, name) if name else None
         if funder is not None:
             _append_unique(root, "funder", funder)
         if not number:
@@ -4771,10 +4895,32 @@ def _add_declared_funding(state: CrateState, crate: ROCrate, idx: dict[str, Any]
             "name": f"{name} grant {number}" if name else f"Grant {number}",
             "identifier": number,
         }
+        grant_id = f"#grant_{_slug(number)}"
+        if found:
+            if found.get("title"):
+                properties["name"] = found["title"]
+            if found.get("acronym"):
+                properties["alternateName"] = found["acronym"]
+            if found.get("url"):
+                properties["url"] = found["url"]
+            doi = _registry_iri("doi", _bare_doi(found.get("doi") or ""))
+            grant_id = doi or found.get("url") or grant_id
         if funder is not None:
             properties["funder"] = {"@id": funder.id}
-        grant = crate.add(ContextEntity(crate, f"#grant_{_slug(number)}", properties=properties))
+        grant = crate.add(ContextEntity(crate, grant_id, properties=properties))
         _append_unique(root, "funding", grant)
+
+
+def _organization_at(state: CrateState, idx: dict[str, Any], ror: Any) -> Any:
+    """The written node of the Organization the crate holds under the ROR ID *ror*."""
+    wanted = str(ror or "").strip().rstrip("/").rsplit("/", 1)[-1].casefold()
+    if not wanted:
+        return None
+    for org in state.list_entities("Organization"):
+        held = str(org.fields.get("ror") or "").strip().rstrip("/").rsplit("/", 1)[-1]
+        if held.casefold() == wanted and (node := _node_for(idx, org)) is not None:
+            return node
+    return None
 
 
 # People/organisation references an ISA dataset can carry. Held here (not in

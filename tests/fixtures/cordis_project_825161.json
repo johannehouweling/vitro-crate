@@ -1,0 +1,57 @@
+{
+ "contenttype": "project",
+ "language": "en",
+ "rcn": "219094",
+ "id": "825161",
+ "acronym": "ATHENA",
+ "title": "Assays for the identification of Thyroid Hormone axis-disrupting chemicals: Elaborating Novel Assessment strategies",
+ "ecMaxContribution": "6565463.75",
+ "startDate": "2019-01-01",
+ "endDate": "2024-12-31",
+ "status": "CLOSED",
+ "identifiers": {
+  "grantDoi": "10.3030/825161"
+ },
+ "relations": {
+  "associations": [
+   {
+    "rcn": "664237",
+    "id": "H2020-EU.3.1.",
+    "code": "H2020-EU.3.1.",
+    "frameworkProgramme": "H2020",
+    "title": "SOCIETAL CHALLENGES - Health, demographic change and well-being",
+    "contenttype": "programme"
+   },
+   {
+    "rcn": "703086",
+    "id": "H2020_SC1-BHC-27-2018",
+    "code": "SC1-BHC-27-2018",
+    "frameworkProgramme": "H2020",
+    "title": "New testing and screening methods to identify endocrine disrupting chemicals",
+    "contenttype": "programme"
+   },
+   {
+    "rcn": "664239",
+    "id": "H2020-EU.3.1.1.",
+    "code": "H2020-EU.3.1.1.",
+    "frameworkProgramme": "H2020",
+    "title": "Understanding health, wellbeing and disease",
+    "contenttype": "programme"
+   },
+   {
+    "rcn": "53576",
+    "identifier": "H2020-SC1-2018-Single-Stage-RTD",
+    "contenttype": "call",
+    "attributes": {
+     "source": "corda",
+     "type": "relatedSubCall"
+    }
+   },
+   {
+    "rcn": "1914147",
+    "legalName": "BUNDESINSTITUT FUER RISIKOBEWERTUNG",
+    "contenttype": "organization"
+   }
+  ]
+ }
+}

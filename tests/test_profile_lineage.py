@@ -125,8 +125,8 @@ def test_every_shape_file_states_its_licence():
 
 
 def test_the_profile_declares_the_release_version():
-    assert 'dct:hasVersion "1.0.0"' in TOX_PROFILE.read_text()
-    assert "* Version: 1.0.0" in SPEC.read_text()
+    assert 'dct:hasVersion "1.1.0"' in TOX_PROFILE.read_text()
+    assert "* Version: 1.1.0" in SPEC.read_text()
 
 
 def test_a_sample_is_dual_typed_sample_and_biosample():

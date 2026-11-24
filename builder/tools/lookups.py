@@ -547,9 +547,10 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
             fix=(
                 "Do not guess a corrected iD. Re-read it from the source document; if "
                 "it still does not check out, draft the person without one — "
-                "draft_person(name='...') with no orcid hint is valid and complete. "
-                "Ask the human with present_to_human only if this identifier has to be "
-                "in the crate."
+                "draft_person(name='...') with no orcid hint — and ask the human for "
+                "the iD with request_input. In an ISA-Tox crate every Person is "
+                "identified by an ORCID iD, so there a person without one stays an "
+                "open finding until the iD is confirmed."
             ),
         )
     try:
@@ -565,8 +566,9 @@ def lookup_orcid(orcid_id: str) -> dict[str, Any]:
             "and not a temporary outage — repeating this lookup returns the same result.",
             fix=(
                 "Draft the person without one — draft_person(name='...') with no orcid "
-                "hint is valid and complete. Ask the human with present_to_human only if "
-                "this identifier has to be in the crate."
+                "hint — and ask the human for their iD with request_input. In an "
+                "ISA-Tox crate every Person is identified by an ORCID iD, so there a "
+                "person without one stays an open finding until the iD is confirmed."
             ),
         )
     except TransientLookupError as exc:

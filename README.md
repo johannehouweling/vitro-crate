@@ -51,6 +51,16 @@ The crate is written to `output/<folder>_crate/` (or `-o`):
 `--metadata-only` writes the crate without its data files; `--profile isa` builds a
 study without an exposure as an ISA crate.
 
+A crate conforms to ISA-Tox 1.1 only when every person in it is identified by an ORCID
+iD and every organisation by a ROR ID; a funder that ROR does not register, such as a
+funding programme, is a recommendation rather than a failure. An EU grant number the
+deposit states is looked up in [CORDIS](https://cordis.europa.eu), which makes the
+European Commission its funder. The builder looks identifiers up and never invents
+one, so whoever it cannot confirm is listed at the end of the build as needing an
+identifier from you. Every other identifier the crate states (a CAS number, a PubChem
+or Cellosaurus address, a DOI, an ontology term) must have the form the
+[Bioregistry](https://bioregistry.io) gives it.
+
 ## More
 
 | Task | Command |

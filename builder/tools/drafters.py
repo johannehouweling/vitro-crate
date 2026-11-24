@@ -559,6 +559,13 @@ def draft_property_value(state: CrateState, name: str, hints: dict) -> Entity:
             iri = supplied
         merged_hints["propertyID"] = {"@id": iri}
 
+    # A DOI PropertyValue carries the bare DOI (the ISA-Tox shape checks its form);
+    # the scheme is the propertyID's to state, so a URL or CURIE form is unwrapped.
+    if name == "DOI" and isinstance(merged_hints.get("value"), str):
+        from builder.tools._crate_mapping import _bare_doi
+
+        merged_hints["value"] = _bare_doi(merged_hints["value"])
+
     entity_id = _make_entity_id("pv", name, merged_hints)
     entity = Entity(
         entity_id=entity_id,
@@ -806,7 +813,11 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
     states for exactly this name, with the website and country ROR states for it,
     once ROR returns that record (:func:`_stated_ror`). An Organization the crate
     already holds under the ROR id is amended instead of drafted again: two
-    entities at one address would leave the crate only one of them.
+    entities at one address would leave the crate only one of them. So is one
+    that holds the id this name gives, where it holds a ROR id or goes by another
+    spelling of the name, unless the two hold different ROR ids. Drafting a name
+    again replaces an Organization of exactly that name that holds no ROR id, as
+    drafting does for every type.
 
     Args:
         state: The crate state to add the entity to.
@@ -821,6 +832,22 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
     stated = {} if merged_hints.get("ror") else _stated_ror(state, name)
     merged_hints.update(stated)
     entity = _existing_organization(state, merged_hints.get("ror"))
+    entity_id = _make_entity_id("org", name, hints)
+    held = state.get_entity(entity_id) if entity is None and "entity_id" not in hints else None
+    if held is not None and held.type == "Organization":
+        # The id this name gives is held. Drafting would replace that Organization
+        # and lose what it states: its fields where the name is another spelling
+        # ("UTRECHT UNIVERSITY" for "Utrecht University"), its ROR id where the
+        # name is drafted again without one. It is the same organisation unless
+        # each holds a ROR id of its own, and then this one takes an id that says
+        # so. A plain re-draft of a name that holds no ROR id replaces it, as
+        # drafting does for every type.
+        ours, theirs = _bare_ror(merged_hints.get("ror")), _bare_ror(held.fields.get("ror"))
+        same_name = str(held.fields.get("name") or "").strip() == name.strip()
+        if ours and theirs and ours != theirs:
+            entity_id = f"{entity_id}_{ours}"
+        elif theirs or not same_name:
+            entity = held
     if entity is not None:
         _fill_empty_fields(entity, merged_hints)
         logger.info(
@@ -828,7 +855,7 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
         )
     else:
         entity = Entity(
-            entity_id=_make_entity_id("org", name, hints),
+            entity_id=entity_id,
             type="Organization",
             _provenance=EntityProvenance(created_by="llm"),
         )

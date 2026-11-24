@@ -175,6 +175,13 @@ def run_build(
     # The loop exports from inside itself, so the build must be named on the state
     # before it starts (#772).
     engine.state.generator.architecture = ARCHITECTURE
+    # Each declared funder is given its ROR ID once, before the loop starts, and
+    # behind the provider gate every lookup sits behind: nothing reaches the
+    # network without a provider. The loop then builds from what was found.
+    if get_provider() is not None:
+        from builder.tools.composites import look_up_declared_funders
+
+        look_up_declared_funders(engine.state)
     react_kwargs: dict[str, Any] = {
         "provider": provider,
         "model": model,
