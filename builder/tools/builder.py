@@ -123,7 +123,7 @@ def _default_crate_path(state: CrateState) -> str:
     """Return a session-derived default crate path.
 
     The convention is ``sessions/<session_id>/working_crate/``, which matches
-    the session persistence layout described in AGENTS.md.
+    the session persistence layout described in docs/design/sessions-and-hitl.md.
     """
     session_id = state.session_id or "unknown"
     return str(_config.session_root() / session_id / "working_crate")

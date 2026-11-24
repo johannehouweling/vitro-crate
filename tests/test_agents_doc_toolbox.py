@@ -1,8 +1,8 @@
-"""Guard test for AGENTS.md §5 "The Agent Toolbox".
+"""Guard test for the toolbox design doc, ``docs/design/toolbox.md``.
 
 Ensures the hand-written tool list in the design doc cannot drift away from the
 real, dispatchable toolbox — i.e. it can never reintroduce a phantom tool like
-a tool that never existed (Issue #145). Every tool name documented in §5
+a tool that never existed (Issue #145). Every tool name documented there
 must be a real, LLM-callable tool: either specced in ``TOOL_SPECS`` or one of the
 engine's special-cased / session-init tools.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from builder.agents.react.tools_spec import TOOL_SPECS
 
-_AGENTS_MD = Path(__file__).resolve().parent.parent / "AGENTS.md"
+_TOOLBOX_MD = Path(__file__).resolve().parent.parent / "docs" / "design" / "toolbox.md"
 
 # Tool names that are real and callable but are intentionally NOT in TOOL_SPECS
 # (engine-routed HITL/scanner helpers and the session-init scanner). These mirror
@@ -40,16 +40,12 @@ def _spec_names() -> set[str]:
 
 
 def _section_5_text() -> str:
-    """Return the raw text of AGENTS.md §5 (up to the next top-level heading)."""
-    text = _AGENTS_MD.read_text(encoding="utf-8")
-    start = text.index("## 5. The Agent Toolbox")
-    rest = text[start + len("## 5. The Agent Toolbox") :]
-    end = rest.find("\n## ")
-    return rest if end == -1 else rest[:end]
+    """Return the raw text of the toolbox doc."""
+    return _TOOLBOX_MD.read_text(encoding="utf-8")
 
 
 def _documented_tool_names() -> set[str]:
-    """Tool names that appear as ``name(...)`` lines inside §5 code fences."""
+    """Tool names that appear as ``name(...)`` lines inside the doc's code fences."""
     names: set[str] = set()
     in_fence = False
     for line in _section_5_text().splitlines():
@@ -65,21 +61,21 @@ def _documented_tool_names() -> set[str]:
 
 
 def test_section_5_documents_only_real_tools() -> None:
-    """No phantom tools: §5 names ⊆ (TOOL_SPECS ∪ engine special-cased)."""
+    """No phantom tools: documented names ⊆ (TOOL_SPECS ∪ engine special-cased)."""
     documented = _documented_tool_names()
     callable_tools = _spec_names() | _ENGINE_SPECIAL_CASED
     phantom = documented - callable_tools
     assert not phantom, (
-        f"AGENTS.md §5 documents tool(s) that do not exist in TOOL_SPECS or the "
+        f"docs/design/toolbox.md documents tool(s) that do not exist in TOOL_SPECS or the "
         f"engine special-cased set: {sorted(phantom)}"
     )
 
 
 def test_section_5_documents_every_specced_tool() -> None:
-    """No silent omissions: every specced tool is documented in §5."""
+    """No silent omissions: every specced tool is documented."""
     documented = _documented_tool_names()
     missing = _spec_names() - documented
     assert not missing, (
-        f"AGENTS.md §5 is missing dispatchable tool(s) that are in TOOL_SPECS: "
+        f"docs/design/toolbox.md is missing dispatchable tool(s) that are in TOOL_SPECS: "
         f"{sorted(missing)}"
     )

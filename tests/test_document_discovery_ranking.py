@@ -134,7 +134,7 @@ class TestItDoesNotKnowWhatBioStudiesIs:
     Every fixture here is a BioStudies deposit, so a detector keyed on that
     dialect — an earlier version tested for `accno` plus an attribute tree —
     passes all of the above while being unable to recognise an ISA-JSON,
-    DataCite, Zenodo or in-house record. AGENTS.md §Input Formats forbids
+    DataCite, Zenodo or in-house record. docs/design/building.md (Input Formats) forbids
     exactly that: a metadata file is "a generic metadata source, not a
     special-cased input type … regardless of the metadata file's format or
     schema", and the documented most common case is a directory with no record

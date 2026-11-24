@@ -9,7 +9,7 @@ turns.
 
 These are convenience macros, not a workflow graph: they only chain existing
 pure tools, so they stay transport-agnostic (the MCP server can reuse them) and
-consistent with the "Toolbox, Not Graph" design (AGENTS.md §1).
+consistent with the "Toolbox, Not Graph" design (docs/design/architecture.md).
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def scaffold_isa_backbone(
 # Subtypes that produce *material* (a Sample) vs *data* (a File). Determines
 # which kind of placeholder entity is synthesized to carry a step's output so the
 # next step has something concrete to consume. EndpointReadout / DataAnalysis are
-# the two subtypes with NO build-time output fallback (AGENTS.md §4.2.7); a missing
+# the two subtypes with NO build-time output fallback (docs/design/building.md); a missing
 # schema:result on them fires a tox Violation — closing that trap is this tool's
 # load-bearing job, and synthesizing an output for *every* producing step keeps
 # the whole derivation chain connected and referenceable.
@@ -264,7 +264,7 @@ def draft_process_chain(
     are always wired in the canonical chain order regardless of input order, so a
     weak model cannot mis-sequence the provenance.
 
-    **The load-bearing job — output synthesis (AGENTS.md §4.2.7).** Unlike
+    **The load-bearing job — output synthesis (docs/design/building.md).** Unlike
     TestSystemPreparation / Exposure, ``EndpointReadout`` and ``DataAnalysis`` have **no
     build-time output fallback**: a process with no explicit ``result`` (and, for
     DataAnalysis, no ``object``) fires a tox REQUIRED Violation and the chain

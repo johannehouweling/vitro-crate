@@ -1092,7 +1092,7 @@ TOOL_SPECS = [
 # ---------------------------------------------------------------------------
 #
 # TOOL_SPECS advertises the ReAct tool set to the LLM. For the A/B comparison to
-# be over the *same* toolbox (AGENTS.md §5, §12), it must stay in exact lockstep
+# be over the *same* toolbox (docs/design/toolbox.md), it must stay in exact lockstep
 # with the tools the shared engine can actually run. The authoritative set is:
 #
 #     builder.tools.registry.TOOL_REGISTRY.list()   # registered tools

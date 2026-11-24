@@ -409,7 +409,7 @@ LABPROCESS_PARAMETER_FIELDS: frozenset[str] = (
 
 
 # Any other parameter a step states, under the name the deposit gives it
-# (AGENTS.md §5, "A step states any parameter the deposit names").
+# (docs/design/toolbox.md, "A step states any parameter the deposit names").
 NAMED_PARAMETERS_SCHEMA: dict[str, Any] = {
     "type": "array",
     "description": (

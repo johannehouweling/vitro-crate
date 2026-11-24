@@ -71,7 +71,7 @@ or Cellosaurus address, a DOI, an ontology term) must have the form the
 
 - [docs/reference.md](docs/reference.md): every option, environment variable and
   configuration key
-- [AGENTS.md](AGENTS.md): system design
+- [AGENTS.md](AGENTS.md): rules for working on the code, and a map of the design in [docs/design/](docs/design/) and [docs/adr/](docs/adr/)
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup and conventions
 
 Released under the [MIT License](LICENSE). Copyright © 2026 Jente Houweling.

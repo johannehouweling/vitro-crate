@@ -3430,7 +3430,7 @@ def _prune_stub(name: str) -> str:
     """The replacement text for a pruned tool output, truthful per tool class.
 
     ``scan_files``' inventory really is in ``CrateState`` and really is queryable
-    (``list_scanned_files``), so its stub says so — AGENTS.md §5 documents that
+    (``list_scanned_files``), so its stub says so — docs/design/toolbox.md documents that
     contract. A reader's body is stored **nowhere**, so its stub must not claim
     otherwise and must not forbid re-running: re-reading is the only way back to
     the text, and ``read_file`` returns it in full up to its 64 KiB budget (#376).

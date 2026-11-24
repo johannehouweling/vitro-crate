@@ -7,7 +7,7 @@
 routed issues and attempts a **deterministic** repair per issue (no LLM, no
 network), using only what already exists in :class:`CrateState`.
 
-Scope (AGENTS.md §4.2.7, D5):
+Scope (docs/design/building.md, build-path wiring contracts; D5):
 
 - **In scope** — repairs whose correct value is already determined by state:
   a missing process output/input edge whose target is the *single, unambiguous*
@@ -271,7 +271,7 @@ def fix_required_issues(
 ) -> dict[str, Any]:
     """Deterministically repair routed validation issues — no LLM, no network.
 
-    The deterministic repair loop (AGENTS.md §5, Crate Assembly & Validation
+    The deterministic repair loop (docs/design/toolbox.md, Crate Assembly & Validation
     Tools): it runs ``build_and_validate(severity, profile)``, dispatches each
     issue to a deterministic :class:`RepairRule`, then re-validates to confirm
     which issues actually cleared. Repairs that would need new content, a new

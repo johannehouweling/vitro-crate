@@ -143,7 +143,7 @@ def _lookup_compound_uncached(name: str) -> dict[str, Any]:
             return _success(data)
 
         # Multi-strategy fallback: neither indexed it, so try ChEBI via OLS
-        # (name → CAS → ChEBI, as documented in AGENTS.md §10). This resolves a
+        # (name → CAS → ChEBI, as documented in docs/design/lookups.md). This resolves a
         # ChEBI ontology IRI for compounds PubChem does not index, rather than
         # returning a hard "not found".
         chebi = lookup_ontology_term_ols(raw, "chebi")
