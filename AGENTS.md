@@ -99,10 +99,11 @@ when you add a rule, add its test.
 - A rule the profiles cannot evaluate is checked on our side and recorded as checked: the
   payload (`verify_payload`) and ISA reachability (`verify_isa_reachability`). An unassessed tier
   reads *not assessed*, never clean. — `tests/test_payload_verification.py`, `tests/test_isa_reachability.py`
-- **The shapes in `profiles/shapes/tox/` are the one specification.** The spec page
-  (`profiles/docs/isa_tox.md`) is held to them in both directions, the profile crate is
-  generated from the two, and no other doc restates a constraint: change the shape, then the
-  spec's table. The shapes mint no classes or terms, and every `sh:pattern` is derived from the
+- **The shapes in `profiles/shapes/tox/` are the one specification.** Every MUST / SHOULD /
+  MAY in the spec page (`profiles/docs/isa_tox.md`) is written from them by
+  `scripts/gen_spec_levels.py`, the published profile is regenerated from `main` (below), and
+  no other doc restates a constraint: change the shape, then run the generator; a property a
+  shape newly requires needs its row and description written. The shapes mint no classes or terms, and every `sh:pattern` is derived from the
   vendored Bioregistry record it cites. — `tests/test_isa_tox_spec.py`, `tests/test_profile_crate.py`,
   `tests/test_identifier_namespace_shapes.py`, `tests/test_shape_constraint_coverage.py`
 
@@ -159,7 +160,8 @@ Change the generator or its source, then regenerate.
 | `profiles/vocabulary/identifier_namespaces.json` | `scripts/refresh_identifier_namespaces.py` |
 | `profiles/vocabulary/type_supertypes.json` | `scripts/refresh_type_vocabulary.py` (network, by hand) |
 | `profiles/shapes/tox/14_identifier_namespaces.ttl` | `scripts/gen_identifier_shapes.py` |
-| The published profile crate (not committed) | `scripts/gen_profile_crate.py` |
+| The Required column of `profiles/docs/isa_tox.md` | `scripts/gen_spec_levels.py` |
+| `vitro-crate/isa-tox-ro-crate-profile` (the published profile) | `scripts/gen_profile_crate.py`, run by that repo's workflow nightly and on each push to `main` here that touches the spec or shapes (`.github/workflows/publish-profile.yml`) |
 
 ## Where things are written down
 
