@@ -120,6 +120,10 @@ when you add a rule, add its test.
   prompt's "Your Tools" list and [the toolbox doc](docs/design/toolbox.md). A tool advertised
   but not runnable, or runnable but not advertised, fails fast. — `tests/test_tools_spec.py`,
   `tests/test_agents_doc_toolbox.py`
+- The ReAct agent never reads this file. Its guide is `builder/agents/react/system_prompt.py`,
+  whose tool list follows the order a crate is built from the documents, while each tool's
+  contract lives once, in its `TOOL_SPECS` description. Change a tool's behaviour there, not in
+  the prompt.
 
 ### The loop stays cheap and well-formed ([D10](docs/adr/D10-state-brief-as-the-trailing-message-not-the-system-prompt.md), [D12](docs/adr/D12-bounded-message-history-trim--prune-before-each-model-call.md))
 
