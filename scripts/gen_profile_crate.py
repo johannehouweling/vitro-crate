@@ -112,6 +112,28 @@ def _github_slug(value: str, separator: str) -> str:
     return re.sub(r"[^\w\- ]", "", value.strip().lower()).replace(" ", separator)
 
 
+def _spec_with_shape_levels() -> str:
+    """The spec text with every requirement level taken from the shapes.
+
+    Applied here as well as committed by ``gen_spec_levels.py``, so what is
+    published states the shapes' levels even if the page was not regenerated.
+    A property a shape requires that the page has no row for stops the release.
+    """
+    import importlib.util
+
+    loader = importlib.util.spec_from_file_location(
+        "gen_spec_levels", Path(__file__).with_name("gen_spec_levels.py")
+    )
+    levels = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(levels)
+    page, missing = levels.render(
+        SPEC.read_text(encoding="utf-8"), levels.shape_levels(levels.shapes_graph())
+    )
+    if missing:
+        raise SystemExit(f"shapes require properties isa_tox.md has no row for: {missing}")
+    return page
+
+
 def _render_spec() -> str:
     """Render ``isa_tox.md`` to a standalone page.
 
@@ -121,7 +143,7 @@ def _render_spec() -> str:
     GitHub Pages serves the result as-is (``.nojekyll``).
     """
     body = markdown.markdown(
-        SPEC.read_text(encoding="utf-8"),
+        _spec_with_shape_levels(),
         extensions=["tables", "fenced_code", "toc", "attr_list"],
         extension_configs={"toc": {"slugify": _github_slug}},
     )
