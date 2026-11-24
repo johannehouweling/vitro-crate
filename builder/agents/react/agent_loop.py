@@ -5221,18 +5221,6 @@ def run_interactive_agent(
     }
 
 
-def _format_entity_summary(entities: list[Any]) -> str:
-    """Format entities as a compact summary string for the agent context."""
-    if not entities:
-        return "No entities yet."
-    counts: dict[str, int] = {}
-    for e in entities:
-        t = getattr(e, "type", "Unknown")
-        counts[t] = counts.get(t, 0) + 1
-    parts = [f"  - {t}: {n}" for t, n in sorted(counts.items())]
-    return "Current entities:\n" + "\n".join(parts)
-
-
 __all__ = [
     "run_interactive_agent",
     "_build_langchain_tools",

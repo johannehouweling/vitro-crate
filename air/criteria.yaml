@@ -10,7 +10,7 @@
 # doi:10.5281/zenodo.13961091).
 # `text` is the authors' own wording, unmodified — CC BY-ND permits copying but not
 # adaptation, so a paraphrase would be the one prohibited act. The local scope, check
-# and remedy mapping lives in scripts/gen_air_criteria.py.
+# mapping lives in scripts/gen_air_criteria.py.
 # There is deliberately NO aggregate score: seven per-dimension percentages, as the
 # authors specify. Criteria concerning ethics, governance and hosting are reported na
 # (not assessable from a crate), never failed.
@@ -80,10 +80,6 @@ criteria:
   scope: partial
   check: repository_deposit
   worksheet_label: Findable
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: FAIRsharing.org NIH GREI-repositories
   text: Deposit datasets in a searchable FAIR-compliant data repository.
 - id: 0.b
@@ -92,10 +88,6 @@ criteria:
   scope: full
   check: metadata_standalone
   worksheet_label: Accessible
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: DCAT schema.org
   text: Descriptive metadata should always be available and accessible, even if the dataset is restricted,
     unavailable, or de-accessioned. Ensure metadata conforms to standards such as DCAT (Data Catalog Vocabulary)
@@ -110,10 +102,6 @@ criteria:
   - RDA-I1-01M
   - RDA-I1-02M
   overlap_kind: same-question
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: RDF JSON-LD
   text: Wherever possible, provide data and metadata using formally defined specifications for digital
     objects.
@@ -126,10 +114,6 @@ criteria:
   overlaps:
   - RDA-R1.1-01M
   overlap_kind: shared-check
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Creative Commons licenses (other than CC0)
   text: Attach a clear and accessible data usage license that allows the responsible use of AI/ML applications
     or link to a Data Use Agreement (DUA).
@@ -139,10 +123,6 @@ criteria:
   scope: partial
   check: data_sources_identified
   worksheet_label: Transparent
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: OMOP RRID
   text: Identify data sources traceable to a reasonable ground truth, e.g., clinical data from EHR at
     a given hospital, clinical trials, or laboratory data.
@@ -152,10 +132,6 @@ criteria:
   scope: full
   check: transformation_steps_wired
   worksheet_label: Traceable
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: W3C PROV, EVI
   text: Identify key data transformation steps, with links to software, at an appropriate level of detail,
     ideally using a machine-readable representation.
@@ -165,10 +141,6 @@ criteria:
   scope: full
   check: software_in_repository
   worksheet_label: Interpretable
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Zenodo Software Heritage GitHub
   text: Make software for key data transformation and analysis steps available in a sustainable repository.
 - id: 1.d
@@ -177,10 +149,6 @@ criteria:
   scope: full
   check: key_actors_identified
   worksheet_label: Key actors identified
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: ORCID ROR
   text: Identify people and organizations responsible for obtaining and processing the data, the samples,
     and subject groups involved in producing the data. Reference these parties along with other dataset
@@ -191,10 +159,6 @@ criteria:
   scope: full
   check: descriptive_metadata_rich
   worksheet_label: Semantics
-  remedy:
-    entity_type: null
-    property: description
-    route: ask-user
   suggested_resources: Datacite schema Schema.org
   text: Use comprehensive descriptive metadata for datasets, including a detailed abstract, dataset keywords,
     and subject-specific vocabularies (e.g., MeSH) to enable detailed search and discovery.
@@ -203,10 +167,6 @@ criteria:
   label: Statistics
   scope: na
   worksheet_label: Statistics
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: ''
   text: Provide domain-appropriate statistical characterizations of key features of the dataset to inform
     analysis planning.Ensure missing values are encoded consistently.
@@ -219,10 +179,6 @@ criteria:
   overlaps:
   - DSM-2-C4
   overlap_kind: shared-check
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: JSON Schema Frictionless Data Pydantic
   text: Provide a machine-readable data dictionary or schema for each dataset, linked to the dataset metadata,
     and referencing any relevant standards.
@@ -231,10 +187,6 @@ criteria:
   label: Potential Sources of Bias
   scope: na
   worksheet_label: Potential Sources of Bias
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Croissant RAI
   text: Describe known sources of bias in the data and assumptions made in collecting, processing, or
     interpreting the data. Include any known explanations regarding missing values, including reasons
@@ -245,10 +197,6 @@ criteria:
   label: Data Quality
   scope: na
   worksheet_label: Data Quality
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: ''
   text: Have quality control procedures been applied? If so, provide a link to a description.
 - id: 3.a
@@ -257,10 +205,6 @@ criteria:
   scope: partial
   check: documentation_template
   worksheet_label: Data documentation templates
-  remedy:
-    entity_type: LabProtocol
-    property: description
-    route: ask-user
   suggested_resources: Datasheets Healthsheets
   text: Machine-readable metadata and a linked human-readable document should support a domain-appropriate
     extension of the original Gebru Datasheets concept for pre-model explainability, as detailed in the
@@ -272,10 +216,6 @@ criteria:
   check: linked_publications
   worksheet_id: 3.c
   worksheet_label: Fit for purpose
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Croissant RAI
   text: Identify appropriate and inappropriate use cases for the data set. Link to any previously published
     analyses using this data.
@@ -286,10 +226,6 @@ criteria:
   check: payload_checksums
   worksheet_id: 3.d
   worksheet_label: Verifiable
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: SHA256 Merkel Trees
   text: Provide a mechanism for ensuring the integrity of each raw or processed dataset, such as a cryptographic
     hash.
@@ -298,10 +234,6 @@ criteria:
   label: Ethically Acquired
   scope: na
   worksheet_label: Ethically acquired
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Belmont Report, Menlo Report CARE Principles
   text: Describe ethical data acquisition consistent with accepted principles (e.g., Belmont Report, Menlo
     Report, CARE Principles) sufficient to evaluate for intended use, along with a management plan.
@@ -310,10 +242,6 @@ criteria:
   label: Ethically Managed
   scope: na
   worksheet_label: Ethically managed
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: HL7 privacy protection metadata
   text: Data management must align with ethical principles throughout the health AI lifecycle. Indicate
     privacy-protection processing, if any, sufficient to evaluate ethical status for intended use.
@@ -322,10 +250,6 @@ criteria:
   label: Ethically Disseminated
   scope: na
   worksheet_label: Ethically disseminated
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: ''
   text: Specify a licensing agreement and/or data use agreement (DUA) on as open terms as ethical and
     sustainability considerations permit. Specify contact information for a data access committee.
@@ -338,10 +262,6 @@ criteria:
   overlaps:
   - DSM-1-C3
   overlap_kind: same-question
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: HL7 privacy protection metadata
   text: Specify security requirements for storing and accessing this data, e.g., “public”, “controlled
     access only”, etc.
@@ -350,10 +270,6 @@ criteria:
   label: Persistent
   scope: na
   worksheet_label: Persistent
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: TRUST Principles
   text: Ensure unprocessed data is preserved in an archive that complies with privacy laws and retention
     guidelines, enabling future reprocessing and publishing of revised data.
@@ -362,10 +278,6 @@ criteria:
   label: Domain-appropriate
   scope: na
   worksheet_label: Domain-appropriate
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: FAIRsharing.org NIH GREI-participating repositories
   text: Ensure single-domain raw or processed data are deposited in a FAIR-domain-appropriate specialist
     repository if available.
@@ -374,10 +286,6 @@ criteria:
   label: Well-governed
   scope: na
   worksheet_label: Well-governed
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: FAIRsharing.org NIH GREI-participating repositories
   text: Implement a data governance model before data capture, including a repository that facilitates
     data stewardship in the future and governance that accounts for maintenance, terms, policy changes,
@@ -388,10 +296,6 @@ criteria:
   scope: full
   check: project_level_links
   worksheet_label: Associated
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: RO-Crate
   text: Document project-level connections between data components and elements in a machine-readable
     manner.
@@ -405,10 +309,6 @@ criteria:
   - RDA-R1.3-01M
   - RDA-R1.3-02M
   overlap_kind: same-question
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Croissant, Croissant Responsible AI
   text: Datasets adhere to established, documented standards, including metadata standards, and their
     adherence can be validated deterministically.
@@ -417,10 +317,6 @@ criteria:
   label: Computationally Accessible
   scope: na
   worksheet_label: Computational Accessibility
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: FAIRsharing.org NIH GREI-participating repositories
   text: Provide a mechanism to access data through established exchange protocols or a well-documented
     API.
@@ -433,10 +329,6 @@ criteria:
   overlaps:
   - DSM-3-R5
   overlap_kind: shared-check
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: ''
   text: Maximize portability across computational resources where possible. If data use requires specific
     resources, provide machine-readable documentation defining these resources.
@@ -446,10 +338,6 @@ criteria:
   scope: partial
   check: data_components_present
   worksheet_label: Contextualized
-  remedy:
-    entity_type: null
-    property: null
-    route: report-only
   suggested_resources: Croissant
   text: Include any considerations regarding splits of the data, including any information withheld at
     any point of data collection and processing. Provide examples of data components to aid understanding

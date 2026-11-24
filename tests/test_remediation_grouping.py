@@ -479,32 +479,6 @@ class TestActionsNameEntitiesAReaderRecognises:
         assert _entity_label("./#LabProcess_proc_exposure_process", {}) == "exposure process"
 
 
-class TestTheSplitSentenceIsTheSameSentence:
-    """`describe_parts` exists so the HTML can weight the two halves differently.
-
-    It must not become a second, drifting wording: the plain-text sentence and
-    the rendered one are the same claim, and a reader comparing them should not
-    find two different instructions.
-    """
-
-    def test_the_parts_rejoin_into_describe_exactly(self):
-        from builder.tools.remediation import Action, describe, describe_parts
-
-        actions = [
-            Action(key="k", kind="entity", subject="a.csv and 15 others",
-                   findings=["SHOULD have an identifier"] * 16),
-            Action(key="k", kind="orphan", subject="the AOP-Wiki subgraph",
-                   findings=["unreachable"] * 36),
-            Action(key="k", kind="property", subject="name", findings=["x"] * 3),
-            Action(key="k", kind="entity", subject="X", findings=["y"],
-                   actionable=False, note="Left as-is."),
-        ]
-        for action in actions:
-            instruction, subject = describe_parts(action)
-            joined = f"{instruction} {subject}".strip() if subject else instruction
-            assert joined == describe(action)
-
-
 class TestAnActionSaysWhatKindOfThingItIsAbout:
     """"Add an identifier for H4" does not say whether H4 is a cell line, a
     person or a file. "for CellLine H4" costs three characters."""

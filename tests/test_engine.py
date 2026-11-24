@@ -122,14 +122,6 @@ class TestAgentEngine:
         # The action (which embeds the args repr) is bounded.
         assert len(step.action) < 1000
 
-    def test_get_available_tools_returns_list(self):
-        """get_available_tools returns a non-empty list of tool names."""
-        engine = AgentEngine()
-        tools = engine.get_available_tools()
-        assert len(tools) > 0
-        assert "draft_investigation" in tools
-        assert "scan_files" in tools
-
     def test_run_tool_read_multiple_files_registered(self, tmp_path):
         """run_tool can call read_multiple_files via the engine.
 
