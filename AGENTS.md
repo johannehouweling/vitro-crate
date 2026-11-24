@@ -2550,7 +2550,10 @@ record that registers exactly the declared name, as an affiliation is matched. O
 ROR ID to the Organization the crate holds under that ID or under the declared name, or to a new one,
 with the declared name as an `alternateName` where it goes by another; the build then writes the funder
 as the Organization that holds the ROR ID. A funder neither answers, such as a national programme, is
-written by name only, and the profile recommends a ROR ID for it rather than requiring one.
+written by name only, and the profile recommends a ROR ID for it rather than requiring one. A grant
+CORDIS could not be asked about is no answer, and is not read as one: its funder goes on to the
+name match, and `run_build` returns the grant number under `cordis_unreachable`, which the
+`--unattended` summary names.
 
 **The people and organisations a deposit identifies are read the same way, for their identifiers
 alone.** `extract_deposit_people` reads the name and the ORCID of each person a record names and the

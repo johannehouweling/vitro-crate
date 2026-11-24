@@ -1485,17 +1485,17 @@ def cordis_grant(funder: str, number: str) -> dict[str, Any]:
     CORDIS holds a project under *number*, and *funder*, the deposit's own words,
     names the framework programme CORDIS lists it under ("EU Horizon 2020" for
     ``H2020``) or the EU itself. A number CORDIS holds under another programme is
-    another grant. CORDIS out of reach is no answer, and gives ``{}`` as well.
+    another grant.
+
+    Raises:
+        TransientLookupError: CORDIS could not be reached. That is no answer,
+            and the caller says so rather than read it as a grant CORDIS lacks.
     """
     number = str(number or "").strip()
     declared = _words(str(funder or ""))
     if not number or declared.strip() == "":
         return {}
-    try:
-        record = fetch_cordis_project(number)
-    except TransientLookupError as exc:
-        logger.info("CORDIS could not be reached for grant %s: %s", number, exc)
-        return {}
+    record = fetch_cordis_project(number)
     names = [
         name
         for code in record.get("framework_programmes") or []
@@ -1506,7 +1506,7 @@ def cordis_grant(funder: str, number: str) -> dict[str, Any]:
     return record
 
 
-def resolve_declared_funders(state: CrateState) -> list[str]:
+def resolve_declared_funders(state: CrateState, unreachable: list[str] | None = None) -> list[str]:
     """Give each funder the deposit declares an organisation with a ROR ID.
 
     A declared funder is written as the crate's Organization of that name, or as an
@@ -1525,6 +1525,10 @@ def resolve_declared_funders(state: CrateState) -> list[str]:
       name, else a new one. Where that Organization goes by another name, the
       declared one is added as an ``alternateName`` so the funder is found by it.
 
+    A grant number CORDIS could not be asked about is added to *unreachable*, and
+    its funder goes on to the name match: the grant is left for a later build to
+    confirm, which a summary can say.
+
     Running it again changes nothing. Returns the declared names neither answers
     ("Dutch Research Agenda (NWA)" names a programme, and its grants are not in
     CORDIS). The profile recommends a ROR ID for such a funder.
@@ -1535,7 +1539,14 @@ def resolve_declared_funders(state: CrateState) -> list[str]:
         number = str(stated.get("identifier") or "").strip()
         if number and number in state.metadata.grants:
             continue
-        if number and (grant := cordis_grant(name, number)):
+        try:
+            grant = cordis_grant(name, number) if number else {}
+        except TransientLookupError as exc:
+            logger.debug("CORDIS could not be reached for grant %s: %s", number, exc)
+            if unreachable is not None and number not in unreachable:
+                unreachable.append(number)
+            grant = {}
+        if grant:
             ror = str(registered_organization(EU_FUNDER).get("@id") or "")
             if ror:
                 _organization_with_ror(state, EU_FUNDER, ror)
@@ -1588,25 +1599,35 @@ def _organization_with_ror(
     return found
 
 
-def look_up_declared_funders(state: CrateState) -> None:
+def look_up_declared_funders(state: CrateState) -> list[str]:
     """:func:`resolve_declared_funders` as a build step: it never raises.
 
     ISA-Tox requires every Organization, a funder included, to be identified by a
-    ROR ID, and the deposit names its funders in words. One ROR registers under
-    exactly that name becomes that Organization; one it does not, such as a
-    funding programme, stays an open finding the depositor answers. Both build
-    arms run it: the pipeline in its spine, the ReAct arm before its loop starts.
-    Enrichment: a failure costs the ROR IDs and nothing else.
+    ROR ID, and the deposit names its funders in words. An EU grant CORDIS confirms,
+    or a name ROR registers exactly, gives the funder its organisation; one neither
+    answers, such as a national programme, stays a recommendation. The build runs
+    it once, before the loop starts. Enrichment: a failure costs the ROR IDs and
+    nothing else.
+
+    Returns the grant numbers CORDIS could not be asked about, so a run's summary
+    can say the grant is unconfirmed rather than leave it looking finished.
     """
+    unreachable: list[str] = []
     try:
-        unregistered = resolve_declared_funders(state)
+        unregistered = resolve_declared_funders(state, unreachable)
     except Exception as exc:  # noqa: BLE001 - a lookup must not break a build
         logger.warning("The declared funders were not looked up in ROR: %s", exc)
-        return
+        return []
     if unregistered:
         logger.info(
             "Declared funders ROR registers no organisation for: %s.", ", ".join(unregistered)
         )
+    if unreachable:
+        logger.warning(
+            "CORDIS could not be reached for grant %s, so its funder is written by name.",
+            ", ".join(unreachable),
+        )
+    return unreachable
 
 
 def _registered_institution(affiliation: str) -> tuple[str, str | None]:

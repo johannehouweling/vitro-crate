@@ -178,10 +178,11 @@ def run_build(
     # Each declared funder is given its ROR ID once, before the loop starts, and
     # behind the provider gate every lookup sits behind: nothing reaches the
     # network without a provider. The loop then builds from what was found.
+    cordis_unreachable: list[str] = []
     if get_provider() is not None:
         from builder.tools.composites import look_up_declared_funders
 
-        look_up_declared_funders(engine.state)
+        cordis_unreachable = look_up_declared_funders(engine.state)
     react_kwargs: dict[str, Any] = {
         "provider": provider,
         "model": model,
@@ -197,4 +198,9 @@ def run_build(
     # the runner's default remains False.
     if verbose:
         react_kwargs["verbose"] = True
-    return run_interactive_agent(engine, **react_kwargs)
+    result = run_interactive_agent(engine, **react_kwargs)
+    # A grant CORDIS could not be asked about is reported at the end of the run,
+    # since nothing in the crate says it was left unconfirmed.
+    if cordis_unreachable and isinstance(result, dict):
+        result = {**result, "cordis_unreachable": cordis_unreachable}
+    return result

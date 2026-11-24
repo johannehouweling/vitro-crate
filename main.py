@@ -533,7 +533,7 @@ def _run_unattended(engine: AgentEngine, args: argparse.Namespace) -> int:
     instruction = UNATTENDED_INSTRUCTION
     if args.prompt:
         instruction = f"{args.prompt.strip()}\n\n{UNATTENDED_INSTRUCTION}"
-    run_build(
+    result = run_build(
         engine,
         provider=args.provider,
         model=args.model,
@@ -551,6 +551,13 @@ def _run_unattended(engine: AgentEngine, args: argparse.Namespace) -> int:
             f"{count} question{'' if count == 1 else 's'} went unanswered. To answer "
             f"{'it' if count == 1 else 'them'}: python -m main --resume "
             f"{engine.state.session_id} --interactive"
+        )
+    unconfirmed = (result or {}).get("cordis_unreachable") or []
+    if unconfirmed:
+        grants = ", ".join(unconfirmed)
+        print(
+            f"CORDIS could not be reached for grant {grants}: its funder is written by "
+            "name. Rebuild when cordis.europa.eu is reachable."
         )
     if crate_written(engine) is None:
         print("No crate was written.")
