@@ -579,7 +579,7 @@ TOOL_SPECS = [
     },
     {
         "name": "lookup_compound",
-        "description": "Look up chemical compound via PubChem",
+        "description": "Look up a chemical compound: PubChem, then the Compound Wiki, then ChEBI",
         "parameters": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
@@ -764,7 +764,7 @@ TOOL_SPECS = [
     },
     {
         "name": "validate",
-        "description": "Run three-pass SHACL validation on a crate directory already written to disk. Prefer build_and_validate for the in-loop check; use this only to validate an existing crate_path from export_crate.",
+        "description": "Run SHACL validation, for the layers the crate claims, on a crate directory already written to disk. Prefer build_and_validate for the in-loop check; use this only to validate an existing crate_path from export_crate.",
         "parameters": {
             "type": "object",
             "properties": {

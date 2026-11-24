@@ -1,13 +1,29 @@
 # D9: Approved Scan Roots (Security Guard Rail)
 
-The `scan_files` tool is restricted to directories the user has explicitly approved. Every session has a `CrateState.approved_scan_roots` set. When the agent calls `scan_files(path)`, the path is resolved to an absolute canonical form and checked against approved roots — if not found or within a subdirectory of one, scanning is denied. New roots are added only through user approval (a user-provided input path at `initialize()`, or a real HITL approval). This prevents the LLM agent from accessing arbitrary filesystem locations and provides a clear audit trail. On macOS, this same mechanism protects user files. On Linux, it prevents scanning into `/proc`, `/sys`, or other system paths.
+The agent reaches only directories the user approved (`CrateState.approved_scan_roots`): a path
+is resolved canonically and must equal or lie under an approved root. Roots come only from a
+user-provided input path (`initialize()`) or a real HITL approval. This keeps the LLM, or an
+injected prompt, away from arbitrary files and records which directories were ever accessed.
 
-**Fail-closed (#197).** Nothing is walked unless an approved root says so:
-- The engine always passes a concrete allowlist (an empty `set()`, never `None`); the scanner refuses (returns `[]` without walking) whenever `approved_roots` is `None` or empty. `None` must never be reintroduced as the "no roots" value — a nullable allowlist is what a reader treats as "no guard".
-- The agent's own `scan_files` call can **never** add a root, and no path is auto-approved by being the first one scanned. Roots enter the allowlist only from a user-provided input path or a real approval.
-- A hard denylist (`scanner._is_forbidden_root`) refuses `/`, the user's home directory itself, `/System`, `/Library`, `/private`, `/var`, `/etc`, `/usr`, bare `/Users`, and `/Volumes` even if explicitly present in `approved_roots`; it is also enforced in `engine._directory_to_approve` so a forbidden directory can never *become* an approved root. Legitimate subdirectories are unaffected.
-- `SimulatedHumanInterface.present(..., purpose="scan_root")` returns a `rejected` action, so the non-interactive default can never approve a new scan root (every other question it leaves unanswered).
-- `SmokeTestHumanInterface` (`--smoke-test`) is `is_interactive = True`, so unlike the simulator it *does* reach the `present` escalation — and **refuses a `scan_root` purpose outright, before any choice is consulted**. That refusal is stated in the class itself and deliberately *not* inherited from the console frontend's `deny_by_default` pre-selection: `_default_choice_index` falls back to the LAST option when no choice reads as a refusal, so a caller offering `["Show me the folder first", "Yes, allow this folder"]` turned the inherited rule into an approval. **An unattended mode must never be the approver for filesystem access**, so it is stated directly rather than inherited from a rule written for a human at a keyboard; `tests/test_smoke_test_mode.py` pins it, including the case where no option reads as a refusal.
-- The eval is **no** exception: the measured build meets the corpus behind the production `SimulatedHumanInterface`, and `eval/tests/test_headless_engine.py` asserts that its interface does not report `is_interactive`. An eval-only interface must never claim `is_interactive = True`: beyond letting a scan-root escalation be approved, that signal also un-gates the ReAct loop's RECOMMENDED/OPTIONAL validation escalation, so a measured build would silently pay for extra full SHACL sweeps.
+**Fail-closed (#197):**
 
-**Extended to read + write tools (#167).** The approved-roots boundary previously guarded only `scan_files`, so prompt injection could still escape it via the read tools (arbitrary local file read, e.g. `read_file('/etc/passwd')` or a secrets `.env`) and the export writer (a `..` traversal `dest_path`, or a symlinked source escaping the input tree). The fix adds one shared containment primitive, `scanner._contain(candidate, approved_roots) -> Path | None` (resolve realpath, reject when not inside any approved root, apply the `_is_forbidden_root` denylist, fail closed on empty/None roots), applied at three choke points: the read-tool dispatch in `engine.run_tool` (gates `read_file`/`read_excel`/`read_docx`/`read_file_sample`/`read_multiple_files`/`extract_pdf_text`/`preview_archive`/`unzip_file`), `_crate_mapping._file_dest` (contains `dest_path` under the crate output dir, else `data/<slug>`), and `_crate_mapping._file_source` (refuses sources whose realpath escapes `input_path`). The scanner read functions themselves stay unguarded so `scan_files` can still sample files internally; the gate lives at the orchestration layer.
+- The engine always passes a concrete allowlist (`set()`, never `None`); the scanner walks nothing
+  when it is `None` or empty. Never reintroduce `None` as "no roots": it reads as "no guard".
+- The agent's own `scan_files` never adds a root; no path is approved by being scanned first.
+- `scanner._is_forbidden_root` refuses `/`, the home directory itself, `/System`, `/Library`,
+  `/private`, `/var`, `/etc`, `/usr`, bare `/Users` and `/Volumes` even when approved, also in
+  `engine._directory_to_approve`. Subdirectories are unaffected.
+- `SimulatedHumanInterface` rejects `purpose="scan_root"`. `SmokeTestHumanInterface` is
+  interactive, so it reaches the escalation, and refuses it in the class itself before any choice
+  is consulted — never inherited from the console's pre-selection, which falls back to the LAST
+  option. An unattended mode never approves filesystem access (`tests/test_smoke_test_mode.py`).
+- The eval runs behind `SimulatedHumanInterface` (`eval/tests/test_headless_engine.py`). An eval
+  interface must never claim `is_interactive = True`: that would also un-gate the
+  RECOMMENDED/OPTIONAL validation escalation.
+
+**Reads and writes too (#167).** `scanner._contain(candidate, approved_roots)` (realpath, root
+check, denylist, fail-closed) guards the read-tool dispatch in `engine.run_tool` (`read_file`,
+`read_excel`, `read_docx`, `read_file_sample`, `read_multiple_files`, `extract_pdf_text`,
+`preview_archive`, `unzip_file`), `_crate_mapping._file_dest` (an escaping `dest_path` becomes
+`data/<slug>`) and `_crate_mapping._file_source` (a source escaping `input_path` is refused). The
+scanner's own readers stay unguarded so `scan_files` can sample; the gate is at orchestration.
