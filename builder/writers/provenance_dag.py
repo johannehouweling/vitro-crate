@@ -239,12 +239,29 @@ def _short(token: str) -> str:
     return seg.rsplit(":", 1)[-1]
 
 
+# What an entity at an AOP-Wiki address is. The crate declares no AOP class: a
+# pathway and a key event are DefinedTerms at their AOP-Wiki IRI, and the address
+# is what says which, as it is to the profile's Study and Assay shapes. A crate
+# built before the classes were dropped still types them; either way the reader
+# below gets the same answer.
+_AOP_ADDRESS = re.compile(r"^https?://aopwiki\.org/(aops|events|relationships)/\d+/?$")
+_AOP_KINDS = {
+    "aops": "AdverseOutcomePathway",
+    "events": "KeyEvent",
+    "relationships": "KeyEventRelationship",
+}
+
+
 def _types(node: dict[str, Any]) -> set[str]:
+    """The types *node* carries, by local name, and what its AOP-Wiki address makes it."""
     out: set[str] = set()
     for key in _TYPE_KEYS:
         for t in _as_list(node.get(key)):
             if isinstance(t, str):
                 out.add(_short(t))
+    address = _AOP_ADDRESS.match(str(node.get("@id") or ""))
+    if address:
+        out.add(_AOP_KINDS[address.group(1)])
     return out
 
 
@@ -437,8 +454,11 @@ CATEGORY_STYLES: dict[str, CategoryStyle] = {
     ),
     "pathway": CategoryStyle(
         "#6e7424",
-        "Pathway / key event",
-        "AdverseOutcomePathway",
+        "AOP-Wiki pathway / key event",
+        # No class puts an entity here: the crate types a pathway and a key event
+        # as DefinedTerms, and their AOP-Wiki address is what makes them one, so
+        # the key keeps its prose (#623).
+        "",
         "M1 3l4 4-4 4z M7 3l4 4-4 4z",
     ),
     # The one category off the ring, muted on purpose: what *qualifies* the work

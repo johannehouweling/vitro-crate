@@ -515,16 +515,18 @@ Assembles the RO-Crate using [`ro-crate-py`](https://github.com/ResearchObject/r
 Can produce partial crates at any point.
 
 Every term the crate's `@context` declares resolves to a real vocabulary's own canonical IRI — the
-policy `profiles/ontology_iris` states for lookup terms, applied to the context too. AOP terms are
-**AOPO**'s (`http://aopkb.org/aop_ontology#`), the ontology AOP-Wiki RDF itself annotates with; they
-spent months under an `aopwiki.org` path AOP-Wiki does not serve, so a whole vocabulary resolved to
-nothing while looking familiar (#644). A test holds every namespace in the context to a declared
+policy `profiles/ontology_iris` states for lookup terms, applied to the context too. A whole
+vocabulary once resolved to nothing while looking familiar: the AOP terms spent months under an
+`aopwiki.org` path AOP-Wiki does not serve (#644). A test holds every namespace in the context to a declared
 allow-list, so an invented one fails CI instead of shipping inside crates. The profile itself needs
 no AOP class: its Study and Assay shapes read the AOP-Wiki IRI a crate mentions
-(`https://aopwiki.org/aops/<id>`, `https://aopwiki.org/events/<id>`), so a bare link satisfies them
-and a node merely typed `KeyEvent` does not. The crate describes each of the two as one entity at
-that IRI, with its name: the pathway a Study mentions and the key event an Assay mentions. The rest
-of a pathway stays on AOP-Wiki, and the writer leaves it out whatever the state holds (§5).
+(`https://aopwiki.org/aops/<id>`, `https://aopwiki.org/events/<id>`), so a bare link satisfies them,
+and the context declares no AOP term at all. The crate describes each of the two as one
+`DefinedTerm` at that IRI, with its name: the pathway a Study mentions and the key event an Assay
+mentions. Which of the two a node is, its address says, to the shapes and to every reader of the
+graph here (`provenance_dag._types`). The rest of a pathway — its other events, their type, the
+relationships between them — stays on AOP-Wiki, and the writer leaves it out whatever the state
+holds (§5).
 
 A property holding one value is written as that value, never as a one-item array: the compact
 JSON-LD form RO-Crate 1.2 recommends (`_write_single_values`, run after assembly and again before
@@ -1142,25 +1144,25 @@ Both back the previously-unfilled `defined_terms` / `property_values` CrateState
 collections the mapping already rendered.
 `resolve_aop` (Issue #180) is the AOP counterpart of
 `scaffold_isa_backbone`: from the single model-supplied numeric `aop_id` it calls
-`lookup_aop` and stores the pathway as ONE typed contextual entity, an
-`aopo:AdverseOutcomePathway` with the name, identifier and url the lookup gave.
+`lookup_aop` and stores the pathway as ONE `AdverseOutcomePathway` entity in state,
+with the name, identifier and url the lookup gave.
 **The crate carries the pathway a Study addresses and the key event an Assay
-measures, and nothing else of a pathway**: its other key events, its
-`KeyEventRelationship`s and the properties that link them (`has_key_event`,
-`upstream_event`, …) stay on AOP-Wiki, at the entity's address, and the Study and
+measures, and nothing else of a pathway**: its other key events, their
+type and the relationships between them stay on AOP-Wiki, at the entity's address, and the Study and
 the Assay carry the only connection between the two. `link_assay_to_key_event`
 stores the measured event: it matches what the deposit states against the events
 `lookup_aop` lists for the pathway(s) in state (any entity at a pathway's AOP-Wiki
 address, a term drafted there included), and against the KeyEvents already
-there, and stores the one it matches as an `aopo:KeyEvent` (MIE/KE/AO all share
-`@type KeyEvent`, discriminated only by the `eventType` string). Since the match
+there, and stores the one it matches as a `KeyEvent` entity in state. Since the match
 asks AOP-Wiki when the question is put, `lookup_aop` keeps no transient failure in
 its cache, and while AOP-Wiki gives no events for a pathway in the crate the
 answer says so rather than that the name matched nothing. Each node is
 keyed by its resolvable AOP-Wiki IRI and takes the facts the lookup gave for it,
 so all wiring is deterministic and idempotent and no id is ever fabricated (D5).
 Both types live in the shared `aop_entities` CrateState collection and
-build via `_crate_mapping` as `ContextEntity` nodes typed by their own AOP class.
+build via `_crate_mapping` as `DefinedTerm` nodes at their AOP-Wiki address: the
+crate's `@context` declares no AOP term (§4.2.4), so what an entity is in the
+crate is said by its address, and only its name, identifier and url are written.
 The writer is where the rule holds: it writes every pathway and the key events an
 Assay names, and never a relationship or a link property, so a session saved with
 a whole pathway builds the same crate and is itself left as it is.
@@ -2880,8 +2882,8 @@ that layer, and the crate
 reports conformant precisely when its structure is most broken. The upstream shapes are not ours to
 restructure, so `verify_isa_reachability` asserts the invariant on our side, the one way an absent
 edge cannot game: a **directed** walk from `./` over every reference, and a structural entity (a
-`LabProcess`, `Sample`, `LabProtocol`, or an `AdverseOutcomePathway`, which is there for a Study to
-address) the walk never visits is detached, whatever the profile could evaluate — "referenced by
+`LabProcess`, `Sample`, `LabProtocol`, or a pathway — a node at an AOP-Wiki `/aops/` address —
+which is there for a Study to address) the walk never visits is detached, whatever the profile could evaluate — "referenced by
 something" is a weaker test an island passes, since it references its own members (#738). An entity
 named by an absolute URI is described here and lives elsewhere, the same line `verify_payload`
 draws, so it is excluded — except the pathway. `provenance_dag`'s orphan flag is undirected and is
@@ -2948,7 +2950,9 @@ its own `pathway` category, because what an assay measures takes part in the wor
 qualifying it, and the fallback bucket paints csvw columns and the build's own action (#643).
 `PATHWAY_TYPES` — the pathway, its key events and the `KeyEventRelationship`s that order them — is
 the one list all three rules read: which nodes the view follows to, how they are captioned, and what
-colour they are drawn in. A relationship is in it although nothing `mentions` one and the build
+colour they are drawn in. The crate types none of them — they are `DefinedTerm`s — so the graph
+reader gives a node the kind its AOP-Wiki address names (`/aops/`, `/events/`, `/relationships/`),
+which is also how a crate built before the AOP classes were dropped reads. A relationship is in it although nothing `mentions` one and the build
 writes none: what a view *reaches* and what an entity *is* are different questions, and in a crate
 that carries a whole pathway a chain whose every link is drawn as vocabulary is not a chain.
 
