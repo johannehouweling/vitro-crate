@@ -147,3 +147,21 @@ class TestToolRegistration:
         from builder.agents.react.tools_spec import TOOL_SPECS
 
         assert any(s["name"] == "set_crate_metadata" for s in TOOL_SPECS)
+
+
+class TestAttributionMustResolve:
+    """D5: a name string credits nobody a registry can resolve."""
+
+    def test_a_bare_name_is_refused_and_nothing_is_written(self):
+        state = CrateState()
+        result = set_crate_metadata(state, publisher="Dr. Jane Doe")
+        assert "error" in result
+        assert state.metadata.publisher is None
+
+    def test_a_drafted_person_is_accepted(self):
+        from builder.state import Entity
+
+        state = CrateState()
+        state.add_entity(Entity(entity_id="person_jane", type="Person", fields={"name": "Jane Doe"}))
+        set_crate_metadata(state, publisher="person_jane")
+        assert state.metadata.publisher == "person_jane"

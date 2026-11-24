@@ -378,3 +378,21 @@ class TestAmbiguousAndNewContentInputDeferred:
         assert state.to_json() == after_first
         assert second["ok"] is True
         assert second["fixed"] == []
+
+
+def test_the_gate_the_caller_names_is_the_one_validated(monkeypatch) -> None:
+    """`severity` / `profile` reach build_and_validate; None means the defaults."""
+    import builder.tools.validation as validation
+    from builder.tools.repair import fix_required_issues
+
+    seen: list[tuple[str, str]] = []
+
+    def fake_build_and_validate(state, *, severity, profile):
+        seen.append((severity, profile))
+        return {"ok": True, "issues": [], "conformance": {}}
+
+    monkeypatch.setattr(validation, "build_and_validate", fake_build_and_validate)
+    fix_required_issues(CrateState(), severity="recommended", profile="isa")
+    fix_required_issues(CrateState(), severity=None, profile=None)
+    assert seen[0] == ("recommended", "isa")
+    assert seen[-1] == ("required", "all")

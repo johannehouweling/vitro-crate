@@ -57,6 +57,27 @@ class TestArbitraryReadRefused:
         result = engine.run_tool("read_file", path=str(secret))
         assert result is None, "read_file leaked a file outside the approved roots"
 
+    def test_populate_condition_table_reads_no_plate_map_outside_the_roots(self, tmp_path):
+        """A plate-map path is a file read like any other (#610)."""
+        approved = tmp_path / "approved"
+        approved.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        secret = outside / "secret_plate.csv"
+        secret.write_text("well_id,compound\nA1,TOP SECRET\n", encoding="utf-8")
+        inside = approved / "plate.csv"
+        inside.write_text("well_id,compound\nA1,BPA\n", encoding="utf-8")
+
+        engine = _engine_with_root(approved)
+        refused = engine.run_tool(
+            "populate_condition_table", exposure_id="x", rows_or_csv_path=str(secret)
+        )
+        assert refused["ok"] is False and "approved" in refused["error"]
+        allowed = engine.run_tool(
+            "populate_condition_table", exposure_id="x", rows_or_csv_path=str(inside)
+        )
+        assert "approved" not in str(allowed.get("error", ""))
+
     def test_read_file_sample_outside_approved_roots_is_refused(self, tmp_path):
         approved = tmp_path / "approved"
         approved.mkdir()
@@ -417,3 +438,21 @@ class TestExportSourceSymlinkContained:
                     assert p.read_text(encoding="utf-8", errors="ignore") != "EXFIL"
                 except OSError:
                     pass
+
+
+class TestAForbiddenTargetIsRefusedUnderAnApprovedParent:
+    """Approving a parent folder never approves the home directory inside it.
+
+    The per-root denylist only refuses a forbidden *root*; this pins the check on
+    the resolved *target*, which nothing else exercised.
+    """
+
+    def test_home_is_refused_project_under_it_is_not(self, tmp_path, monkeypatch):
+        from builder.tools.scanner import _contain
+
+        home = tmp_path / "home"
+        (home / "project").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        roots = {str(tmp_path)}
+        assert _contain(home, roots) is None
+        assert _contain(home / "project", roots) == (home / "project").resolve()

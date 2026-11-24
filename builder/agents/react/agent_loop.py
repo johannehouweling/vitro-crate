@@ -3430,7 +3430,7 @@ def _prune_stub(name: str) -> str:
     """The replacement text for a pruned tool output, truthful per tool class.
 
     ``scan_files``' inventory really is in ``CrateState`` and really is queryable
-    (``list_scanned_files``), so its stub says so — AGENTS.md §5 documents that
+    (``list_scanned_files``), so its stub says so — docs/design/toolbox.md documents that
     contract. A reader's body is stored **nowhere**, so its stub must not claim
     otherwise and must not forbid re-running: re-reading is the only way back to
     the text, and ``read_file`` returns it in full up to its 64 KiB budget (#376).
@@ -5219,18 +5219,6 @@ def run_interactive_agent(
         # deliberately carries no message.
         "error": last_error[-1] if last_error and stop_reason == "error" else None,
     }
-
-
-def _format_entity_summary(entities: list[Any]) -> str:
-    """Format entities as a compact summary string for the agent context."""
-    if not entities:
-        return "No entities yet."
-    counts: dict[str, int] = {}
-    for e in entities:
-        t = getattr(e, "type", "Unknown")
-        counts[t] = counts.get(t, 0) + 1
-    parts = [f"  - {t}: {n}" for t, n in sorted(counts.items())]
-    return "Current entities:\n" + "\n".join(parts)
 
 
 __all__ = [

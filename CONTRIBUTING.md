@@ -155,20 +155,20 @@ Merges to `main` are gated on a green CI run.
 - One feature or fix per PR.
 - Include tests for new functionality.
 - Ensure all tests pass before requesting review.
-- Update `AGENTS.md` if the architecture changes.
+- Update `docs/design/` if the design changes, and add a record to `docs/adr/` for a new decision.
 
 ## AI Coding Agents
 
-This repo is designed to be worked on by both humans and AI coding agents. The `AGENTS.md` file contains the system architecture and design rationale — read it first if you are an AI agent onboarding to this codebase.
+This repo is designed to be worked on by both humans and AI coding agents. `AGENTS.md` holds the rules every change must keep and a map of the design: the design itself is in `docs/design/`, the reasoning behind it in `docs/adr/`. Read `AGENTS.md` first if you are an AI agent onboarding to this codebase.
 
-**`AGENTS.md` is a design document, not a changelog or an implementation manual** (see its "Maintaining this document" note). State contracts and invariants in the present tense; put line-level algorithm detail in **docstrings** and point to them. Keep out migration narratives, dated audit snapshots, "task N — done/withdrawn", and A/B run logs — that history lives in git and PRs. Cite an issue number only when it names a durable contract.
+**`AGENTS.md` and `docs/design/` describe the design, they are not a changelog or an implementation manual** (see "Keeping the docs true" in `AGENTS.md`). State contracts and invariants in the present tense; put line-level algorithm detail in **docstrings** and point to them. Keep out migration narratives, dated audit snapshots, "task N — done/withdrawn", and A/B run logs — that history lives in git and PRs. Cite an issue number only when it names a durable contract.
 
 When an AI agent makes changes, it should:
-1. Read `AGENTS.md` to understand the architecture.
+1. Read `AGENTS.md`, then the `docs/design/` page for the part you are changing.
 2. Follow the guidelines of the tdd (test-driven development) skill for any new functionality.
    1. Start with a failing test first
    2. Implement the minimal feature that makes the test pass
    3. And incrementally build the full feature in this fashion
-3. Update `AGENTS.md` if the design changes.
+3. Update `docs/design/` if the design changes; update `AGENTS.md` only if a rule or the map changes.
 4. Leave `CONTRIBUTING.md` conventions intact.
 5. Update `README.md` if anything of note is added or needs changing.

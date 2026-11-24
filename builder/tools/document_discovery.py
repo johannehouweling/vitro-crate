@@ -46,26 +46,6 @@ class DocumentationCandidate:
     reasons: list[str] = field(default_factory=list)
     preview: str = ""
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> DocumentationCandidate:
-        """Rebuild a candidate from what ``state.documents`` stored (#675).
-
-        The engine keeps the ranking as plain dicts so a session round-trips as
-        JSON; the arms need the objects back to render through the one bounded
-        formatter. Missing keys take the dataclass defaults rather than raising:
-        a checkpoint written before a field existed is still a ranked document.
-        """
-        return cls(
-            path=str(data.get("path") or ""),
-            filename=str(data.get("filename") or ""),
-            relative_path=str(data.get("relative_path") or data.get("filename") or ""),
-            kind=str(data.get("kind") or KIND_OPAQUE),
-            classification=str(data.get("classification") or CLASS_RAW_DATA),
-            score=float(data.get("score") or 0.0),
-            reasons=list(data.get("reasons") or []),
-            preview=str(data.get("preview") or ""),
-        )
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "path": self.path,
@@ -218,7 +198,7 @@ def _tabular_signals(preview: str) -> tuple[list[str], float]:
 #
 # What a file IS, in four values, answered once for every scanned file and read
 # by everything downstream. It replaces four competing vocabularies — a
-# discovery `role`, a build plan's raw/processed/condition_table, the
+# discovery `role`, a raw/processed/condition_table plan, the
 # build's raw_data/processed_data, and the process chain's raw/processed folder
 # tier — which disagreed because two of them labelled FORM ("this is a table")
 # and two labelled FUNCTION ("this is metadata"), so a tabular metadata workbook

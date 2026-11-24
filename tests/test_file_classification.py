@@ -696,3 +696,34 @@ class TestSamplingAgreesWithOpeningEverything:
         assert {p: c for p, c in sampled.items() if p != files[63].path} == {
             p: c for p, c in in_full.items() if p != files[63].path
         }, "and it is confined to that one file"
+
+
+class TestTheFormOfAFile:
+    """What kind of thing a file is, before what it is for (#587)."""
+
+    RECORD = '{"title": "x", "accno": "S-1", "release": "2025", "license": "CC0", "authors": []}'
+
+    @pytest.mark.parametrize(
+        ("filename", "preview", "kind"),
+        [
+            ("plot.png", "", "opaque"),
+            ("notes.md", "Some prose.", "narrative"),
+            ("tiny.json", '{"a": 1}', "narrative"),
+            ("record.json", RECORD, "descriptor"),
+        ],
+    )
+    def test_each_form(self, filename, preview, kind):
+        from builder.tools.document_discovery import evidence_kind
+
+        assert evidence_kind(filename, preview) == kind
+
+    def test_a_structured_record_is_metadata_and_a_short_one_is_not_by_its_form(self):
+        from builder.tools.document_discovery import CLASS_METADATA, classify_file
+
+        assert classify_file("record.json", self.RECORD) == (
+            CLASS_METADATA,
+            "content: a structured record, many distinct field names",
+        )
+        assert classify_file("tiny.json", '{"a": 1}')[1] != (
+            "content: a structured record, many distinct field names"
+        )

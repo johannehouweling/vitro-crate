@@ -826,7 +826,7 @@ class ValidationReport:
     """Results from the three-pass SHACL validation.
 
     Attributes:
-        base_passed: Base RO-Crate 1.1 profile passed.
+        base_passed: Base RO-Crate 1.2 profile passed.
         isa_passed: ISA profile passed (no REQUIRED issues).
         tox_passed: ISA-Tox profile passed (no REQUIRED issues).
         required_issues: REQUIRED-severity issue descriptions.
@@ -1445,7 +1445,7 @@ class CrateState:
         usually signals mis-modelling — e.g. one cell-line sample expressed as a
         separate ``Sample`` + ``CellLineSample`` rather than a single ``CellLineSample``
         (which already IS a ``bioschemas:Sample`` discriminated by ``additionalType
-        "CellLine"``; see AGENTS.md D16).
+        "CellLine"``; see D16 in docs/adr/).
         """
         existing = self.entities.get_entity(entity.entity_id)
         if existing is not None and existing.type != entity.type:

@@ -28,43 +28,14 @@ from __future__ import annotations
 from typing import Any
 
 from builder.state import CrateState
-from builder.tools._crate_mapping import _REF_FIELDS, TERM_FIELDS, draft_hints_schema
+from builder.tools._crate_mapping import _REF_FIELDS, TERM_FIELDS
 
 __all__ = [
-    "CITATION_FIELDS",
     "IDENTIFIER_FIELDS",
-    "PERSON_FIELDS",
-    "drafter_visible_fields",
-    "is_citation_field",
     "is_identifier_field",
-    "is_person_field",
     "is_reference_field",
     "is_resolvable_reference",
 ]
-
-
-# (#275) Person/agent-typed fields whose ISA value MUST be a Person (or
-# Organization) ENTITY reference, never a literal string. They have their own
-# commit route (``draft_person`` + link by ``@id``), so they are reference-shaped
-# without being members of ``_REF_FIELDS``.
-PERSON_FIELDS: frozenset[str] = frozenset(
-    {"creator", "author", "publisher", "editor", "contributor"}
-)
-
-# (#179) Citation-typed fields whose value MUST be a ``ScholarlyArticle``
-# reference with an absolute-URI ``@id``, resolved through the publication
-# composites rather than stored as prose.
-CITATION_FIELDS: frozenset[str] = frozenset({"citation"})
-
-
-def is_person_field(field: str) -> bool:
-    """Whether ``field`` (a local property name) is person/agent-typed."""
-    return field in PERSON_FIELDS
-
-
-def is_citation_field(field: str) -> bool:
-    """Whether ``field`` (a local property name) is citation-typed."""
-    return field in CITATION_FIELDS
 
 
 # D5 ("Verify, don't trust"): identifier-bearing field names whose value must come
@@ -101,12 +72,6 @@ IDENTIFIER_FIELDS: frozenset[str] = frozenset(
         *TERM_FIELDS,
     }
 )
-
-# Fields kept out of what a model is offered to draft (D5): identifiers it must
-# never invent, plus entity references, which are wired deterministically by
-# ``link`` / the resolver rather than extracted as free text.
-_EXCLUDED_DRAFT_FIELDS: frozenset[str] = IDENTIFIER_FIELDS | _REF_FIELDS
-
 
 def normalise_field_name(field: str | None) -> str:
     """Reduce a property name to a spelling-insensitive comparison key.
@@ -156,21 +121,6 @@ def is_reference_field(field: str) -> bool:
     the build uses to strip such keys out of an entity's scalar properties.
     """
     return field in _REF_FIELDS
-
-
-def drafter_visible_fields(entity_type: str) -> frozenset[str]:
-    """The fields a model may be offered to draft for ``entity_type``.
-
-    :func:`builder.tools._crate_mapping.draft_hints_schema` minus every
-    identifier-bearing and reference field (D5 — the model is never *asked* for
-    an identifier).
-
-    Note the schema stays open (``additionalProperties: true``), so a model MAY
-    return a field outside this set. This is what the model is *offered*, not a
-    bound on what it returns.
-    """
-    props = draft_hints_schema(entity_type).get("properties", {})
-    return frozenset(key for key in props if key not in _EXCLUDED_DRAFT_FIELDS)
 
 
 def is_resolvable_reference(state: CrateState, value: Any) -> bool:

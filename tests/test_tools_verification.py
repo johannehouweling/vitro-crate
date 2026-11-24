@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from builder.state import Entity, EntityProvenance, FieldCompletion
 from builder.tools import verification
 from builder.tools.verification import (
@@ -207,6 +209,29 @@ class TestVerifyIdentifier:
         assert field_status is not None
         assert field_status.status != "missing"
 
+
+    @pytest.mark.parametrize(("record_family", "kept"), [("Doe", True), ("Smith", False)])
+    def test_an_orcid_is_kept_only_for_the_person_it_names(
+        self, minimal_state, monkeypatch, record_family, kept
+    ):
+        """D5: an iD whose record names somebody else is cleared; a match is kept."""
+        person = Entity(
+            entity_id="p_002",
+            type="Person",
+            fields={"name": "Jane Doe", "familyName": "Doe", "orcid": "0000-0001-6004-8653"},
+            _provenance=EntityProvenance(created_by="llm"),
+        )
+        person.set_field_status("orcid", "filled", "llm")
+        minimal_state.add_entity(person)
+        monkeypatch.setattr(
+            "builder.tools.verification.lookup_orcid",
+            lambda query: {"found": True, "data": {"familyName": record_family}, "error": None},
+        )
+
+        result = verify_identifier(minimal_state, "p_002", "orcid")
+
+        assert result["verified"] is kept
+        assert ("orcid" in person.fields) is kept
 
 class TestVerifyAllIdentifiers:
     """Tests for the verify_all_identifiers function."""

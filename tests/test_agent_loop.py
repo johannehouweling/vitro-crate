@@ -83,38 +83,6 @@ class TestDetectProvider:
                 os.environ.pop("ANTHROPIC_API_KEY", None)
 
 
-class TestFormatEntitySummary:
-    """Tests for the entity summary formatter."""
-
-    def test_empty_entities(self):
-        """_format_entity_summary returns appropriate message when empty."""
-        from builder.agents.react.agent_loop import _format_entity_summary
-
-        result = _format_entity_summary([])
-        assert "No entities yet." in result
-
-    def test_single_entity_type(self):
-        """_format_entity_summary counts by entity type."""
-        from builder.agents.react.agent_loop import _format_entity_summary
-
-        entities = [Entity(entity_id="e1", type="Investigation")]
-        result = _format_entity_summary(entities)
-        assert "Investigation" in result
-        assert "1" in result
-
-    def test_multiple_types(self):
-        """_format_entity_summary counts multiple types."""
-        from builder.agents.react.agent_loop import _format_entity_summary
-
-        entities = [
-            Entity(entity_id="e1", type="Investigation"),
-            Entity(entity_id="e2", type="Study"),
-            Entity(entity_id="e3", type="Study"),
-        ]
-        result = _format_entity_summary(entities)
-        assert "Investigation" in result
-        assert "Study: 2" in result
-
 
 class TestEnrichedInputNotAccumulated:
     """Per-turn state metadata must NOT accumulate in persistent message history.

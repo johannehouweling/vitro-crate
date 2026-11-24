@@ -1,6 +1,6 @@
 """The live ReAct agent factory — the build the harness measures.
 
-This wraps the as-built prose-prompt ReAct StateGraph (AGENTS.md §4 / D1) behind
+This wraps the as-built prose-prompt ReAct StateGraph (docs/design/react-loop.md / D1) behind
 the agent-agnostic :class:`~eval.agent_api.BuildAgent` contract.
 
 A build:

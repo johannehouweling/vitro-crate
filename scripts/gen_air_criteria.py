@@ -15,7 +15,7 @@ restating either:
   ids, the short labels and the scoring arithmetic, and it is adaptable.
 
 The *local* decision — which criteria this tool can assess from a single RO-Crate, with
-which check, and how a failure would be remedied — lives in :data:`LOCAL_SCOPE`. This
+which check — lives in :data:`LOCAL_SCOPE`. This
 mirrors ``scripts/gen_dsm_indicators.py``.
 
 **All 28 published criteria are carried**, including the ones no crate can evidence. A
@@ -43,7 +43,7 @@ from __future__ import annotations
 import pathlib
 import re
 import xml.etree.ElementTree as ET
-from typing import Any, NamedTuple
+from typing import Any
 
 import openpyxl
 import yaml
@@ -59,67 +59,45 @@ _WORKSHEET_SHEET = "Blank"
 _WORKSHEET_ROWS = range(4, 32)
 
 
-class Remedy(NamedTuple):
-    """How a failing criterion would be fixed, if it could be.
-
-    ``entity_type`` is the crate entity the field lives on (``None`` = crate-level,
-    i.e. the Root Data Entity); ``property`` is a **real writable field name**;
-    ``route`` is one of ``auto`` / ``ask-user`` / ``draft`` / ``report-only``.
-
-    This is the whole mechanism by which the axis stops being a tile and starts
-    driving the guidance loop. It states *intent* only — ``gap_analysis._is_committable``
-    has the final veto, so the axis can never claim actionability the loop does not
-    have.
-    """
-
-    entity_type: str | None
-    property: str | None
-    route: str
-
-
-REPORT_ONLY_REMEDY = Remedy(None, None, "report-only")
-
 # The crate-intrinsic subset this tool assesses: published criterion id ->
-# (scope, check name, remedy). Every check name is verified against
+# (scope, check name). Every check name is verified against
 # builder/tools/air_assessment.AIR_CHECKS by the source test.
 #
 # `scope: full`    — directly decidable from the assembled @graph or CrateState.
 # `scope: partial` — a presence/structure heuristic; the criterion asks for more
 #                    than a crate can show, and the evidence string says which part.
 # Anything absent here is `scope: na` — not assessable, never failed.
-LOCAL_SCOPE: dict[str, tuple[str, str, Remedy]] = {
+LOCAL_SCOPE: dict[str, tuple[str, str]] = {
     # ---- 0 FAIRness -------------------------------------------------------------
     # 0.a: a crate cannot show which repository holds it; a persistent identifier on
     # the root is the only trace of a deposit that survives into the crate.
-    "0.a": ("partial", "repository_deposit", REPORT_ONLY_REMEDY),
-    "0.b": ("full", "metadata_standalone", REPORT_ONLY_REMEDY),
-    "0.c": ("full", "formal_specification", REPORT_ONLY_REMEDY),
-    "0.d": ("full", "usage_license", REPORT_ONLY_REMEDY),
+    "0.a": ("partial", "repository_deposit"),
+    "0.b": ("full", "metadata_standalone"),
+    "0.c": ("full", "formal_specification"),
+    "0.d": ("full", "usage_license"),
     # ---- 1 Provenance -----------------------------------------------------------
-    "1.a": ("partial", "data_sources_identified", REPORT_ONLY_REMEDY),
-    "1.b": ("full", "transformation_steps_wired", REPORT_ONLY_REMEDY),
-    "1.c": ("full", "software_in_repository", REPORT_ONLY_REMEDY),
-    # 1.d wants ORCID and ROR — identifiers, which D5 forbids taking from a human
-    # answer, so there is no ask-user route however much we would like one.
-    "1.d": ("full", "key_actors_identified", REPORT_ONLY_REMEDY),
+    "1.a": ("partial", "data_sources_identified"),
+    "1.b": ("full", "transformation_steps_wired"),
+    "1.c": ("full", "software_in_repository"),
+    "1.d": ("full", "key_actors_identified"),
     # ---- 2 Characterization -----------------------------------------------------
-    "2.a": ("full", "descriptive_metadata_rich", Remedy(None, "description", "ask-user")),
-    "2.c": ("partial", "machine_readable_schema", REPORT_ONLY_REMEDY),
+    "2.a": ("full", "descriptive_metadata_rich"),
+    "2.c": ("partial", "machine_readable_schema"),
     # ---- 3 Pre-model Explainability ---------------------------------------------
-    "3.a": ("partial", "documentation_template", Remedy("LabProtocol", "description", "ask-user")),
-    "3.b": ("partial", "linked_publications", REPORT_ONLY_REMEDY),
-    "3.c": ("full", "payload_checksums", REPORT_ONLY_REMEDY),
+    "3.a": ("partial", "documentation_template"),
+    "3.b": ("partial", "linked_publications"),
+    "3.c": ("full", "payload_checksums"),
     # ---- 4 Ethics ---------------------------------------------------------------
     # Only 4.d is visible in a crate: schema.org conditionsOfAccess says, in the
     # criterion's own words, "public" or "controlled access only".
-    "4.d": ("full", "access_conditions", REPORT_ONLY_REMEDY),
+    "4.d": ("full", "access_conditions"),
     # ---- 5 Sustainability -------------------------------------------------------
     # 5.d names RO-Crate as its own suggested resource.
-    "5.d": ("full", "project_level_links", REPORT_ONLY_REMEDY),
+    "5.d": ("full", "project_level_links"),
     # ---- 6 Computability --------------------------------------------------------
-    "6.a": ("full", "validatable_standard", REPORT_ONLY_REMEDY),
-    "6.c": ("full", "portable_formats", REPORT_ONLY_REMEDY),
-    "6.d": ("partial", "data_components_present", REPORT_ONLY_REMEDY),
+    "6.a": ("full", "validatable_standard"),
+    "6.c": ("full", "portable_formats"),
+    "6.d": ("partial", "data_components_present"),
 }
 
 # Where an AIR criterion asks a question one of the other two instruments already
@@ -243,7 +221,7 @@ _HEADER = """\
 # doi:10.5281/zenodo.13961091).
 # `text` is the authors' own wording, unmodified — CC BY-ND permits copying but not
 # adaptation, so a paraphrase would be the one prohibited act. The local scope, check
-# and remedy mapping lives in scripts/gen_air_criteria.py.
+# mapping lives in scripts/gen_air_criteria.py.
 # There is deliberately NO aggregate score: seven per-dimension percentages, as the
 # authors specify. Criteria concerning ethics, governance and hosting are reported na
 # (not assessable from a crate), never failed.
@@ -364,24 +342,9 @@ def build_data() -> dict[str, Any]:
             "Fix the mapping rather than the instrument."
         )
 
-    from builder.tools.field_kinds import is_identifier_field
-
     criteria: list[dict[str, Any]] = []
     for row in rows:
-        scope, check, remedy = LOCAL_SCOPE.get(row["id"], ("na", "", REPORT_ONLY_REMEDY))
-        if remedy.route != "report-only":
-            if not remedy.property:
-                raise ValueError(
-                    f"{row['id']}: remedy route {remedy.route!r} names no field to set. "
-                    "A gap with nothing to write is report-only, whatever we intend."
-                )
-            if is_identifier_field(remedy.property):
-                raise ValueError(
-                    f"{row['id']}: remedy names the identifier field "
-                    f"{remedy.property!r}. D5 — identifiers come from lookups, so the "
-                    "guidance loop would discard whatever the user typed."
-                )
-
+        scope, check = LOCAL_SCOPE.get(row["id"], ("na", ""))
         entry: dict[str, Any] = {
             "id": row["id"],
             "dimension": row["dimension"],
@@ -398,11 +361,6 @@ def build_data() -> dict[str, Any]:
             refs, kind = OVERLAPS[row["id"]]
             entry["overlaps"] = list(refs)
             entry["overlap_kind"] = kind
-        entry["remedy"] = {
-            "entity_type": remedy.entity_type,
-            "property": remedy.property,
-            "route": remedy.route,
-        }
         entry["suggested_resources"] = row["suggested_resources"]
         entry["text"] = row["text"]
         criteria.append(entry)
@@ -424,18 +382,15 @@ def format_report(data: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("NIH Bridge2AI AI-readiness criteria (bioRxiv v6) — criterion coverage")
     lines.append("=" * 76)
-    lines.append(f"{'Dim':<4} {'Name':<26} {'total':>6} {'assessed':>9} {'na':>4}  routes")
+    lines.append(f"{'Dim':<4} {'Name':<26} {'total':>6} {'assessed':>9} {'na':>4}")
     lines.append("-" * 76)
 
     for dim in sorted(dimensions):
         at = [c for c in criteria if c["dimension"] == dim]
         assessed = sum(1 for c in at if c["scope"] in ("full", "partial"))
-        routed = sorted(
-            {c["remedy"]["route"] for c in at if c["remedy"]["route"] != "report-only"}
-        )
         lines.append(
             f"{dim:<4} {dimensions[dim][:26]:<26} {len(at):>6} {assessed:>9} "
-            f"{len(at) - assessed:>4}  {', '.join(routed) or '-'}"
+            f"{len(at) - assessed:>4}"
         )
 
     total = len(criteria)
@@ -458,17 +413,6 @@ def format_report(data: dict[str, Any]) -> str:
     for dim in sorted(by_dim):
         lines.append(f"    {dimensions[dim][:26]:<26} {', '.join(by_dim[dim])}")
 
-    actionable = [c for c in criteria if c["remedy"]["route"] != "report-only"]
-    lines.append("")
-    lines.append(
-        f"  {len(actionable)} of {total} criteria declare a remedy the guidance loop can act on: "
-        + ", ".join(f"{c['id']} -> {c['remedy']['property']}" for c in actionable)
-    )
-    lines.append(
-        "  The rest are report-only because an AI-readiness criterion is a statement "
-        "about the\n  dataset, and the loop writes entity fields — not because we "
-        "declined to route them."
-    )
     lines.append("")
     lines.append(
         "  Scoring: seven per-dimension percentages, no aggregate — "

@@ -994,7 +994,7 @@ def _check_unique_id(state: CrateState, graph: Graph = None) -> Verdict | None:
     ``https://www.ebi.ac.uk/biostudies/studies/S-VHPS22`` is globally unique but not
     persistent (:func:`_is_persistent_id`), so it answers RDA-F1-02M and not this one;
     and writing it at all means inferring which repository issued the accession, the
-    repository-dialect special-casing AGENTS.md §Input Formats forbids.
+    repository-dialect special-casing docs/design/building.md (Input Formats) forbids.
 
     **Stated limitations, all measured.** :func:`_root_pid` accepts any text containing
     ``doi`` or starting with ``10.``, so ``10.happy`` reads as a persistent identifier;

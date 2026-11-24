@@ -6,7 +6,7 @@ chain — ``Sample →[TestSystemPreparation]→ Sample →[Exposure]→ Sample
 →[EndpointReadout]→ raw/result →[DataAnalysis]→ figures`` — into ONE
 idempotent call. Its keystone job is to **synthesize the missing outputs** for
 EndpointReadout / DataAnalysis (the two subtypes with no build-time output
-fallback, AGENTS.md §4.2.7) so the chain never dangles into a tox Violation.
+fallback, docs/design/building.md) so the chain never dangles into a tox Violation.
 
 The validation-heavy class carries a 120s timeout (the #184 lesson) because each
 ``build_and_validate`` runs the full three-pass SHACL sweep.

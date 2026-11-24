@@ -1,6 +1,6 @@
 # PRD: LLM-Assisted ISA-Tox RO-Crate Builder Backend
 
-> **Historical.** This is the original PRD. The authoritative design is AGENTS.md; conventions are
+> **Historical.** This is the original PRD. The authoritative design is AGENTS.md with docs/design/ and docs/adr/; conventions are
 > in CONTRIBUTING.md. Retained for the original requirements and user stories.
 
 ## Problem Statement
@@ -52,7 +52,7 @@ The system:
 ## Implementation Decisions
 
 > **Status: describes the shipped build.** `main.py --interactive` runs the LLM-ordered ReAct
-> loop below, the one build — see AGENTS.md D15.
+> loop below, the one build — see D15 in docs/adr/.
 
 ### Architecture: Toolbox, Not Graph
 The LLM agent is given a set of tools (file scanning, entity drafting, lookups, validation, assessment, session management) and decides the order of calls based on the current `CrateState`. No predefined workflow graph. Validation failures and HITL feedback can route the agent to any earlier stage. Max iterations and HITL escalation prevent infinite loops.

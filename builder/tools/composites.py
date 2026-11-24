@@ -9,7 +9,7 @@ turns.
 
 These are convenience macros, not a workflow graph: they only chain existing
 pure tools, so they stay transport-agnostic (the MCP server can reuse them) and
-consistent with the "Toolbox, Not Graph" design (AGENTS.md §1).
+consistent with the "Toolbox, Not Graph" design (docs/design/architecture.md).
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def scaffold_isa_backbone(
 # Subtypes that produce *material* (a Sample) vs *data* (a File). Determines
 # which kind of placeholder entity is synthesized to carry a step's output so the
 # next step has something concrete to consume. EndpointReadout / DataAnalysis are
-# the two subtypes with NO build-time output fallback (AGENTS.md §4.2.7); a missing
+# the two subtypes with NO build-time output fallback (docs/design/building.md); a missing
 # schema:result on them fires a tox Violation — closing that trap is this tool's
 # load-bearing job, and synthesizing an output for *every* producing step keeps
 # the whole derivation chain connected and referenceable.
@@ -264,7 +264,7 @@ def draft_process_chain(
     are always wired in the canonical chain order regardless of input order, so a
     weak model cannot mis-sequence the provenance.
 
-    **The load-bearing job — output synthesis (AGENTS.md §4.2.7).** Unlike
+    **The load-bearing job — output synthesis (docs/design/building.md).** Unlike
     TestSystemPreparation / Exposure, ``EndpointReadout`` and ``DataAnalysis`` have **no
     build-time output fallback**: a process with no explicit ``result`` (and, for
     DataAnalysis, no ``object``) fires a tox REQUIRED Violation and the chain
@@ -1606,7 +1606,7 @@ def look_up_declared_funders(state: CrateState) -> list[str]:
     ROR ID, and the deposit names its funders in words. An EU grant CORDIS confirms,
     or a name ROR registers exactly, gives the funder its organisation; one neither
     answers, such as a national programme, stays a recommendation. The build runs
-    it once, before the loop starts. Enrichment: a failure costs the ROR IDs and
+    it before the ReAct loop starts. Enrichment: a failure costs the ROR IDs and
     nothing else.
 
     Returns the grant numbers CORDIS could not be asked about, so a run's summary
@@ -2794,11 +2794,8 @@ def resolve_cell_line(
 ) -> dict[str, Any]:
     """Resolve a cell-line name to a ``CellLineSample`` + Cellosaurus accession.
 
-    The cell-line counterpart of :func:`resolve_compound`, and the deterministic
-    arm's ONLY name→Cellosaurus path: before this existed the arm minted every
-    cell line through ``draft_cell_line_sample`` with empty hints, so
-    ``lookup_cell_line_by_name`` had no caller outside the ReAct arm and no
-    default-arm crate ever carried an accession (#372, #386).
+    The cell-line counterpart of :func:`resolve_compound`: the one call that takes
+    a cell-line name to its Cellosaurus accession (#372, #386).
 
     Two steps, both against Cellosaurus:
 
@@ -2819,7 +2816,7 @@ def resolve_cell_line(
     **A miss is NOT a failure.** The one deliberate divergence from
     :func:`resolve_compound`, which returns ``{"ok": False}`` and mints nothing.
     A ``CellLineSample`` carrying only a name is a valid ISA Sample and is
-    exactly what the arm produced before this composite existed, so refusing to
+    what the crate holds when no catalogue knows the line, so refusing to
     mint would delete the cell line from every crate whose line is not
     catalogued — taking the ``TestSystemPreparation.cell_line`` input and the Study's
     ``cell_lines`` mention with it. **Always mint; the accession is enrichment.**

@@ -1,0 +1,33 @@
+# Ask vitro-crate/isa-tox-ro-crate-profile to regenerate the published profile when
+# its sources change on main. That repo holds only generated output and rebuilds it
+# from this one (its own workflow); without PROFILE_REPO_TOKEN it still does, nightly.
+name: Publish the profile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - profiles/docs/isa_tox.md
+      - profiles/docs/figures/**
+      - profiles/shapes/tox/**
+      - scripts/gen_profile_crate.py
+      - scripts/gen_spec_levels.py
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the profile repo to regenerate
+        env:
+          TOKEN: ${{ secrets.PROFILE_REPO_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::PROFILE_REPO_TOKEN is not set; the profile repo picks this up on its nightly run."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/vitro-crate/isa-tox-ro-crate-profile/dispatches \
+            -d '{"event_type":"vitro-crate-updated"}'

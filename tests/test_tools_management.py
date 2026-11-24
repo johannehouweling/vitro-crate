@@ -435,3 +435,20 @@ class TestTheAccessionIsJudgedOnShape:
             set_crate_metadata(state, accession=doi)
 
         assert not caplog.records
+
+
+class TestANamedListBecomesReferences:
+    """A workbook's "Amiodarone; BSP" names entities; stored whole it names none."""
+
+    def test_each_named_entity_is_referenced(self):
+        from builder.tools.management import set_fields
+
+        state = CrateState()
+        for eid, name in (("chem_a", "Amiodarone"), ("chem_b", "BSP")):
+            state.add_entity(Entity(entity_id=eid, type="MolecularEntity", fields={"name": name}))
+        exposure = Entity(entity_id="exp", type="LabProcess", fields={"process_type": "Exposure"})
+        state.add_entity(exposure)
+
+        set_fields(state, "exp", {"chemicals": "Amiodarone; BSP"})
+
+        assert exposure.fields["chemicals"] == ["chem_a", "chem_b"]

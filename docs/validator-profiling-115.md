@@ -1,7 +1,7 @@
 # Validator bottleneck profiling and decision (#115)
 
 > **Decision record for #115 (closed).** Measured 2026-06-26 on the machine described
-> below, revised 2026-08-11; the durable decision lives in [AGENTS.md](../AGENTS.md)
+> below, revised 2026-08-11; the durable decision lives in [the validation design](design/validation.md)
 > §"Validator". Read the tables as a dated measurement record, not as today's
 > wall-clock — the passes now run concurrently and the build gates memoize one sweep
 > per state, so the closing **Net** no longer holds. Two rules here are still live:
@@ -11,7 +11,7 @@
 
 Forward-looking investigation of the *remaining* three-pass SHACL validation cost,
 after the working-directory-walk fix already landed (the `_patch_in_memory_descriptor_id`
-note in [AGENTS.md](../AGENTS.md) §"Validator"). The earlier fix removed a ~57s
+note in [the validation design](design/validation.md) §"Validator"). The earlier fix removed a ~57s
 `rglob` of the CWD; this study profiles what is left and asks where the residual
 tox-pass time actually goes, whether severity gating or pass-folding is a safe
 lever, and whether process reuse helps.
