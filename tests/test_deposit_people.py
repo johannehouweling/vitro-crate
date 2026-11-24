@@ -1205,3 +1205,58 @@ class TestTheCrateSaysWhatTheDepositStates:
             n["@id"] for n in graph if str(n["@id"]).startswith(("#Person_", "#Organization_"))
         ]
         assert named == []
+
+
+# What the S-VHPS17 record states for its contact person; her ORCID record names her
+# Lenya of the family "de Brouwer".
+LENYA = {"name": "Lenya de Brouwer", "orcid": "0009-0006-4058-5842"}
+
+
+class TestASurnameParticleBelongsToTheFamilyName:
+    """'Lenya de Brouwer' is Lenya of the de Brouwer family, as her ORCID record says.
+
+    Taking the last word as the family name made her 'Lenya de' / 'Brouwer', and the
+    check that an iD is this person's then cleared her own: the family name it
+    compared, 'Brouwer', is not the record's 'de Brouwer' (S-VHPS17).
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "split"),
+        [
+            ("Lenya de Brouwer", ("Lenya", "de Brouwer")),
+            ("Kitty van Summeren", ("Kitty", "van Summeren")),
+            ("Jan van der Berg", ("Jan", "van der Berg")),
+            ("A. de Vries", ("A.", "de Vries")),
+            ("lenya de brouwer", ("lenya", "de brouwer")),
+            ("Ada Lovelace", ("Ada", "Lovelace")),
+            ("Fabian Marinus Wagenaars", ("Fabian Marinus", "Wagenaars")),
+            ("Wagenaars, J.", ("J.", "Wagenaars")),
+            ("Wagenaars", ("", "Wagenaars")),
+        ],
+    )
+    def test_the_lowercase_words_before_the_surname_are_part_of_it(
+        self, name: str, split: tuple[str, str]
+    ) -> None:
+        assert drafters.split_person_name(name) == split
+
+    def test_the_orcid_the_deposit_states_for_her_is_confirmed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, {LENYA["orcid"]: ("Lenya", "de Brouwer")})
+        person = draft_person(_stating(LENYA), LENYA["name"], {})
+        assert person.entity_id == f"https://orcid.org/{LENYA['orcid']}"
+        names = (person.fields["givenName"], person.fields["familyName"])
+        assert names == ("Lenya", "de Brouwer")
+
+    def test_verifying_her_orcid_keeps_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from builder.tools import verification
+
+        record = {"givenName": "Lenya", "familyName": "de Brouwer"}
+        monkeypatch.setattr(
+            verification, "lookup_orcid", lambda orcid_id: {"found": True, "data": record}
+        )
+        state = CrateState()
+        person = draft_person(state, LENYA["name"], {"orcid": LENYA["orcid"]})
+        result = verification.verify_identifier(state, person.entity_id, "orcid")
+        assert result["verified"] is True
+        assert person.fields["orcid"] == LENYA["orcid"]

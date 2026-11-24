@@ -589,7 +589,10 @@ def split_person_name(name: str) -> tuple[str, str]:
       surrounding whitespace are stripped (internal dots in initials are kept).
     * **Plain "First Last" form** — the last whitespace-separated token is the
       family name and the rest is the given name: ``"Ada Lovelace" ->
-      ("Ada", "Lovelace")``.
+      ("Ada", "Lovelace")``. The lowercase words right before it are a surname
+      particle and belong to the family name, as ORCID records it: ``"Lenya de
+      Brouwer" -> ("Lenya", "de Brouwer")``, ``"Jan van der Berg" -> ("Jan",
+      "van der Berg")``. The given name keeps at least its first word.
     * **Lone token** — a single bare token is treated as a *family-name
       candidate*, NOT silently mapped into the given name (the surname must never
       masquerade as a first name): ``"Wagenaars" -> ("", "Wagenaars")``. The
@@ -613,7 +616,10 @@ def split_person_name(name: str) -> tuple[str, str]:
     if len(parts) == 1:
         # A lone bare token is a family-name candidate, not a first name.
         return "", parts[0]
-    return " ".join(parts[:-1]), parts[-1]
+    start = len(parts) - 1
+    while start > 1 and parts[start - 1].islower():
+        start -= 1
+    return " ".join(parts[:start]), " ".join(parts[start:])
 
 
 def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
