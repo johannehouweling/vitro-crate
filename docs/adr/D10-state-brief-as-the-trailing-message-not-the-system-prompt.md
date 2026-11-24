@@ -1,14 +1,11 @@
 # D10: State Brief as the Trailing Message, Not the System Prompt
 
-The per-turn state brief (session id, file/entity/iteration counts) is **not** appended to user
-messages — and not to the system prompt either. `call_model` delegates message assembly to
-`_assemble_model_messages`, which puts `SYSTEM_PROMPT` first and the brief built by
-`_build_system_prompt_with_state()` **last**, after the history. `SYSTEM_PROMPT` is therefore kept
-**byte-stable**: no volatile state may be appended to it, because a provider caches the stable
-`tools + system + history` prefix, and volatile state in the system message breaks that cache
-immediately after the prompt and leaves the growing, expensive history uncached (Issue #60).
-Volatile state at the tail cannot bust a prefix.
+The per-turn state brief goes **last**, after the history, never into the system prompt or a user
+message: `_assemble_model_messages` puts `SYSTEM_PROMPT` first and the brief from
+`_build_system_prompt_with_state()` at the tail.
 
-Neither the system message nor the brief is persisted into MemorySaver — both are rebuilt fresh on
-every invocation, so per-turn metadata never accumulates across turns (Issue #66). The LLM can
-still query full details via `get_status`.
+Why: providers cache the stable `tools + system + history` prefix; volatile state in the system
+message breaks that cache and leaves the growing history uncached (#60). `SYSTEM_PROMPT` must
+therefore stay byte-stable. Neither the system message nor the brief is persisted into
+`MemorySaver`; both are rebuilt each invocation, so per-turn metadata never accumulates (#66).
+`get_status` gives the LLM full details.

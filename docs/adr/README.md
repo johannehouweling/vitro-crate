@@ -1,12 +1,11 @@
 # Design decisions
 
-> Each record states one decision, why it was made and what it costs. A record is
-> named by its id (`D5`), which code comments and the design docs cite. History
-> belongs here, not in AGENTS.md. There is no D7.
+> Each record states one decision, why, and what it requires of the code. Code and the
+> design docs cite a record by its id (`D5`). There is no D7.
 
 - [D1: Toolbox over Graph](D1-toolbox-over-graph.md)
 - [D2: Three-Tier Validation](D2-three-tier-validation.md)
-- [D3: Crate as Persistence Format](D3-crate-as-persistence-format.md)
+- [D3: The session state is the persistence format, the crate is its output](D3-crate-as-persistence-format.md)
 - [D4: Format-Agnostic Core](D4-format-agnostic-core.md)
 - [D5: Verify, Don't Trust](D5-verify-dont-trust.md)
 - [D6: Field-Level Completion Tracking](D6-field-level-completion-tracking.md)

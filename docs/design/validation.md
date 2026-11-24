@@ -3,110 +3,56 @@
 > The SHACL passes, the data-content layer, identifier verification and namespaces, and the published profile crate.
 
 ## Validator (`builder/tools/validation.py`, `profiles/validator.py`)
-Runs three-pass SHACL validation via `profiles/validator.py`, which wraps
-[`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator).
-Returns issues by severity: REQUIRED (blocking), SHOULD (recommended), MAY
-(informational). Two entry points:
-- `validate_crate(crate_dir)` validates a crate **on disk** and returns
-  prose `ValidationResult`s (used by the `validate(crate_path)` tool).
-- `validate_crate_dict(metadata_doc, severity, profile)` validates an
-  **in-memory** metadata document (the dict from `crate.metadata.generate()`)
-  via `services.validate_metadata_as_dict`, returning `DictValidationResult`s
-  whose `RoutableIssue`s carry the focus-node `entity_id`, failing `property`
-  IRI, `check_id`, `severity`, and `profile`. This backs `build_and_validate`
-  and is the no-disk fast path.
+Three-pass SHACL validation (base / ISA / ISA-Tox) wrapping
+[`rocrate_validator`](https://github.com/ResearchObject/rocrate-validator), returning issues as
+REQUIRED (blocking), SHOULD or MAY. Two entry points:
+- `validate_crate(crate_dir)` validates a crate **on disk** and returns prose `ValidationResult`s
+  (the `validate(crate_path)` tool).
+- `validate_crate_dict(metadata_doc, severity, profile)` validates an **in-memory** metadata
+  document via `services.validate_metadata_as_dict`; its `RoutableIssue`s carry `entity_id`,
+  `property` IRI, `check_id`, `severity` and `profile`. It backs `build_and_validate`.
 
-**The in-memory path must not walk the working directory.** On a path where no
-crate exists on disk, a recursive search of the current working directory for a
-metadata descriptor costs most of a validation sweep (#115). roc-validator 0.13
-resolves the descriptor id without that search (crs4/rocrate-validator#192), and
-`tests/test_validator_perf.py` pins it.
+**The in-memory path must not walk the working directory** for a descriptor; that search costs
+most of a sweep (#115). Pinned by `tests/test_validator_perf.py`.
 
-**Messages on the in-memory path keep their text.** `rocrate_validator`
-relativises URIs in every result message by substring-replacing the crate path
-with `./`; on the dict path that path stringifies to `.`, so every dot in every
-message would become `./`. `_patch_make_uris_relative()` leaves a message
-untouched when the base is the bare current directory (#827). The constraint
-coverage test asserts each shape's `sh:message` verbatim through this path, so a
-regression here reddens it.
+**Messages on the in-memory path keep their text.** There the crate path stringifies to `.`, and
+upstream's URI relativising would turn every dot into `./`; `_patch_make_uris_relative()` skips a
+bare-current-directory base (#827). The constraint coverage test asserts each `sh:message`
+verbatim through this path.
 
-**Cost levers.** The residual cost is profile *composition*, not inference:
-`rocrate_validator` recomposes the shapes/ontology graph and re-resolves check
-overrides on every `validate()` call with no reuse hook, so a long-lived worker
-does not amortize it. Profiling detail is in
-[docs/validator-profiling-115.md](../validator-profiling-115.md). The supported
-levers are to gate the inner loop at `required` severity (`validate_crate_dict`'s
-default) and to scope `profile` to a single pass when the full sweep isn't needed;
-the full 3-pass sweep is run only as a final gate. Switching the disk path to
-`required` and reserving `OPTIONAL` for the final report is a further modest win,
-not taken here because it changes which issues the loop sees. The only
-order-of-magnitude path is an upstream injectable pre-composed shapes/ontology
-graph.
+**Cost levers.** The cost is profile *composition*, recomposed on every `validate()` with no reuse
+hook ([profiling notes](../validator-profiling-115.md)). Gate the inner loop at `required`
+(`validate_crate_dict`'s default), scope `profile` to one pass, and run the full sweep only as a
+final gate. The only order-of-magnitude path is an upstream injectable pre-composed graph.
 
-Two things are settled; do not re-open them. **Caching the parsed shapes was
-explored and deliberately abandoned** — the `.ttl` parse is negligible (~10–130 ms)
-and `rocrate_validator` exposes no hook to reuse the compiled graph without a
-fragile internals monkeypatch. **Pass-folding — one `tox` pass reporting all
-layers, attributing issues by originating profile id — is the only large lever and
-is NOT result-equivalent:** the bundled `tox → isa → ro-crate` chain is
-RO-Crate **1.1** lineage while the dedicated base pass validates against **1.2**
-(#110), so folding would downgrade the base layer and change the issue set. That
-split is by design, not drift — `profiles/shapes/tox/profile.ttl` bumps to 1.2 only
-if/when the upstream `isa-ro-crate` profile does, guarded by
-`tests/test_profile_lineage.py`. Folding becomes safe only after that upstream bump
-*and* a byte-identical issue-set test.
+Two things are settled; do not re-open them. **Caching the parsed shapes** was abandoned: the parse
+is negligible and reusing the compiled graph needs a fragile internals monkeypatch.
+**Pass-folding** (one `tox` pass reporting all layers) is not result-equivalent: the bundled
+`tox → isa → ro-crate` chain is RO-Crate 1.1 lineage while the base pass is 1.2 (#110), guarded by
+`tests/test_profile_lineage.py`. It becomes safe only after upstream bumps to 1.2 *and* a
+byte-identical issue-set test.
 
-**Offline-safe validation — bundled RO-Crate context, no network on the base pass (#117).**
-Every crate's `@context` points at the *remote* IRI
-`https://w3id.org/ro/crate/1.2/context`, and the base pass must dereference it to
-expand the data graph. `rocrate_validator` resolves that IRI over HTTP through two
-paths — rdflib's JSON-LD document loader (feeding check `ro-crate-1.1_2.1`) and the
-`FileDescriptorJsonLdFormat` check, which calls `HttpRequester().get(context_uri)`
-directly (check `ro-crate-1.1_2.2`). On PR #116 CI that fetch flaked
-(`RemoteDisconnected`) and the base pass emitted **spurious REQUIRED issues**,
-turning a transient blip into red CI and violating #59's "runs offline" criterion.
-`profiles/validator.py` makes validation offline-safe:
+**Validation never reaches the network (#117).** Every crate's `@context` is the remote
+`https://w3id.org/ro/crate/1.2/context`, which `rocrate_validator` would fetch through two paths
+(rdflib's JSON-LD loader, and `HttpRequester().get` in `FileDescriptorJsonLdFormat`); a flaky fetch
+turns into spurious REQUIRED issues.
 
 - **Pinned local contexts, deny-by-default for everything else (SSRF guard, #168).**
-  `profiles/contexts/ro-crate-1.1-context.jsonld` and
-  `ro-crate-1.2-context.jsonld` are committed copies of the RO-Crate JSON-LD
-  contexts. The copy of the context a built crate declares (ro-crate-py's default
-  version) is also the builder's term authority: `profiles.context.ro_crate_context_terms()`
-  unioned with the ISA-Tox context is `_crate_mapping._context_terms()`, and
-  `_scalar_props` emits a key only when that set defines it — whatever the key's
-  shape — so no build ships a key the validator's own context rejects (#737).
-  `_install_offline_context_loader()` (run at import) intercepts the
-  `HttpRequester` GET/HEAD proxy (and `fetch_fresh`) and serves these well-known
-  context URLs from disk, so both resolution paths get the bundled copy and never
-  touch the wire. Any **other** outbound dereference — a crafted `@context` (or any
-  crate-controlled IRI) in an *untrusted* crate pointing at e.g. cloud metadata
-  `169.254.169.254` or an internal host — is **refused, not fetched**:
-  `_blocked_remote_response()` returns a benign synthetic-200 empty JSON-LD document
-  (`{"@context": {}}`) for every non-allowlisted URL. Failing closed with a valid
-  200 (rather than raising) is deliberate: rocrate_validator's JSON-LD document
-  loader (`_patched_source_to_json`) catches a fetch *exception* and falls back to
-  rdflib's own `urllib` opener — which would perform the very request we are
-  blocking — so serving an empty context keeps resolution on our intercept (no
-  urllib fallback, no network), injects no term mappings from the crafted context,
-  and raises no spurious REQUIRED content issue. It also sets
-  `ROCRATE_VALIDATOR_AUTO_WARM=0` to suppress rocrate_validator's best-effort cache
-  warm-up (pure network traffic we don't need, since the context is bundled and the
-  warm-up's other artifact — the spec HTML page — is unused by any check). Refresh
-  the bundled files only when the pinned RO-Crate context version changes.
-- **Transport failure ≠ content violation.** If a remote resource genuinely can't
-  be dereferenced, rocrate_validator swallows the connection error inside the
-  check and re-emits it as a REQUIRED *content* issue. `validate_crate` and
-  `validate_crate_dict` detect those (a connection-error message on a
-  remote-resolving check) and raise `ValidationTransportError` instead, so a
-  network failure surfaces as a clear error — never a spurious REQUIRED issue and
-  never a false negative in `build_and_validate` (which maps the exception to
-  `{"ok": False, "error": ...}`). The regression test
-  `tests/test_offline_validation.py` runs validation with the HTTP transport hard-
-  blocked and asserts green + no spurious REQUIRED issue;
-  `tests/test_validation_ssrf.py` validates a crate whose `@context` points at an
-  attacker URL and asserts **no** outbound request reaches it (deny-by-default);
-  the #59 e2e harness also runs with the network disabled to prove the path is
-  offline-safe.
+  `profiles/contexts/ro-crate-1.{1,2}-context.jsonld` are committed copies;
+  `_install_offline_context_loader()` (run at import) intercepts `HttpRequester` GET/HEAD and
+  `fetch_fresh` and serves them from disk. Any other URL — a crafted `@context` in an untrusted
+  crate pointing at e.g. `169.254.169.254` — gets `_blocked_remote_response()`'s synthetic-200
+  `{"@context": {}}`. It must not raise: upstream catches a fetch exception and falls back to
+  rdflib's `urllib`, which would make the blocked request. `ROCRATE_VALIDATOR_AUTO_WARM=0` stops the
+  cache warm-up. Refresh the bundled files only when the pinned context version changes.
+  The context a built crate declares is also the builder's term authority:
+  `_crate_mapping._context_terms()` (`profiles.context.ro_crate_context_terms()` ∪ the ISA-Tox
+  context), and `_scalar_props` emits only keys it defines (#737).
+- **Transport failure ≠ content violation.** Upstream re-emits a connection error as a REQUIRED
+  content issue; `validate_crate` / `validate_crate_dict` detect it and raise
+  `ValidationTransportError` (which `build_and_validate` maps to `{"ok": False, "error": ...}`).
+  Pinned by `tests/test_offline_validation.py` (transport hard-blocked) and
+  `tests/test_validation_ssrf.py` (no request reaches an attacker `@context`).
 
 ## Validation Layers
 
@@ -123,115 +69,69 @@ turning a transient blip into red CI and violating #59's "runs offline" criterio
 
 ### Data-Content Layer (Frictionless, Issue #95)
 
-The three SHACL passes (base/ISA/ISA-Tox) validate the **metadata descriptor** —
-the structure and semantics of `ro-crate-metadata.json`. They do **not** check
-the **payload**: whether the rows of a referenced CSV actually match its declared
-schema. The Frictionless layer (`builder/tools/data_content.py`,
-`validate_table`) closes that gap, mirroring the metadata/data split in the
-BioHackEU25 report by Chadwick et al. (biohackrxiv `zah28`).
+SHACL validates the metadata descriptor, never the payload. `validate_table(file, table_schema,
+foreign_keys=None, entity_id=None)` (`builder/tools/data_content.py`) validates a CSV's rows
+against a Frictionless `tableSchema` and, optionally, that columns reference only known in-crate
+ids (`foreign_keys`: `column -> [allowed_id, ...]`). Issues use the routable shape
+(`{entity_id, property, message, fix, severity, profile}`) with `profile == "data"`. It never
+raises into the loop: setup errors return `{"ok": False, "issues": [], "error": ...}`.
 
-`validate_table(file, table_schema, foreign_keys=None, entity_id=None)` validates
-a CSV's content against a Frictionless `tableSchema` descriptor (column types and
-constraints) and, optionally, that designated columns reference only known
-in-crate ids (`MolecularEntity` / `Sample`) via `foreign_keys`
-(`column -> [allowed_id, ...]`). The obvious payload is the CSVW condition table
-emitted by #94 and any raw-measurement tables. Issues come back in the **same
-routable shape as #87** (`{entity_id, property, message, fix, severity,
-profile}`), with `profile == "data"` so this layer stays cleanly distinct from
-the SHACL layers — SHACL = metadata, Frictionless = payload, never entangled. It
-never raises into the agent loop: setup errors (missing file, malformed schema)
-return `{"ok": False, "issues": [], "error": ...}`.
-
-**Invocation (Issue #409).** The layer cannot be reached through
-`build_and_validate`: that call takes `profile="all"`, `profiles/validator.py`
-accepts only `all|base|isa|tox`, and `DATA_CONTENT_PROFILE = "data"` sits
-deliberately outside that set. So it is a tool of its own, `validate_table`, which
-the agent calls on a table that holds rows (the header-only placeholder #94
-materialises is valid by construction). Its verdict is **never** folded into
-`build_and_validate`'s `ok`: a cell contradicting its `tableSchema` is a different
-defect from a SHACL conformance failure, and merging them would make `success` in
-the eval harness mean two different things. It stays out of `fix_required_issues`
-for the same reason — that loop is keyed on SHACL rules and cannot repair a data
-cell.
+**A tool of its own, never folded into the SHACL verdict (#409).** `profiles/validator.py` accepts
+only `all|base|isa|tox`, and `DATA_CONTENT_PROFILE = "data"` is deliberately outside it. The agent
+calls `validate_table` on a table that holds rows. Its verdict never feeds `build_and_validate`'s
+`ok` (that would make eval `success` mean two things) nor `fix_required_issues` (keyed on SHACL
+rules).
 
 ### Verification Layer
-Checks that identifiers resolve at their source. Verification failures are REQUIRED — the identifier must be corrected or removed. Leaving a field empty is acceptable (shows up in MIT/FAIR scores but does not block).
+Checks that identifiers resolve at their source. A verification failure is REQUIRED — correct or
+remove the identifier; an empty field does not block.
 
-**Derivation (Issue #64).** `_VERIFIERS` maps each `(entity_type, field_name)` pair to the
-lookup that serves it, and `_VERIFIABLE_FIELDS` is that table's keys — so a pair cannot be
-declared verifiable without wiring the verifier that answers for it.
-`verify_all_identifiers` decides what to queue from those keys and `verify_identifier`
-dispatches through the same table, so the two cannot drift apart. Fields like
-`casrn`/`cas_number`/`inchikey` on `MolecularEntity` are included, while `ror` on
-`Organization` — which has no verifier — is excluded and so is never queued. That exclusion
-is the point: a pair declared verifiable with no verifier behind it comes back
-`No verifier configured`, which [validation layers](#validation-layers) treats as a REQUIRED blocking failure on a perfectly
-valid identifier. `tests/test_tools_verification.py` pins the invariant and fails on
-injected drift.
+**One table (#64).** `_VERIFIERS` maps `(entity_type, field_name)` to its lookup and
+`_VERIFIABLE_FIELDS` is its keys; `verify_all_identifiers` and `verify_identifier` both use it, so a
+pair cannot be verifiable without a verifier (which would report `No verifier configured`, a
+blocking failure on a valid id — why `Organization.ror` is excluded). Pinned by
+`tests/test_tools_verification.py`.
 
 ### Identifier Namespaces (the Bioregistry's forms)
 
-Verification asks a registry whether an identifier exists; the ISA-Tox shapes check that it has
-the form its namespace gives it, offline. Every Person MUST be identified by an ORCID iD and every
-Organization by a ROR ID, except one the crate names only as a funder, which SHOULD be: a funding
-programme has no ROR record to give. Everything else is checked only where the crate claims the
-namespace (an `@id` under a checked address, the `value` of an identifier PropertyValue, an
-`inChIKey`). The profile document's Identifier Namespaces section is the table. What must hold:
+The ISA-Tox shapes check offline that an identifier has its namespace's form. Every Person MUST
+have an ORCID iD and every Organization a ROR ID, except one named only as a funder, which SHOULD
+(a programme has no ROR record). Anything else is checked only where the crate claims the namespace
+(an `@id` under a checked address, an identifier PropertyValue's `value`, an `inChIKey`); the table
+is the profile document's Identifier Namespaces section.
 
 - **A form is read from the registry, never typed.** `profiles/vocabulary/identifier_namespaces.json`
-  vendors the Bioregistry's records (pattern, URI format, example, banana), with the package
-  version, licence and date; `scripts/refresh_identifier_namespaces.py` writes it from the pinned
-  `bioregistry` package, run by hand, and keeps the `decisions` section (the Compound Wiki, which the
-  registry does not hold). `profiles/identifier_namespaces.py` derives the patterns.
-  `profiles/ontology_iris.PREFIXES` is held to the same records.
-- **The shapes are generated, one per question.** `profiles/shapes/tox/14_identifier_namespaces.ttl`
-  is written by `scripts/gen_identifier_shapes.py` from two tables in `identifier_namespaces`
-  (`NAMESPACE_CHECKS`, `VALUE_CHECKS`) and never edited by hand: whether a Person's and an
-  Organization's `@id` is in the ORCID and ROR namespace at all (a Warning, not a Violation, for an
-  Organization nothing refers to but a `funder`), whether an `@id` in any checked
-  namespace has its form (one `sh:or` with a pattern per namespace), whether an identifier
-  PropertyValue's `value` has its scheme's form, and an InChIKey's. Every `sh:pattern` in the tox
-  shapes names the one record it came from with `rdfs:seeAlso`, and
-  `tests/test_identifier_namespace_shapes.py` fails on a pattern that is not a derivation of it, on a
-  vendored prefix no shape uses, on a record nothing vendors, and on a generated file that differs from
-  the generator's output. Adding a namespace is a line in the table and a run of the generator.
-- **A constraint is plain SHACL, not SPARQL.** A SPARQL constraint is re-parsed and run once per
-  focus node; with a branch per namespace it cost 113 s against 3 s on a 365-entity crate. Only the
-  target is SPARQL, and it runs once.
-- **The record is a pointer on a shape, never an identity.** A crate keeps `https://orcid.org/…`;
-  `https://bioregistry.io/registry/orcid` appears only as a shape's `rdfs:seeAlso` (`ontology_iris`).
-- **A node-level constraint carries its `sh:message` and `sh:severity` on the NodeShape.** Both
-  engines ignore a severity inside a constraint, and a Warning-level node shape is not loaded under
-  the REQUIRED gate, so every check is a Violation but the funder's, a recommendation by design. The
-  funder target excludes the node itself and `schema:sponsor` as referrers, because an engine that
-  infers adds both. The namespace target matches the whole address
-  (`identifier_namespaces.namespace_start`), so an ontology's own IRI (`…/obo/ncit.owl`) and the
-  scheme nodes identifier PropertyValues name (`https://orcid.org`) are never selected.
-- **One message, read by the `@id`.** The form check speaks one message for every namespace, and the
-  words the tooling keys on are constants in `identifier_namespaces` (`MALFORMED`,
-  `PERSON_NEEDS_ORCID`, `ORGANIZATION_NEEDS_ROR`, `FUNDER_SHOULD_HAVE_ROR`), never a second copy.
-  The fix hint
-  (`validation._identifier_fix`) and the report's instruction (`remediation._instruction`) name the
-  namespace through `namespace_of(@id)`, and a finding on a generated identifier PropertyValue names
-  the entity and field it is written from.
-- **The build is never the cause of a finding.** `_crate_mapping._mint_id` writes the registry's
-  address for an ORCID, ROR ID, Cellosaurus accession or DOI stated in another form
-  (`_registry_iri`), and leaves anything that is not one as given, for the shape to report. The form
-  it was stated in still reaches the node (`_stated_addresses`), two entities that now mint one `@id`
-  are written as one node (`_written_as_one`), and a DOI PropertyValue's value is stored bare.
-- **A finding is answered, not gamed.** No identifier is invented (D5). A REQUIRED finding is never
-  filed under citations (`validation._partition_citations`). `verify_identifier` clears an ORCID iD
-  whose record states another family name. The ReAct loop stops continuing by itself when the only
-  REQUIRED findings are missing ORCID iDs and ROR IDs (`agent_loop._agent_is_done`), without calling
-  the crate complete: its hint says how many still need one, and the session ends naming who
-  (`agent_loop.format_unidentified_agents`). Its instructions forbid deleting a person to clear one.
+  vendors the Bioregistry records, written by hand-run `scripts/refresh_identifier_namespaces.py`
+  from the pinned `bioregistry` package (keeping the `decisions` section, e.g. the Compound Wiki).
+  `profiles/identifier_namespaces.py` derives the patterns; `profiles/ontology_iris.PREFIXES` is held
+  to the same records.
+- **The shapes are generated, never hand-edited.** `profiles/shapes/tox/14_identifier_namespaces.ttl`
+  comes from `scripts/gen_identifier_shapes.py` over `NAMESPACE_CHECKS` and `VALUE_CHECKS`. Every
+  `sh:pattern` names its record with `rdfs:seeAlso`; `tests/test_identifier_namespace_shapes.py`
+  fails on an underived pattern, an unused prefix, an unvendored record or a stale generated file.
+- **A constraint is plain SHACL, not SPARQL** — a per-node SPARQL constraint cost 113 s against 3 s.
+  Only the target is SPARQL.
+- **The record is a pointer on a shape, never an identity**: crates keep `https://orcid.org/…`.
+- **`sh:message` and `sh:severity` sit on the NodeShape**: engines ignore a severity inside a
+  constraint, and a Warning node shape is not loaded under the REQUIRED gate. The funder target
+  excludes the node itself and `schema:sponsor` as referrers (an inferring engine adds both); the
+  namespace target matches the whole address (`identifier_namespaces.namespace_start`).
+- **One message, read by the `@id`.** The keyed-on words are constants in `identifier_namespaces`
+  (`MALFORMED`, `PERSON_NEEDS_ORCID`, `ORGANIZATION_NEEDS_ROR`, `FUNDER_SHOULD_HAVE_ROR`), never a
+  copy; `validation._identifier_fix` and `remediation._instruction` name the namespace via
+  `namespace_of(@id)`.
+- **The build is never the cause of a finding.** `_crate_mapping._mint_id` writes the registry
+  address for an ORCID, ROR ID, Cellosaurus accession or DOI stated otherwise (`_registry_iri`) and
+  leaves anything else for the shape to report (`_stated_addresses`, `_written_as_one`).
+- **A finding is answered, not gamed.** No identifier is invented (D5); a REQUIRED finding is never
+  filed under citations (`validation._partition_citations`); `verify_identifier` clears an ORCID iD
+  whose record states another family name. The loop stops by itself when only missing ORCID/ROR
+  findings remain (`agent_loop._agent_is_done`) without calling the crate complete, and ends naming
+  who (`agent_loop.format_unidentified_agents`); it must never delete a person to clear one.
 
 ### The Profile Crate
 
-The published profile is an RO-Crate 1.2 Profile Crate generated by
-`scripts/gen_profile_crate.py` from `profiles/docs/isa_tox.md` and
-`profiles/shapes/tox/*.ttl`. It is never committed here and never edited by hand;
-`tests/test_profile_crate.py` holds it to the three checks the RO-Crate Profile
-Portal runs. It is served from the `vitro-crate/isa-tox-ro-crate-profile` repo,
-which carries only licence, citation and Zenodo metadata. The spec text is
-CC BY 4.0, the shapes MIT, declared per data entity in the crate.
+An RO-Crate 1.2 Profile Crate generated by `scripts/gen_profile_crate.py` from
+`profiles/docs/isa_tox.md` and `profiles/shapes/tox/*.ttl`; never committed here or hand-edited.
+`tests/test_profile_crate.py` holds it to the RO-Crate Profile Portal's three checks. Served from
+`vitro-crate/isa-tox-ro-crate-profile`; spec text CC BY 4.0, shapes MIT, declared per data entity.
