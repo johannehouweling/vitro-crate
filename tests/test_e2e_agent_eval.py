@@ -129,7 +129,9 @@ def _scripted_build(engine: AgentEngine) -> dict:
             "orcid": spec.author_orcid,
         },
     )
-    engine.run_tool("draft_organization", name=spec.organization, hints={})
+    engine.run_tool(
+        "draft_organization", name=spec.organization, hints={"ror": spec.organization_ror}
+    )
 
     # --- 4. domain entities
     cell = engine.run_tool("draft_cell_line_sample", name=spec.cell_line, hints={})

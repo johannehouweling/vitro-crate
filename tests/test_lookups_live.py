@@ -160,3 +160,21 @@ def test_each_characteristic_term_means_its_characteristic():
             c.property_id,
             label,
         )
+
+
+@live_only
+def test_cordis_still_states_a_grants_programme_and_doi():
+    """The CORDIS record the declared-funding lookup reads, asked of CORDIS itself.
+
+    ``composites.cordis_grant`` confirms a declared EU grant by the framework
+    programme its record lists, and the build writes the grant at the DOI the
+    record states. If CORDIS renames either field, both stop silently.
+    """
+    from lookups.cordis import fetch_cordis_project
+
+    fetch_cordis_project.cache_clear()
+    record = fetch_cordis_project("825161")
+    assert record["acronym"] == "ATHENA"
+    assert record["framework_programmes"] == ["H2020"]
+    assert record["grant_doi"] == "10.3030/825161"
+    assert fetch_cordis_project("101057014")["framework_programmes"] == ["HORIZON"]

@@ -57,6 +57,20 @@ def _stub_composites_registered_organization(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _stub_composites_cordis(monkeypatch):
+    """Keep the declared-funding lookup of an EU grant offline.
+
+    A declared grant number is asked of CORDIS, so every test with declared
+    funding would reach cordis.europa.eu. A miss by default, scoped to the name
+    bound in ``composites`` like the stubs around it; a test that needs a grant
+    re-patches ``composites.fetch_cordis_project``.
+    """
+    from builder.tools import composites
+
+    monkeypatch.setattr(composites, "fetch_cordis_project", lambda grant_id: {}, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _stub_composites_cellosaurus(monkeypatch):
     """Keep ``resolve_cell_line``'s Cellosaurus calls offline (#372).
 
