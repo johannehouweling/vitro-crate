@@ -826,7 +826,7 @@ class ValidationReport:
     """Results from the three-pass SHACL validation.
 
     Attributes:
-        base_passed: Base RO-Crate 1.1 profile passed.
+        base_passed: Base RO-Crate 1.2 profile passed.
         isa_passed: ISA profile passed (no REQUIRED issues).
         tox_passed: ISA-Tox profile passed (no REQUIRED issues).
         required_issues: REQUIRED-severity issue descriptions.
