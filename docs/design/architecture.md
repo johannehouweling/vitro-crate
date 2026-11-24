@@ -55,8 +55,9 @@ Filesystem access is limited to `CrateState.approved_scan_roots` and **fails clo
   approval — never from the agent's own scan. `SimulatedHumanInterface` denies every
   `purpose="scan_root"` escalation.
 - **Reads (#167).** `AgentEngine.run_tool` gates `read_file`, `read_excel`, `read_docx`,
-  `read_file_sample`, `read_multiple_files`, `extract_pdf_text`, `preview_archive` and
-  `unzip_file` through `scanner._contain(path, approved_roots)`; with no roots every read is
+  `read_file_sample`, `read_multiple_files`, `extract_pdf_text`, `preview_archive`,
+  `unzip_file` and a plate-map path given to `populate_condition_table` (the gated set is
+  `engine._FILE_READ_TOOLS`) through `scanner._contain(path, approved_roots)`; with no roots every read is
   refused. `read_multiple_files` moves out-of-root paths to `skipped`. This closes the
   prompt-injection read of `~/.ssh/id_rsa`, `/etc/passwd` or a `.env`.
 - **Writes.** `_crate_mapping._file_dest` replaces an absolute or `..` `dest_path` with
