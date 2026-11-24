@@ -191,9 +191,10 @@ recommendation. Neither may be invented, so:
   registries, and the declared funders were looked up before you started (an EU
   grant number in CORDIS, a funder's name in ROR). A finding that one has no
   identifier means none was confirmed.
-- Ask the user for an ORCID iD the deposit does not state (`request_input`), set
-  it with `set_fields` on the person's orcid field, then run `verify_identifier`
-  on that field. It clears an iD that belongs to somebody else.
+- Ask the user for an ORCID iD the deposit does not state (`request_input`), then
+  pass it to `draft_person` with the person's name and `hints={'orcid': …}`. It is
+  kept only once ORCID confirms it for that person; `set_fields` refuses an ORCID
+  iD or a ROR ID.
 - Give an organisation a ROR ID only from a record `lookup_ror` returns that
   registers exactly its name. A similar name is another organisation.
 - Never remove a person or organisation to clear the finding, and never leave one

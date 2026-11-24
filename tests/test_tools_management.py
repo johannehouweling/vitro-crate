@@ -368,6 +368,26 @@ class TestSetFields:
         result = set_fields(minimal_state, "inv_001", {"title": "X"})
         assert result is minimal_state.get_entity("inv_001")
 
+    @pytest.mark.parametrize(
+        ("kind", "field", "value", "drafter"),
+        [
+            ("Person", "orcid", "0000-0002-5733-3290", "draft_person"),
+            ("Organization", "ror", "https://ror.org/0305c8g47", "draft_organization"),
+        ],
+    )
+    def test_an_orcid_or_ror_id_from_the_model_is_refused(self, kind, field, value, drafter):
+        """Either one becomes the entity's @id. The drafter keeps it once its registry
+        returns the record; set_fields would keep it unchecked."""
+        from builder.tools.drafters import draft_organization, draft_person
+        from builder.tools.management import set_fields
+
+        state = CrateState()
+        draft = draft_person if kind == "Person" else draft_organization
+        entity = draft(state, "Timo Hamers" if kind == "Person" else "NWO", {})
+        with pytest.raises(ValueError, match=drafter):
+            set_fields(state, entity.entity_id, {field: value})
+        assert not entity.fields.get(field)
+
     def test_raises_value_error_for_nonexistent_entity(self, minimal_state):
         from builder.tools.management import set_fields
 

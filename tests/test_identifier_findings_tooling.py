@@ -87,7 +87,7 @@ class TestTheReportSaysWhatIsWrong:
 class TestTheFixHintNeverGuesses:
     def test_a_person_hint_asks_and_verifies(self):
         hint = _synthesize_fix(_issue(PERSON))
-        assert "request_input" in hint and "verify_identifier" in hint
+        assert "request_input" in hint and "draft_person" in hint
         assert "Never guess" in hint and "do not remove" in hint
 
     def test_a_funder_hint_points_at_the_grant(self):
