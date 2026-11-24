@@ -65,7 +65,10 @@ a strict subset of `_REF_FIELDS` (asserted by test). The schema is open
 `draft_person` derives `givenName`/`familyName` from `name` when neither is given ("Last, First"
 inverted; a lone token kept as a family-name candidate, never placed in `givenName`), so every
 Person is ISA-conformant. Without an `orcid` hint it takes the ORCID the deposit states for exactly
-that name, else a single strong name-search hit, once ORCID confirms it (D5).
+that name, else a single strong name-search hit, once ORCID confirms it (D5). The tools the model
+calls, `draft_person_tool` and `draft_organization_tool`, give an `orcid` or `ror` the model hands in
+the same check before drafting: it is kept only once its registry returns the record. Other callers
+pass identifiers a lookup returned.
 
 `draft_defined_term` persists a looked-up term as a `schema:DefinedTerm`; pass the looked-up IRI as
 the `url`/`@id` hint so it is a referenceable `mentions` / `measurementMethod` / `sampleType`
@@ -215,7 +218,9 @@ list_entities(entity_type: str | None) → [Entity]
 list_scanned_files(name_contains=None, mime_contains=None, offset=0, limit=200) → {total_scanned, matched, files:[{path, filename, size, mime_type}]}
 ```
 `set_fields` is the single mutation tool (#90); `update_entity` / `bulk_set_fields` /
-`set_entity_field` remain as deprecated library aliases, not exposed to the LLM.
+`set_entity_field` remain as deprecated library aliases, not exposed to the LLM. It refuses an
+`orcid` or `ror` from the model: each becomes the entity's `@id`, so it goes through `draft_person`
+/ `draft_organization`, which confirm it with the registry (D5).
 
 `set_crate_metadata` writes `CrateState.metadata` (root, `./`): `title` / `description` /
 `accession` → `name` / `description` / `identifier`; `release_date` / `date_modified` →

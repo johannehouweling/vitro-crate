@@ -9,7 +9,9 @@ recorded as provenance (`created_by="llm"`, `source="llm"`). **Identifiers come 
 never fabricated** (D5): `_resolve_person_orcid` takes the ORCID the deposit states for that
 name, else a single full-name search hit, only once the record endpoint confirms it, and
 otherwise keeps the deterministic local id. `draft_organization` takes the ROR id the deposit
-states for that name once ROR returns the record, and none for a name alone.
+states for that name once ROR returns the record, and none for a name alone. An ORCID or ROR id
+the model hands in gets the same check at the tool it calls (`draft_person_tool`,
+`draft_organization_tool`), and `set_fields` refuses one from the model.
 
 Entity types: Investigation, Study, Assay, MolecularEntity, CellLineSample
 (CellLine/PrimaryCell), LabProcess (TestSystemPreparation / Exposure / EndpointReadout /

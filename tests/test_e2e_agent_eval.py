@@ -71,6 +71,24 @@ def _no_network(monkeypatch):
     monkeypatch.setattr(HTTPAdapter, "send", _blocked_send)
 
 
+@pytest.fixture(autouse=True)
+def _registries_confirm_the_golden_ids(monkeypatch):
+    """ORCID and ROR return the records of the S-VHPS21 author and organisation, offline.
+
+    The scripted agent hands both identifiers to the drafting tools, which keep one the
+    model hands in only once its registry returns the record (D5).
+    """
+    from builder.tools import drafters
+
+    spec = VHPS_STUDIES["S-VHPS21"]
+    given, _, family = spec.author_name.partition(" ")
+    bare_ror = drafters._bare_ror(spec.organization_ror)
+    orcid = {drafters._bare_orcid(spec.author_orcid): {"givenName": given, "familyName": family}}
+    ror = {bare_ror: {"@id": f"https://ror.org/{bare_ror}"}}
+    monkeypatch.setattr(drafters, "lookup_orcid", lambda i: orcid.get(drafters._bare_orcid(i), {}))
+    monkeypatch.setattr(drafters, "fetch_ror_by_id", lambda i: ror.get(drafters._bare_ror(i), {}))
+
+
 def _scripted_build(engine: AgentEngine) -> dict:
     """Drive the deterministic scripted tool sequence for S-VHPS21.
 

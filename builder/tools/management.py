@@ -18,7 +18,15 @@ from builder.state import (
     looks_like_identifier,
 )
 from builder.tools._crate_mapping import _REF_FIELDS
-from builder.tools.field_kinds import is_reference_field, is_resolvable_reference
+from builder.tools.field_kinds import (
+    is_reference_field,
+    is_resolvable_reference,
+    normalise_field_name,
+)
+
+# The identifier fields that become an entity's @id, and the drafter that keeps one
+# only once its registry returns the record.
+_CONFIRMED_BY = {"orcid": "draft_person", "ror": "draft_organization"}
 
 logger = logging.getLogger(__name__)
 
@@ -466,16 +474,27 @@ def set_fields(
         fields: Dictionary of field names to new values.
         source: The provenance source recorded for every field set.
 
+    An ORCID iD or a ROR id becomes the entity's ``@id``, so the model does not
+    write one here: the drafter that has its registry confirm it does (D5).
+
     Returns:
         The updated Entity.
 
     Raises:
-        ValueError: If no entity with the given ID exists.
+        ValueError: If no entity with the given ID exists, or the model writes an
+            ORCID iD or a ROR id.
     """
     entity_id = resolve_entity_id(state, entity_id)
     entity = state.get_entity(entity_id)
     if entity is None:
         raise ValueError(entity_not_found_message(state, entity_id))
+    for name in fields if source == "llm" else ():
+        if drafter := _CONFIRMED_BY.get(normalise_field_name(name)):
+            raise ValueError(
+                f"{name!r} on {entity_id} becomes its @id, so it is kept only once its "
+                f"registry confirms it: call {drafter} with the name and "
+                f"hints={{{name!r}: …}} instead."
+            )
 
     supplied = dict(fields)
     fields = {

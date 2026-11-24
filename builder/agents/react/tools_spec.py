@@ -400,7 +400,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_person",
-        "description": "Create a Person entity. Without an orcid it takes the one the deposit's own record states for exactly this name, once ORCID confirms it. Pass an orcid only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
+        "description": "Create a Person entity. Without an orcid it takes the one the deposit's own record states for exactly this name, once ORCID confirms it. An orcid you pass is kept only once ORCID's record confirms it for this name, so pass one only when you already hold one you can confirm with lookup_orcid, which takes an ORCID iD and not a name; when the person is an author of a DOI, draft_publication_with_authors resolves their ORCID for you. Example: draft_person(name='Jane Doe', hints={'orcid': '<ORCID iD confirmed with lookup_orcid>'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -412,7 +412,7 @@ TOOL_SPECS = [
     },
     {
         "name": "draft_organization",
-        "description": "Create an Organization entity. Without a ror it takes the ROR id the deposit's own record states for exactly this name, once ROR returns that record; otherwise look it up first (lookup_ror) to pass a verified ror. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
+        "description": "Create an Organization entity. Without a ror it takes the ROR id the deposit's own record states for exactly this name, once ROR returns that record; otherwise look it up first (lookup_ror) to pass a verified ror. A ror you pass is kept only once ROR returns its record. Example: draft_organization(name='Utrecht University', hints={'ror': '04pp8hn57'}).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -460,7 +460,7 @@ TOOL_SPECS = [
     },
     {
         "name": "set_fields",
-        "description": "Set one or more fields on an existing entity (the single mutation tool — pass one key or many). Use it to fill or correct an entity's metadata, e.g. after build_and_validate names a field to fix. Example: set_fields(entity_id='chem_silychristin_a', fields={'identifier': '<CAS RN from a verified lookup>', 'smiles': 'C[C@H]1...'}).",
+        "description": "Set one or more fields on an existing entity (the single mutation tool — pass one key or many). Use it to fill or correct an entity's metadata, e.g. after build_and_validate names a field to fix. It refuses orcid and ror, which become the entity's @id: pass those to draft_person or draft_organization. Example: set_fields(entity_id='chem_silychristin_a', fields={'identifier': '<CAS RN from a verified lookup>', 'smiles': 'C[C@H]1...'}).",
         "parameters": {
             "type": "object",
             "properties": {

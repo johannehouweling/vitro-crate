@@ -629,7 +629,8 @@ def draft_person(state: CrateState, name: str, hints: dict) -> Entity:
 
     Without an ORCID in *hints*, the person takes the one the deposit states for
     exactly this name, else a single strong name-search hit, and either only once
-    ORCID's record confirms it (:func:`_resolve_person_orcid`).
+    ORCID's record confirms it (:func:`_resolve_person_orcid`). An ORCID in *hints*
+    is the caller's: the model's goes through :func:`draft_person_tool` first.
 
     Args:
         state: The crate state to add the entity to.
@@ -781,11 +782,18 @@ def _bare_ror(value: Any) -> str:
 def _stated_ror(state: CrateState, name: str) -> dict[str, str]:
     """The ROR id the deposit states for exactly *name*, once ROR returns its record.
 
-    The website and country the record states come with it. A ROR id ROR does not
-    return, a record of another id and an unreachable registry all give nothing:
-    a stated id is not taken unconfirmed, and no id is ever taken for a name alone.
+    No id is ever taken for a name alone (:func:`_confirmed_ror`).
     """
-    stated = _stated(state.metadata.organizations, "ror", name)
+    return _confirmed_ror(_stated(state.metadata.organizations, "ror", name))
+
+
+def _confirmed_ror(stated: Any) -> dict[str, str]:
+    """The ROR id *stated*, with the website and country its record states, once ROR returns it.
+
+    A ROR id ROR does not return, a record of another id and an unreachable registry
+    all give nothing: an id, stated or hinted, is not taken unconfirmed.
+    """
+    stated = _bare_ror(stated)
     if not stated:
         return {}
     try:
@@ -811,8 +819,10 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
 
     Without a ``ror`` in *hints*, the organisation takes the ROR id the deposit
     states for exactly this name, with the website and country ROR states for it,
-    once ROR returns that record (:func:`_stated_ror`). An Organization the crate
-    already holds under the ROR id is amended instead of drafted again: two
+    once ROR returns that record (:func:`_stated_ror`). A ``ror`` in *hints* is the
+    caller's: the model's goes through :func:`draft_organization_tool` first. An
+    Organization the crate already holds under the ROR id is amended instead of
+    drafted again: two
     entities at one address would leave the crate only one of them. So is one
     that holds the id this name gives, where it holds a ROR id or goes by another
     spelling of the name, unless the two hold different ROR ids. Drafting a name
@@ -862,12 +872,62 @@ def draft_organization(state: CrateState, name: str, hints: dict) -> Entity:
         entity.set_fields_from_dict(merged_hints, source="llm")
         state.add_entity(entity)
     # What the entity now holds from ROR's record was looked up, not drafted.
-    for key, value in stated.items():
+    _record_looked_up(entity, stated)
+    return entity
+
+
+def _record_looked_up(entity: Entity, facts: dict[str, str]) -> None:
+    """Mark what *entity* holds from ROR's record *facts* as looked up, its ROR id verified."""
+    for key, value in facts.items():
         if entity.fields.get(key) == value:
             entity.set_field_status(key, "filled", "lookup")
-    if stated:
+    if facts and entity.fields.get("ror") == facts.get("ror"):
         entity.set_field_status("ror", "verified", "lookup")
-    return entity
+
+
+def draft_person_tool(state: CrateState, name: str, hints: dict) -> Entity:
+    """``draft_person`` as the model calls it: an ORCID it hands in is confirmed first (D5).
+
+    The iD becomes the person's ``@id``. One the model hands in is kept only once
+    ORCID's record states the family name the person is drafted under, the check a
+    stated iD gets (:func:`_confirmed_orcid`); otherwise the person is drafted without
+    it and takes what the deposit states for the name.
+    """
+    hinted = _bare_orcid(hints.get("orcid"))
+    if not hinted:
+        return draft_person(state, name, hints)
+    family = str(hints.get("familyName") or split_person_name(name)[1])
+    try:
+        confirmed = bool(family and _confirmed_orcid(hinted, family))
+    except Exception:  # noqa: BLE001 — an unreachable ORCID confirms nothing
+        confirmed = False
+    if not confirmed:
+        logger.info("Not keeping the ORCID handed in for %s: no ORCID record confirms it", name)
+        return draft_person(state, name, {k: v for k, v in hints.items() if k != "orcid"})
+    person = draft_person(state, name, hints)
+    if _bare_orcid(person.fields.get("orcid")) == hinted:
+        person.set_field_status("orcid", "verified", "lookup")
+    return person
+
+
+def draft_organization_tool(state: CrateState, name: str, hints: dict) -> Entity:
+    """``draft_organization`` as the model calls it: a ROR id it hands in is confirmed first.
+
+    The id becomes the organisation's ``@id``. One the model hands in is kept, with
+    the website and country ROR states, only once ROR returns its record
+    (:func:`_confirmed_ror`), the check a stated id gets (D5); otherwise the
+    organisation is drafted without it and takes what the deposit states for the name.
+    """
+    if not hints.get("ror"):
+        return draft_organization(state, name, hints)
+    confirmed = _confirmed_ror(hints["ror"])
+    rest = {k: v for k, v in hints.items() if k != "ror"}
+    if not confirmed:
+        logger.info("Not keeping the ROR id handed in for %s: ROR does not return it", name)
+        return draft_organization(state, name, rest)
+    organisation = draft_organization(state, name, {**rest, **confirmed})
+    _record_looked_up(organisation, confirmed)
+    return organisation
 
 
 def draft_publication(state: CrateState, doi: str, hints: dict) -> Entity:
@@ -910,8 +970,8 @@ TOOL_REGISTRY.register("draft_protocol", draft_protocol, takes_state=True)
 TOOL_REGISTRY.register("draft_sample", draft_sample, takes_state=True)
 TOOL_REGISTRY.register("draft_molecular_entity", draft_molecular_entity, takes_state=True)
 TOOL_REGISTRY.register("draft_cell_line_sample", draft_cell_line_sample, takes_state=True)
-TOOL_REGISTRY.register("draft_person", draft_person, takes_state=True)
-TOOL_REGISTRY.register("draft_organization", draft_organization, takes_state=True)
+TOOL_REGISTRY.register("draft_person", draft_person_tool, takes_state=True)
+TOOL_REGISTRY.register("draft_organization", draft_organization_tool, takes_state=True)
 TOOL_REGISTRY.register("draft_publication", draft_publication, takes_state=True)
 TOOL_REGISTRY.register("draft_defined_term", draft_defined_term, takes_state=True)
 TOOL_REGISTRY.register("draft_property_value", draft_property_value, takes_state=True)
