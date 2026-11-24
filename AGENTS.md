@@ -1,17 +1,3 @@
-**The legend names the class, not the category and not a census (#623).** A colour key labelled in
-category prose — "Sample / material", "Term / parameter" — explains the canvas in a vocabulary the
-reader can see nowhere else. Each key is therefore the **class that puts an entity in that
-category**, which is `_entity_category`'s own rule and the word the profile, the shapes and the
-crate's `@type` all use: `LabProcess`, `LabProtocol`, `Sample`, `MolecularEntity`, `File`. It was a
-census of the type tags a crate's own nodes carried, and on a real deposit that made the protocol key
-read `File, HowTo +1` — true of the entities, and not a word anything else in the system says. The
-census is not lost: it rides on the `title`, which is where "what does this crate actually put in
-that bucket" belongs. A category no single class defines — the fallback bucket, and the off-crate
-reference, which names a provenance status rather than a type — keeps its prose. The wording is
-decided **once in Python** (`_legend_wording`) because two sections draw this legend with two
-different renderers, and a second copy of the rule in a second browser app is how two legends over
-one crate come to disagree.
-
 # ISA-Tox RO-Crate Builder — System Design
 
 > **Purpose:** This document describes the architecture, component design, and design rationale for the LLM-assisted RO-Crate builder backend. It serves as both a developer guide and an orientation document for AI coding agents working on this codebase.
@@ -731,8 +717,13 @@ build-path *wiring contract* — which fire only when the relevant entities exis
    `propertyID` as an **`@id` IRI node** (the OBI IRI: `DOI`→`OBI_0002110`,
    `PubMedID`→`OBI_0001617`). `draft_property_value` defaults the IRI by name and
    `@id`-wraps it — a bare string literal is a Violation.
-2. `EndpointReadout`/`DataAnalysis` have **no `result`/`object` build-time fallback**
+2. `EndpointReadout`/`DataAnalysis` have **no `result` build-time fallback**
    (unlike TestSystemPreparation/Exposure); a process with no explicit output fires a Violation.
+   Their inputs differ: a readout MUST name what it measured
+   (`tox:EndpointReadoutConsumesExposedMaterial`) and the build names it when nothing
+   upstream does (`_floor_readout_objects`), while a DataAnalysis's `object` is the
+   data analysed and has no fallback (`fix_required_issues` wires it only when one
+   candidate is unambiguous).
    `draft_process_chain` closes it from the DEPOSIT (raw files → the readout,
    processed → the analysis), and `attach_files` completes any step still unwired.
    When the deposit holds no such file the Violation is **left to fire** (#592):
@@ -1907,10 +1898,8 @@ The dashboard derives a live **▶ / ⏸ / ⏹** agent-status badge from these e
 | Base RO-Crate 1.2 | REQUIRED | Structural validity | MUST fix before proceeding |
 | ISA Profile | REQUIRED | ISA conformance | MUST fix |
 | ISA Profile | SHOULD | Recommended metadata | Fix if data available |
-| ISA Profile | MAY | Optional metadata | Note for user |
 | ISA-Tox Profile | REQUIRED | Toxicology conformance | MUST fix |
 | ISA-Tox Profile | SHOULD | Recommended tox fields | Fix if data available |
-| ISA-Tox Profile | MAY | Optional tox fields | Note for user |
 | Data content (Frictionless) | REQUIRED | Payload conformance (CSV rows vs CSVW/Frictionless `tableSchema`) | MUST fix offending cell |
 | MIT Coverage | Score | % of the checklist parameters that carry a crate slot | Improvement suggestions |
 | FAIR Indicators | Score | FAIR maturity | Guidance for improvement |
@@ -3149,16 +3138,18 @@ for a graph with no step it recognises, and the section says so where the drawin
 The page loads it as a plain `<script>` tag, which is the UMD branch `require()` never exercises, so
 a test evaluates the page's own script bodies with no `module` in scope.
 
-**The legend names types, not categories (#623).** A colour key labelled in category prose — "Sample
-/ material", "Term / parameter" — explains the canvas in a vocabulary the reader can see nowhere
-else, while every node on it is captioned with its type. Each key is therefore labelled from the
-crate's own census: the distinct type tags its nodes carry in that category, commonest first, the
-first two spelled out and the rest counted away with the full list on `title`. Derived, never a
-hand-kept map, so a category that gains a type is labelled with it the day it does, and the fallback
-bucket — which has no single type to name — is labelled as honestly as the rest. A refinement folds
-into its base (`Dataset · Assay` counts as `Dataset`): the colour is the base type's, and the
-refinement is what the node itself spells out. The one key the census cannot supply is the off-crate
-reference, which keeps its wording because it names a provenance status rather than a type.
+**The legend names the class, not the category and not a census (#623).** A colour key labelled in
+category prose — "Sample / material", "Term / parameter" — explains the canvas in a vocabulary the
+reader can see nowhere else. Each key is therefore the **class that puts an entity in that
+category**, which is `_entity_category`'s own rule and the word the profile, the shapes and the
+crate's `@type` all use: `LabProcess`, `LabProtocol`, `Sample`, `MolecularEntity`, `File`. A census
+of the type tags a crate's own nodes carry made the protocol key read `File, HowTo +1` on a real
+deposit — true of the entities, and not a word anything else in the system says — so the census
+rides on the `title` instead. A category no single class defines — the fallback bucket, and the
+off-crate reference, which names a provenance status rather than a type — keeps its prose. The
+wording is decided **once in Python** (`_legend_wording`) because two sections draw this legend with
+two different renderers, and a second copy of the rule in a second browser app is how two legends
+over one crate come to disagree.
 
 **Script, but nothing loaded.** The report's contract was "carries no script"; it is now *loads
 nothing*. React, React Flow, dagre and htm are vendored UMD builds under `builder/writers/vendor/`,
@@ -3247,11 +3238,13 @@ Every ISA-Tox specialization is expressed by an existing ontology term on the ba
   migrated on load. The build writes none.
 
 The profile **mints no classes and no terms**: every type and term it names is an
-existing Schema.org, Bioschemas or ontology IRI. Each tox shape selects its focus nodes
-from the data with a SHACL `sh:SPARQLTarget` — a Sample by its `sampleType` term, a step
-by its executed protocol's `intendedUse`, either one by its legacy `additionalType` alias,
-a Study or an Assay by the ISA `additionalType`, the root as the Dataset the metadata
-descriptor is about —
+existing Schema.org, Bioschemas or ontology IRI. Where the `@type` alone does not say
+what a node is, a tox shape selects its focus nodes from the data with a SHACL
+`sh:SPARQLTarget` — a Sample by its `sampleType` term, a step by its executed protocol's
+`intendedUse`, either one by its legacy `additionalType` alias, a Study or an Assay by the
+ISA `additionalType`, the root as the Dataset the metadata descriptor is about. The rest
+target a class the crate itself asserts (`MolecularEntity`, `csvw:Table`, `csvw:Column`)
+or the nodes that use a property (`sampleType`, `executesLabProtocol`) —
 so a generic RO-Crate consumer and the ISA-Tox validator see the same types, which is
 why `@type` stays the bare base token. No target is a class only rocrate-validator
 infers, so the shape files alone, run over a crate's metadata with any SHACL-AF engine,
