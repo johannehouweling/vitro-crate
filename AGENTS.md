@@ -257,6 +257,7 @@ vitro-crate/
 - **State what must hold, in the present tense.** Implementation detail belongs in docstrings,
   which the design docs point to. No changelogs, migration stories or dated audits: history
   is git's, and the reasoning is an ADR's.
-- **Prefer generated over written.** The toolbox doc is held to the registry by a test; where
-  a fact can be derived from code or data, derive it.
+- **Name only what exists.** Every link, repo path, `tox:` shape and code name in these docs
+  must resolve, or `tests/test_docs_name_real_things.py` fails; the toolbox doc is held to the
+  registry by `tests/test_agents_doc_toolbox.py`. Where a fact can be derived, derive it.
 - **Cite decisions by id** (`D5`), not by section number: ids are stable, positions are not.
