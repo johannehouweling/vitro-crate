@@ -2258,8 +2258,9 @@ def _add_leaves(
         _idx_add(idx, org, org_node)
 
     for person in state.list_entities("Person"):
-        # affiliation is a reference, not a literal: resolve it to the in-crate
-        # Organization node (or keep a bare IRI), and never emit it as a string.
+        # affiliation and worksFor are references, not literals: resolve each to the
+        # in-crate Organization node (or keep a bare IRI), and never emit the
+        # builder's own handle as a string (S-VHPS17 published "org_…" for one).
         person_id = _mint_id(person)
         if (held := agent_nodes.get(person_id)) is not None:
             _written_as_one(idx, person, held, "person")
@@ -2269,7 +2270,7 @@ def _add_leaves(
                 crate,
                 person_id,
                 properties=_scalar_props(
-                    person, skip=("affiliation", "jobTitle", *_CONTACT_FIELDS)
+                    person, skip=("affiliation", "worksFor", "jobTitle", *_CONTACT_FIELDS)
                 ),
             )
         )
@@ -2282,9 +2283,8 @@ def _add_leaves(
             node.append_to(
                 "identifier", _identifier_pv(crate, "ORCID", _bare_orcid(orcid), "https://orcid.org")
             )
-        _wire_reference(
-            node, "affiliation", person.fields.get("affiliation"), idx, keep_literal=True
-        )
+        for prop in ("affiliation", "worksFor"):
+            _wire_reference(node, prop, person.fields.get(prop), idx, keep_literal=True)
         _wire_job_title(crate, node, person.fields.get("jobTitle"), idx)
         crate.root_dataset.append_to("author", node)
 

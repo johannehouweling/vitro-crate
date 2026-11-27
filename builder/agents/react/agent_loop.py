@@ -938,6 +938,27 @@ def _crate_is_complete(engine: AgentEngine) -> bool:
         return False
 
 
+def _left_to_do(engine: AgentEngine) -> tuple | None:
+    """What stands between the crate and complete: its open items and its gate verdicts.
+
+    A continued turn that leaves this as it found it made no progress toward
+    :func:`_crate_is_complete`, whatever it wrote. After REQUIRED passed, S-VHPS17
+    spent ten minutes and twenty exports on a culture medium the deposit does not
+    state, rewriting one affiliation between two spellings of the same organisation
+    (#759). ``None`` when it cannot be read, which never ends a run.
+    """
+    try:
+        state = engine.state
+        return (
+            tuple(open_items(state, actionable_only=True)),
+            tuple(_passes(state).items()),
+            tuple(str(issue) for issue in state.validation.required_issues),
+        )
+    except Exception:  # noqa: BLE001 — a progress probe must never raise.
+        logger.debug("progress probe failed", exc_info=True)
+        return None
+
+
 def _agent_is_done(engine: AgentEngine) -> bool:
     """Whether the loop should stop continuing by itself and hand back to the user.
 
@@ -5091,6 +5112,7 @@ def run_interactive_agent(
                 reply = ""
                 empty_streak = 0
                 self_continues = 0
+                left = None
                 # A new user turn gets a fresh strike budget. The counters live on
                 # the engine, so once a guard had ended a turn they were already at
                 # the limit — and the next "continue" was killed by its FIRST
@@ -5167,6 +5189,17 @@ def run_interactive_agent(
                                 "ending autonomous run"
                             )
                         break
+
+                    # A continued turn that leaves what is left as it found it moved
+                    # the crate no closer to complete, and the next would not either.
+                    now_left = _left_to_do(engine)
+                    if now_left is not None and now_left == left:
+                        logger.info(
+                            "The last turn changed nothing that is left to do — "
+                            "ending autonomous run"
+                        )
+                        break
+                    left = now_left
 
                     # Otherwise the agent just narrated/worked → AUTO-CONTINUE with
                     # an internal directive, WITHOUT reading stdin. The cap on the

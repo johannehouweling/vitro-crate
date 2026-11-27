@@ -171,6 +171,19 @@ class TestAStatedFormStillReachesTheNode:
         person = next(n for n in graph.values() if n.get("name") == "Ada Lovelace")
         assert _ids(person["affiliation"]) == ["https://ror.org/04pp8hn57"]
 
+    def test_works_for_reaches_the_organisation_node(self):
+        """The model set `worksFor` to the organisation's entity id, and the crate published
+        that handle as a string (S-VHPS17). It is a reference, as `affiliation` is."""
+        state = CrateState()
+        vu = _ent("org_vu", "Organization", name="VU Amsterdam", ror="https://ror.org/008xxew50")
+        state.add_entity(vu)
+        state.add_entity(_ent("p1", "Person", name="Ada Lovelace", worksFor="org_vu"))
+        state.add_entity(_ent("p2", "Person", name="Ada Byron", worksFor="the lab"))
+        graph = _graph(state)
+        people = {n["name"]: n for n in graph.values() if n.get("@type") == "Person"}
+        assert people["Ada Lovelace"]["worksFor"] == {"@id": "https://ror.org/008xxew50"}
+        assert people["Ada Byron"]["worksFor"] == "the lab"
+
 
 class TestOneIdentifierIsOneNode:
     def test_two_people_with_one_orcid_are_written_as_one(self):

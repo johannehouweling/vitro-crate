@@ -1054,6 +1054,87 @@ class TestADraftedOrganisationTakesTheRorIdTheDepositStates:
         assert ror.asked == []
 
 
+# The ROR id the model handed `draft_organization` for NWO in an S-VHPS18 build. ROR
+# answers "ROR ID 'https://ror.org/0305c8g47' does not exist".
+INVENTED_ROR = "https://ror.org/0305c8g47"
+NWO_RECORD = {
+    "@id": "https://ror.org/04jsz6e67",
+    "@type": "Organization",
+    "name": "Dutch Research Council",
+    "url": "https://www.nwo.nl",
+}
+
+
+class TestAnIdentifierTheModelHandsInIsKeptOnceItsRegistryConfirmsIt:
+    """An ORCID or ROR id the model hands a drafting tool becomes the entity's @id, so it
+    gets the check a stated one gets.
+
+    The model handed `draft_organization` a ROR id that ROR does not have, and the crate
+    named NWO by it (S-VHPS18): a hint skipped the check. The drafters still take what
+    their other callers pass, which comes from a lookup.
+    """
+
+    def test_a_ror_id_ror_does_not_return_is_not_kept(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {})
+        state = CrateState()
+        organisation = drafters.draft_organization_tool(
+            state, "Dutch Research Council (NWO)", {"ror": INVENTED_ROR}
+        )
+        assert not organisation.fields.get("ror")
+        (node,) = _typed(_graph(state), "Organization")
+        assert not node["@id"].startswith("https://ror.org/")
+
+    def test_a_ror_id_ror_returns_is_kept_as_looked_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {NWO_RECORD["@id"]: NWO_RECORD})
+        organisation = drafters.draft_organization_tool(
+            CrateState(), "Dutch Research Council (NWO)", {"ror": NWO_RECORD["@id"]}
+        )
+        assert organisation.fields["ror"] == NWO_RECORD["@id"]
+        assert organisation.fields["url"] == NWO_RECORD["url"]
+        status = organisation.get_field_status("ror")
+        assert status is not None and (status.status, status.source) == ("verified", "lookup")
+
+    def test_a_ror_id_ror_does_not_return_gives_way_to_the_stated_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ror(monkeypatch, {VU["ror"]: VU_RECORD})
+        organisation = drafters.draft_organization_tool(
+            _stating_organisations(VU), VU["name"], {"ror": INVENTED_ROR}
+        )
+        assert organisation.fields["ror"] == VU["ror"]
+
+    def test_an_orcid_its_record_does_not_confirm_is_not_kept(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, {HAMERS["orcid"]: ("Martin", "Scholze")})
+        state = CrateState()
+        person = drafters.draft_person_tool(state, "Timo Hamers", {"orcid": HAMERS["orcid"]})
+        assert not person.fields.get("orcid")
+        (node,) = _typed(_graph(state), "Person")
+        assert not node["@id"].startswith("https://orcid.org/")
+
+    def test_an_orcid_its_record_confirms_is_kept_as_looked_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, HAMERS_RECORD)
+        state = CrateState()
+        person = drafters.draft_person_tool(state, "Timo Hamers", {"orcid": HAMERS["orcid"]})
+        status = person.get_field_status("orcid")
+        assert status is not None and (status.status, status.source) == ("verified", "lookup")
+        (node,) = _typed(_graph(state), "Person")
+        assert node["@id"] == HAMERS_ADDRESS
+
+    def test_the_tools_the_model_calls_are_these(self) -> None:
+        from builder.tools.registry import TOOL_REGISTRY
+
+        assert TOOL_REGISTRY.get("draft_person") is drafters.draft_person_tool
+        assert TOOL_REGISTRY.get("draft_organization") is drafters.draft_organization_tool
+
+
 class TestNoTwoOrganisationsTakeOneRorId:
     """Two entities at one address would leave the crate only one of them."""
 
@@ -1205,3 +1286,58 @@ class TestTheCrateSaysWhatTheDepositStates:
             n["@id"] for n in graph if str(n["@id"]).startswith(("#Person_", "#Organization_"))
         ]
         assert named == []
+
+
+# What the S-VHPS17 record states for its contact person; her ORCID record names her
+# Lenya of the family "de Brouwer".
+LENYA = {"name": "Lenya de Brouwer", "orcid": "0009-0006-4058-5842"}
+
+
+class TestASurnameParticleBelongsToTheFamilyName:
+    """'Lenya de Brouwer' is Lenya of the de Brouwer family, as her ORCID record says.
+
+    Taking the last word as the family name made her 'Lenya de' / 'Brouwer', and the
+    check that an iD is this person's then cleared her own: the family name it
+    compared, 'Brouwer', is not the record's 'de Brouwer' (S-VHPS17).
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "split"),
+        [
+            ("Lenya de Brouwer", ("Lenya", "de Brouwer")),
+            ("Kitty van Summeren", ("Kitty", "van Summeren")),
+            ("Jan van der Berg", ("Jan", "van der Berg")),
+            ("A. de Vries", ("A.", "de Vries")),
+            ("lenya de brouwer", ("lenya", "de brouwer")),
+            ("Ada Lovelace", ("Ada", "Lovelace")),
+            ("Fabian Marinus Wagenaars", ("Fabian Marinus", "Wagenaars")),
+            ("Wagenaars, J.", ("J.", "Wagenaars")),
+            ("Wagenaars", ("", "Wagenaars")),
+        ],
+    )
+    def test_the_lowercase_words_before_the_surname_are_part_of_it(
+        self, name: str, split: tuple[str, str]
+    ) -> None:
+        assert drafters.split_person_name(name) == split
+
+    def test_the_orcid_the_deposit_states_for_her_is_confirmed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _orcid(monkeypatch, {LENYA["orcid"]: ("Lenya", "de Brouwer")})
+        person = draft_person(_stating(LENYA), LENYA["name"], {})
+        assert person.entity_id == f"https://orcid.org/{LENYA['orcid']}"
+        names = (person.fields["givenName"], person.fields["familyName"])
+        assert names == ("Lenya", "de Brouwer")
+
+    def test_verifying_her_orcid_keeps_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from builder.tools import verification
+
+        record = {"givenName": "Lenya", "familyName": "de Brouwer"}
+        monkeypatch.setattr(
+            verification, "lookup_orcid", lambda orcid_id: {"found": True, "data": record}
+        )
+        state = CrateState()
+        person = draft_person(state, LENYA["name"], {"orcid": LENYA["orcid"]})
+        result = verification.verify_identifier(state, person.entity_id, "orcid")
+        assert result["verified"] is True
+        assert person.fields["orcid"] == LENYA["orcid"]

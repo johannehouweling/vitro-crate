@@ -542,18 +542,18 @@ def _identifier_fix(issue: RoutableIssue, graph: list[Any] | None = None) -> str
     entity = issue.entity_id or "the affected entity"
     if PERSON_NEEDS_ORCID in message:
         return (
-            f"Find `{entity}`'s ORCID iD: ask for it with `request_input`, set it with "
-            "`set_fields` as `orcid`, then `verify_identifier` on that field, which "
-            "clears an iD ORCID does not confirm for a person of that family name. "
+            f"Find `{entity}`'s ORCID iD: ask for it with `request_input`, then pass it "
+            "to `draft_person` with the person's name and `hints={'orcid': …}`, which "
+            "keeps it only once ORCID confirms it for a person of that family name. "
             "Never guess an iD, and do not remove the person to clear this finding."
         )
     if ORGANIZATION_NEEDS_ROR in message:
         return (
-            f"Find `{entity}`'s ROR ID with `lookup_ror` by its name, and set it with "
-            "`set_fields` as `ror` only when the record returned registers exactly "
-            "this organisation's name; otherwise leave the finding for the depositor "
-            "to answer. Never guess an ID, and do not remove the organisation to "
-            "clear this finding."
+            f"Find `{entity}`'s ROR ID with `lookup_ror` by its name, and pass it to "
+            "`draft_organization` with the name and `hints={'ror': …}` only when the "
+            "record returned registers exactly this organisation's name; otherwise "
+            "leave the finding for the depositor to answer. Never guess an ID, and do "
+            "not remove the organisation to clear this finding."
         )
     if FUNDER_SHOULD_HAVE_ROR in message:
         return (

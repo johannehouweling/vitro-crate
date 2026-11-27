@@ -1775,6 +1775,7 @@ class _LoopHarness:
         complete_after=None,
         initial_prompt=None,
         interactive=True,
+        progress=False,
     ):
         from builder.agents.react import agent_loop
         from builder.engine import AgentEngine
@@ -1787,6 +1788,8 @@ class _LoopHarness:
         self.complete_after = complete_after
         self.initial_prompt = initial_prompt
         self.interactive = interactive
+        # Each turn works one item off what is left, as a working session does.
+        self.progress = progress
 
         self.invoke_count = 0
         self.stdin_reads: list[str] = []
@@ -1830,6 +1833,11 @@ class _LoopHarness:
                 harness.invoke_count += 1
                 harness.turn_messages.append(str(payload["messages"][0].content))
                 text = harness._fake_reply()
+                if harness.progress:
+                    left = [f"item {i}" for i in range(100 - harness.invoke_count)]
+                    harness.monkeypatch.setattr(
+                        agent_loop, "open_items", lambda state, **kw: list(left)
+                    )
                 # Optionally mark the crate complete after N invocations so the
                 # autonomous loop can short-circuit on completion.
                 if (
@@ -1905,6 +1913,7 @@ class TestAutonomousContinuation:
                 "What output path would you like?",  # question → prompt user
             ],
             stdin_lines=["start building"],  # only the kickoff; then EOF
+            progress=True,
         )
         harness.run()
 
@@ -1935,17 +1944,18 @@ class TestAutonomousContinuation:
         """Endless narration is bounded by the max-autonomous-turns cap."""
         from builder.agents.react.agent_loop import _MAX_AUTONOMOUS_TURNS
 
-        # Always narrate; never a question, never complete → only the cap stops it.
+        # Always narrate and work an item off; never a question, never complete →
+        # only the cap stops it.
         harness = _LoopHarness(
             monkeypatch,
             replies=["working..."] * 500,
             stdin_lines=["go"],  # single kickoff
+            progress=True,
         )
         harness.run()
 
-        # kickoff + at most _MAX_AUTONOMOUS_TURNS auto-continues for the turn.
-        assert harness.invoke_count <= 1 + _MAX_AUTONOMOUS_TURNS
-        assert harness.invoke_count >= 2  # it did auto-continue at least once
+        # kickoff + _MAX_AUTONOMOUS_TURNS auto-continues for the turn.
+        assert harness.invoke_count == 1 + _MAX_AUTONOMOUS_TURNS
 
     def test_completion_stops_the_autonomous_loop(self, monkeypatch):
         """When the crate becomes complete, the loop stops auto-continuing even
@@ -1960,6 +1970,33 @@ class TestAutonomousContinuation:
 
         # kickoff + one auto-continue, then completion short-circuits.
         assert harness.invoke_count == 2
+
+    @pytest.mark.parametrize("interactive", [True, False], ids=["interactive", "unattended"])
+    def test_a_continued_turn_that_leaves_what_is_left_ends_the_run(
+        self, monkeypatch, interactive
+    ):
+        """S-VHPS17 passed REQUIRED, then auto-continued to the turn cap on an item only a
+        person could answer, exporting the crate 20 times (#759). One continued turn that
+        leaves the open items and the gates as it found them is the stop signal."""
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=["working..."] * 50,
+            stdin_lines=["go"] if interactive else [],
+            initial_prompt=None if interactive else "go",
+            interactive=interactive,
+        )
+        harness.run()
+        assert harness.invoke_count == 2  # the kickoff, and one continued turn
+
+    def test_a_continued_turn_that_works_an_item_off_goes_on(self, monkeypatch):
+        harness = _LoopHarness(
+            monkeypatch,
+            replies=["working..."] * 3 + ["Which medium was used?"],
+            stdin_lines=["go"],
+            progress=True,
+        )
+        harness.run()
+        assert harness.invoke_count == 4
 
 
 class TestEmptyCompletionRecovery:
