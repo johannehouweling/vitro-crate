@@ -24,12 +24,14 @@ Assembles the crate with [`ro-crate-py`](https://github.com/ResearchObject/ro-cr
 can be built at any point.
 
 - Every `@context` term resolves to its vocabulary's own canonical IRI; a test holds every
-  context namespace to a declared allow-list. AOP terms are **AOPO**'s
-  (`http://aopkb.org/aop_ontology#`), not an `aopwiki.org` path AOP-Wiki does not serve (#644).
-- The profile needs no AOP class: its Study and Assay shapes read the AOP-Wiki IRI mentioned
-  (`https://aopwiki.org/aops/<id>`, `.../events/<id>`). The crate describes only the pathway a
-  Study mentions and the key event an Assay mentions, each as one named entity at that IRI;
-  the writer leaves the rest of a pathway out whatever the state holds ([the toolbox](toolbox.md)).
+  context namespace to a declared allow-list, so an invented one (as the AOP terms once were,
+  under an `aopwiki.org` path AOP-Wiki does not serve, #644) fails CI.
+- The context declares no AOP term, and the profile needs none: its Study and Assay shapes read
+  the AOP-Wiki IRI mentioned (`https://aopwiki.org/aops/<id>`, `.../events/<id>`). The crate
+  describes only the pathway a Study mentions and the key event an Assay mentions, each as one
+  `DefinedTerm` at that IRI with its name; the address says which of the two it is, to the shapes
+  and to every reader of the graph (`provenance_dag._types`). The writer leaves the rest of a
+  pathway out whatever the state holds ([the toolbox](toolbox.md)).
 - A single-valued property is written as the value, never a one-item array
   (`_write_single_values`, run after assembly and again before the write, since the preview and
   report are added later).

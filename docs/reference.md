@@ -143,7 +143,9 @@ uv run python -m main --resume <session-id> --interactive
 ```
 
 It needs `--input` or `--resume`, and is not combined with `--interactive` or
-`--smoke-test`.
+`--smoke-test`. A declared EU grant CORDIS could not be asked about is named at the
+end too, since its funder is then written by name; rebuild when CORDIS is reachable
+(see [Network access](#network-access)).
 
 **Smoke-testing the interactive path (`--smoke-test`).** For **testing**, not for
 producing a crate you would keep. It runs the same interactive build with nobody at
@@ -424,6 +426,30 @@ uv run python -m main --interactive
 export VITRO_OPENAI_API_KEY="sk-proj-..."
 uv run python -m main --interactive --model gpt-4o-mini
 ```
+
+---
+
+## Network access
+
+A build asks these services for identifiers, never the model. With a model provider
+configured it needs to reach them over HTTPS:
+
+| Service | Host | What it gives |
+|---|---|---|
+| ROR | `api.ror.org` | organisations' ROR IDs |
+| ORCID | `pub.orcid.org` | people's ORCID iDs |
+| Crossref | `api.crossref.org` | publications by DOI or title |
+| CORDIS | `cordis.europa.eu` | an EU grant: its DOI and the European Commission as funder |
+| Cellosaurus | `api.cellosaurus.org` | cell-line accessions |
+| PubChem | `pubchem.ncbi.nlm.nih.gov` | chemicals |
+| CompTox | `comptox.epa.gov` | DTXSIDs |
+| Compound Wiki | `compoundcloud.wikibase.cloud` | chemicals' wiki items |
+| AOP-Wiki | `aopwiki.org` | pathways and key events |
+| EBI OLS | `www.ebi.ac.uk` | ontology terms |
+
+Without one of them the build still finishes, minus what that service adds: an
+identifier it would have confirmed stays empty, and the crate reports it as missing
+rather than invent one. Validation itself reaches no host.
 
 ---
 

@@ -81,9 +81,9 @@ require — a bare string is a Violation.
 and the key event an Assay measures, **and nothing else of a pathway**: other key events,
 `KeyEventRelationship`s and link properties stay on AOP-Wiki. The writer enforces this, so a
 session saved with a whole pathway builds the same crate. Each node is keyed by its AOP-Wiki IRI
-and carries only what the lookup gave (D5); both live in `aop_entities` and build as
-`ContextEntity` nodes typed by their AOP class (MIE/KE/AO share `@type KeyEvent`, told apart by
-`eventType`).
+and carries only its name, identifier and url (D5); both live in `aop_entities` and build as
+`DefinedTerm` nodes at their AOP-Wiki address, which says which of the two each is. An event's
+type stays on AOP-Wiki with the rest.
 - `resolve_aop` wires the pathway onto the Study named (by state id or crate id), or the sole
   Study; with several Studies and no name it wires nothing, and `verify_isa_reachability` reports
   the island (#738). `events_detail` lists the events for `link_assay_to_key_event`.

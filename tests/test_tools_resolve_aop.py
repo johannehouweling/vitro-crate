@@ -116,10 +116,14 @@ _LINK_PROPERTIES = frozenset(
 
 
 def _typed(node: dict, wanted: str) -> bool:
-    """Whether *node* carries *wanted* among its types, prefixed or not."""
-    raw = node.get("@type")
-    values = raw if isinstance(raw, list) else [raw]
-    return any(str(v).split(":")[-1] == wanted for v in values if v)
+    """Whether *node* is a *wanted*, as every reader of the graph decides it.
+
+    The crate declares no AOP class: a pathway and a key event are DefinedTerms,
+    and their AOP-Wiki address is what says which (`provenance_dag._types`).
+    """
+    from builder.writers.provenance_dag import _types
+
+    return wanted in _types(node)
 
 
 def _graph(state: CrateState) -> list[dict]:
@@ -256,13 +260,10 @@ class TestResolveAopBuild:
 
         graph = _graph(state)
 
-        # Membership, not equality: the AOP node carries its AOP class AND
-        # schema:DefinedTerm, because the AOP classes resolve to
-        # aopkb.org/aop_ontology#… and the base profile asks a described contextual
-        # entity for a schema.org type. The AOP class stays first.
+        # A DefinedTerm and nothing else: the crate's context declares no AOP
+        # class, so the pathway's AOP-Wiki address is what says it is one.
         aop = next(n for n in graph if _typed(n, "AdverseOutcomePathway"))
-        assert aop["@type"][0] == "AdverseOutcomePathway"
-        assert "schema:DefinedTerm" in aop["@type"]
+        assert aop["@type"] == "DefinedTerm"
 
         # The AOP @id is the resolvable AOP-Wiki IRI, and the node carries its own
         # facts: every value below is the fixture's.
@@ -444,7 +445,7 @@ class TestTheWriterLeavesTheRestOfAPathwayOut:
         graph = _graph(self._saved_session(keyEvent={"@id": self._MEASURED}))
 
         pathway = next(n for n in graph if n["@id"] == self._PATHWAY)
-        assert pathway["@type"] == ["AdverseOutcomePathway", "schema:DefinedTerm"]
+        assert pathway["@type"] == "DefinedTerm"
         assert pathway["identifier"] == "610"
         assert pathway["alternateName"] == "MC-I inhibition to Parkinsonism"
         assert not _LINK_PROPERTIES & set(pathway)
@@ -455,9 +456,11 @@ class TestTheWriterLeavesTheRestOfAPathwayOut:
         events = [n for n in graph if _typed(n, "KeyEvent")]
         assert [n["@id"] for n in events] == [self._MEASURED]
         # The measured event keeps its own facts, as the lookup gave them.
-        assert events[0]["@type"] == ["KeyEvent", "schema:DefinedTerm"]
+        assert events[0]["@type"] == "DefinedTerm"
         assert events[0]["name"] == "Mitochondrial dysfunction"
-        assert events[0]["eventType"] == "Key Event"
+        # Its type is AOP-Wiki's to state, at its address, and not the crate's.
+        assert "eventType" not in events[0]
+        assert "additionalProperty" not in events[0]
         assert events[0]["identifier"] == "177"
         assert events[0]["short_name"] == "Event 177"
 
@@ -818,7 +821,7 @@ class TestLinkAssayToAKeyEventOfThePathway:
         graph = _graph(state)
         events = [n for n in graph if _typed(n, "KeyEvent")]
         assert [n["@id"] for n in events] == [self._MITOCHONDRIAL_DYSFUNCTION]
-        assert events[0]["@type"] == ["KeyEvent", "schema:DefinedTerm"]
+        assert events[0]["@type"] == "DefinedTerm"
         assert events[0]["name"] == "Mitochondrial dysfunction"
         pathway = next(n for n in graph if _typed(n, "AdverseOutcomePathway"))
         assert not _LINK_PROPERTIES & (set(pathway) | set(events[0]))

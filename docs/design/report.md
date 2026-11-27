@@ -137,7 +137,7 @@ REQUIRED; `payload_checked` records that it ran.
 **ISA reachability (#537).** The ISA shapes infer their target class from the very edge whose
 absence is the defect, so a missing structural edge silences them. `verify_isa_reachability`
 therefore walks **directed** from `./` over every reference; a `LabProcess`, `Sample`,
-`LabProtocol` or `AdverseOutcomePathway` never visited is detached (an island referencing its own
+`LabProtocol` or pathway (a node at an AOP-Wiki `/aops/` address) never visited is detached (an island referencing its own
 members still fails, #738). Entities at absolute URIs are excluded, except the pathway.
 `provenance_dag`'s undirected orphan flag is not this test. `fold_isa_reachability` runs it beside
 the ISA pass; `isa_reachability_checked` records that it ran.
@@ -177,7 +177,8 @@ satisfies is omitted by `build_explorer_payload`, so no per-view guard exists.
 
 `PATHWAY_TYPES` (pathway, key events, `KeyEventRelationship`) is the one list for which nodes the
 views follow to, how they are captioned (a domain type outranks the generic type it refines) and
-their `pathway` category colour (#643).
+their `pathway` category colour (#643). The crate types none of them, so the graph reader gives a
+node the kind its AOP-Wiki address names (`/aops/`, `/events/`, `/relationships/`).
 
 **A chip counts the view's subject, not its selection** (#625), from the same source as the
 matching coverage block (a test pins the two to each other), counted as drawn.

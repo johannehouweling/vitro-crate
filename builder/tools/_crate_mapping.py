@@ -498,6 +498,13 @@ AOP_LINK_FIELDS: tuple[str, ...] = (
     "downstream_event",
 )
 
+# What AOP-Wiki states about a key event that the crate leaves to AOP-Wiki: its
+# type (molecular initiating event, key event, adverse outcome). The crate's
+# context declares no AOP term, so neither these nor the link fields are written,
+# not even as a PropertyValue: they are on AOP-Wiki, at the event's address.
+AOP_WIKI_FIELDS: tuple[str, ...] = (*AOP_LINK_FIELDS, "eventType")
+_AOP_TYPES = frozenset({"AdverseOutcomePathway", "KeyEvent", "KeyEventRelationship"})
+
 
 def _measured_key_events(state: CrateState) -> list[Entity]:
     """The KeyEvent entities an Assay names as what it measures, in state order.
@@ -872,11 +879,15 @@ def _preserve_unowned_fields(state: CrateState, crate: ROCrate, idx: dict[str, A
             # Stated once, as characteristics. Scoped to the source of cells: a
             # chemical's supplier and lot number are no characteristic of cells.
             consumed = frozenset(a for c in _CELL_LINE_CHARACTERISTICS for a in c.aliases)
+        if entity.type in _AOP_TYPES:
+            consumed = consumed | frozenset(AOP_WIKI_FIELDS)
         leftovers = {
             key: value
             for key, value in entity.fields.items()
             if field_would_be_dropped(key)
             and key not in consumed
+            # A link to the rest of a pathway is never written, on any entity.
+            and key not in AOP_LINK_FIELDS
             and not _says_nothing(value)
         }
         if not leftovers:
@@ -979,9 +990,9 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     A key is emitted only when the crate's ``@context`` defines it
     (:func:`_context_terms`), whatever its shape: a snake_case AOP-Wiki term
     (``short_name``) is kept, and an invented single word (``bioassay``,
-    ``endpoint``) is not. The context also defines the properties that link a
-    pathway to its events and one event to another (:data:`AOP_LINK_FIELDS`), and
-    they are never emitted: the rest of a pathway is on AOP-Wiki.
+    ``endpoint``) is not. The properties that link a pathway to its events and one
+    event to another, and an event's type (:data:`AOP_WIKI_FIELDS`), are never
+    emitted: the rest of a pathway is on AOP-Wiki.
     Emitting an undefined key produces a bare JSON-LD key that fails BASE with
     "not allowed in the compacted format" — a failure the agent cannot fix by
     editing the crate, because the key is regenerated from state on every build.
@@ -999,7 +1010,7 @@ def _scalar_props(entity: Entity, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     consumed upstream into identifiers, parameters and paths, and listed in
     ``_REF_FIELDS`` / ``_STRUCT_FIELDS`` / the caller's ``skip``.
     """
-    drop = _REF_FIELDS | _STRUCT_FIELDS | set(AOP_LINK_FIELDS) | set(skip)
+    drop = _REF_FIELDS | _STRUCT_FIELDS | set(AOP_WIKI_FIELDS) | set(skip)
     props: dict[str, Any] = {}
     for key, value in entity.fields.items():
         if key in drop or key.startswith("@") or value is None:
@@ -2327,25 +2338,18 @@ def _add_leaves(
         )
 
     # The pathway a Study addresses and the key events an Assay measures (Issue
-    # #180). Each is a contextual entity typed by its own AOP class
-    # (AdverseOutcomePathway / KeyEvent) whose @id is the resolvable AOP-Wiki IRI,
-    # with the facts the lookup gave for it — no fabricated ids (D5). The rest of
+    # #180). Each is a DefinedTerm whose @id is the resolvable AOP-Wiki IRI, with
+    # the facts the lookup gave for it — no fabricated ids (D5). The rest of
     # a pathway is on AOP-Wiki at that IRI and is not written, whatever the state
     # holds: a key event no Assay names, a KeyEventRelationship, and the
     # properties that link a pathway to its events and one event to another
     # (AOP_LINK_FIELDS).
     #
-    # Each also carries schema:DefinedTerm, exactly as the csvw:Column nodes do.
-    # The AOP classes resolve to AOPO, http://aopkb.org/aop_ontology#… (profiles/context.py),
-    # which is not a schema.org type — so the base profile asked every one of
-    # these for one, 36 findings on a real crate. These are NOT cited vocabulary
-    # we could argue our way out of describing: the AOP composites look them up,
-    # name them and put them in the graph deliberately, so the finding is
-    # correct and the answer is to satisfy it. A Key Event IS a defined term —
-    # an entry in a controlled vocabulary, with AOP-Wiki as its DefinedTermSet —
-    # so this states what the node already is, under a term the base profile
-    # reads. The AOP class stays first and unchanged, so the tox and ISA shapes
-    # that match on it are untouched.
+    # A pathway and a Key Event ARE defined terms — entries in a controlled
+    # vocabulary, with AOP-Wiki as its DefinedTermSet — and the crate declares no
+    # AOP class (profiles/context.py). Which of the two a node is, its address
+    # says: an AOP-Wiki /aops/ or /events/ IRI, which is what the Study and Assay
+    # shapes read (6_study_aop.ttl, 7_assay_key_event.ttl).
     for aop_entities in (state.list_entities("AdverseOutcomePathway"), _measured_key_events(state)):
         for aop_entity in aop_entities:
             _idx_add(
@@ -2356,7 +2360,7 @@ def _add_leaves(
                         crate,
                         _mint_id(aop_entity),
                         properties={
-                            "@type": [aop_entity.type, "schema:DefinedTerm"],
+                            "@type": "DefinedTerm",
                             **_scalar_props(aop_entity),
                         },
                     )
@@ -2432,7 +2436,6 @@ def _add_leaves(
                 )
             ),
         )
-
 
     # Samples / CellLineSamples auto-add themselves (AutoAddContextEntity).
     lineage: list[tuple[Entity, Any]] = []

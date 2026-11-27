@@ -187,7 +187,7 @@ class TestTheDropRuleIsContextMembership:
         assert field_would_be_dropped("bioassay") is True
 
     @pytest.mark.parametrize(
-        "field", ["contactPoint", "license", "has_key_event", "measurement_method"]
+        "field", ["contactPoint", "license", "short_name", "measurement_method"]
     )
     def test_a_context_term_is_kept_whatever_its_shape(self, field):
         assert field_would_be_dropped(field) is False

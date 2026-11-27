@@ -220,30 +220,13 @@ ISA_TOX_CONTEXT: list[dict] = [
         "smiles": "http://schema.org/smiles",
         "subclassOf": "http://www.w3.org/2000/01/rdf-schema#subClassOf",
         "wikibaseId": "http://schema.org/identifier",
-        # AOP terms are AOPO's — the Adverse Outcome Pathway Ontology at
-        # http://aopkb.org/aop_ontology#, which is what AOP-Wiki RDF uses for its
-        # own semantic annotations. These property names were AOPO's all along;
-        # until #644 they were declared under an aopwiki.org path that AOP-Wiki
-        # does not serve, so every term in this block resolved to nothing. The
-        # entities they describe still come from the AOP-Wiki lookup.
-        #
-        # `eventType` carries AOP-Wiki's own label string ("Molecular Initiating
-        # Event") while AOPO models `has_key_event_type` as pointing at a
-        # KeyEventType. That imprecision predates this block being correct at
-        # all; typing key events with AOPO's own MolecularInitiatingEvent /
-        # AdverseOutcome classes is the real fix and belongs in the builder.
-        "AdverseOutcomePathway": "http://aopkb.org/aop_ontology#AdverseOutcomePathway",
-        "KeyEvent": "http://aopkb.org/aop_ontology#KeyEvent",
-        "KeyEventRelationship": "http://aopkb.org/aop_ontology#KeyEventRelationship",
-        "aopWikiStressorId": "http://schema.org/identifier",
-        "downstream_event": "http://aopkb.org/aop_ontology#has_downstream_key_event",
-        "eventType": "http://aopkb.org/aop_ontology#has_key_event_type",
-        "has_adverse_outcome": "http://aopkb.org/aop_ontology#has_adverse_outcome",
-        "has_key_event": "http://aopkb.org/aop_ontology#has_key_event",
-        "has_key_event_relationship": "http://aopkb.org/aop_ontology#has_key_event_relationship",
-        "has_molecular_initiating_event": "http://aopkb.org/aop_ontology#has_molecular_initiating_event",
+        # No AOP term is declared. The crate describes the pathway a Study
+        # addresses and the key event an Assay measures as a DefinedTerm at its
+        # AOP-Wiki address, with its name, and that address is what says which
+        # one it is, to the profile's shapes and to every reader here. Nothing
+        # else of a pathway (its events, their type, the relationships between
+        # them) is the crate's to state: it is on AOP-Wiki, at that address.
         "short_name": "http://schema.org/alternateName",
-        "upstream_event": "http://aopkb.org/aop_ontology#has_upstream_key_event",
         # --- CSVW (CSV on the Web) for the Exposure condition table + Units (UO) ---
         "csvw": "http://www.w3.org/ns/csvw#",
         "tableSchema": "http://www.w3.org/ns/csvw#tableSchema",

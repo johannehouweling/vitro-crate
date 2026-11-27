@@ -234,8 +234,35 @@ class TestAnEuGrantIsTheCordisProject:
 
         monkeypatch.setattr(composites, "fetch_cordis_project", down)
         state = _state("EU Horizon 2020", grant="825161")
-        assert resolve_declared_funders(state) == ["EU Horizon 2020"]
+        unreachable: list[str] = []
+        assert resolve_declared_funders(state, unreachable) == ["EU Horizon 2020"]
         assert state.metadata.grants == {}
+        assert unreachable == ["825161"]
+
+    def test_the_build_step_returns_what_cordis_could_not_answer(self, monkeypatch):
+        from lookups._http import TransientLookupError
+
+        def down(grant_id):
+            raise TransientLookupError("cordis.europa.eu timed out")
+
+        monkeypatch.setattr(composites, "fetch_cordis_project", down)
+        assert composites.look_up_declared_funders(
+            _state("EU Horizon 2020", grant="825161")
+        ) == ["825161"]
+
+    def test_a_confirmed_grant_is_not_reported(self):
+        state = _state("EU Horizon 2020", grant="825161")
+        assert composites.look_up_declared_funders(state) == []
+
+    def test_cordis_grant_raises_when_out_of_reach(self, monkeypatch):
+        from lookups._http import TransientLookupError
+
+        def down(grant_id):
+            raise TransientLookupError("cordis.europa.eu timed out")
+
+        monkeypatch.setattr(composites, "fetch_cordis_project", down)
+        with pytest.raises(TransientLookupError):
+            composites.cordis_grant("EU Horizon 2020", "825161")
 
     def test_running_again_asks_nothing(self, _cordis):
         state = _state("EU Horizon 2020", grant="825161")
@@ -284,3 +311,59 @@ class TestTheBuildLooksItUp:
 
         monkeypatch.setattr(composites, "resolve_declared_funders", broken)
         composites.look_up_declared_funders(_state("Utrecht University"))  # does not raise
+
+
+class TestAnUnreachableCordisIsReported:
+    def test_run_build_carries_the_grant_in_its_result(self, monkeypatch):
+        from builder.agents import build
+        from builder.agents.react import agent_loop
+        from builder.engine import AgentEngine
+
+        monkeypatch.setattr(build, "get_provider", lambda: "openai")
+        monkeypatch.setattr(build, "read_deposit_structure", lambda *a, **k: None)
+        monkeypatch.setattr(
+            composites, "look_up_declared_funders", lambda state: ["825161"]
+        )
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda engine, **k: {"stop_reason": "done"}
+        )
+        engine = AgentEngine(state=_state("EU Horizon 2020"))
+        result = build.run_build(engine, interactive=False)
+        assert result == {"stop_reason": "done", "cordis_unreachable": ["825161"]}
+
+    def test_nothing_is_added_when_cordis_answered(self, monkeypatch):
+        from builder.agents import build
+        from builder.agents.react import agent_loop
+        from builder.engine import AgentEngine
+
+        monkeypatch.setattr(build, "get_provider", lambda: "openai")
+        monkeypatch.setattr(build, "read_deposit_structure", lambda *a, **k: None)
+        monkeypatch.setattr(composites, "look_up_declared_funders", lambda state: [])
+        monkeypatch.setattr(
+            agent_loop, "run_interactive_agent", lambda engine, **k: {"stop_reason": "done"}
+        )
+        engine = AgentEngine(state=_state("EU Horizon 2020"))
+        result = build.run_build(engine, interactive=False)
+        assert result == {"stop_reason": "done"}
+
+    @pytest.mark.parametrize("unreachable", [["825161"], []])
+    def test_the_unattended_summary_names_the_grant(self, monkeypatch, capsys, unreachable):
+        import argparse
+
+        import main
+        from builder.agents import build
+        from builder.agents.react import agent_loop
+        from builder.engine import AgentEngine
+
+        monkeypatch.setattr(
+            build,
+            "run_build",
+            lambda engine, **k: {"stop_reason": "done", "cordis_unreachable": unreachable},
+        )
+        monkeypatch.setattr(agent_loop, "crate_written", lambda engine: "/tmp/crate")
+        args = argparse.Namespace(
+            prompt=None, provider=None, model=None, api_base=None, resume=None, verbose=0
+        )
+        assert main._run_unattended(AgentEngine(state=_state("EU Horizon 2020")), args) == 0
+        out = capsys.readouterr().out
+        assert ("CORDIS could not be reached for grant 825161" in out) is bool(unreachable)

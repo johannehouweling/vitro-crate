@@ -27,7 +27,6 @@ KNOWN_NAMESPACES: dict[str, str] = {
     # Bioschemas splits its vocabulary: types at the bare namespace, properties
     # beneath /properties/ — see `context.BIOSCHEMAS_PROP`.
     "https://bioschemas.org/properties/": "Bioschemas properties",
-    "http://aopkb.org/aop_ontology#": "AOPO, the Adverse Outcome Pathway Ontology",
     "http://purl.org/dc/terms/": "DCMI Metadata Terms",
     "http://www.w3.org/2000/01/rdf-schema#": "RDF Schema",
     "http://www.w3.org/2004/02/skos/core#": "SKOS",
@@ -71,25 +70,27 @@ def test_every_term_comes_from_a_declared_namespace() -> None:
     )
 
 
-def test_the_aop_terms_are_aopo() -> None:
-    """The specific claim #644 fixes, pinned by name.
-
-    Our property names were AOPO's all along — `has_key_event`,
-    `has_adverse_outcome` are spelled exactly as AOPO spells them — so this is
-    the vocabulary the crate was already using, finally said out loud.
-    """
+def test_the_context_declares_no_aop_term() -> None:
+    """The crate states the pathway a Study addresses and the key event an Assay
+    measures as DefinedTerms at their AOP-Wiki address, and nothing else of a
+    pathway, so it declares no AOP class and no AOP property."""
     context = ISA_TOX_CONTEXT[0]
-    aopo = "http://aopkb.org/aop_ontology#"
 
-    assert context["AdverseOutcomePathway"] == aopo + "AdverseOutcomePathway"
-    assert context["KeyEvent"] == aopo + "KeyEvent"
-    assert context["KeyEventRelationship"] == aopo + "KeyEventRelationship"
-    assert context["has_key_event"] == aopo + "has_key_event"
-    assert context["has_adverse_outcome"] == aopo + "has_adverse_outcome"
-    assert context["has_molecular_initiating_event"] == aopo + "has_molecular_initiating_event"
-    assert context["has_key_event_relationship"] == aopo + "has_key_event_relationship"
-    assert context["upstream_event"] == aopo + "has_upstream_key_event"
-    assert context["downstream_event"] == aopo + "has_downstream_key_event"
+    for term in (
+        "AdverseOutcomePathway",
+        "KeyEvent",
+        "KeyEventRelationship",
+        "aopWikiStressorId",
+        "eventType",
+        "has_key_event",
+        "has_adverse_outcome",
+        "has_molecular_initiating_event",
+        "has_key_event_relationship",
+        "upstream_event",
+        "downstream_event",
+    ):
+        assert term not in context, term
+    assert not [t for t, iri in context.items() if "aopkb.org" in str(iri)]
 
 
 def test_no_term_still_points_at_the_invented_namespace() -> None:

@@ -29,6 +29,8 @@ ROR ID on every Organization, `composites.look_up_declared_funders` looks it up 
 loop: a grant CORDIS holds under the named programme (`composites.cordis_grant`) goes to
 `metadata.grants` and is written at its DOI, funded by the European Commission; otherwise the ROR
 record registering exactly that name gives its ID. A funder neither answers keeps only its name.
+A grant CORDIS could not be asked about is no answer: its funder goes on to the name match, and
+`run_build` returns the number under `cordis_unreachable`, which the `--unattended` summary names.
 
 **Declared people and organisations** (`extract_deposit_people`: BioStudies `author` /
 `organisation`, DataCite `creators` / `contributors`) are read for their ORCID / ROR id alone; the

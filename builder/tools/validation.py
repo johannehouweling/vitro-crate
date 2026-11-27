@@ -684,9 +684,9 @@ _CITATION_PROPERTIES: frozenset[str] = frozenset(
 def _context_vocabulary(metadata_doc: dict[str, Any]) -> set[str]:
     """Every IRI the crate's own ``@context`` defines a term for.
 
-    A context maps names to classes and properties — `"KeyEvent"` to
-    `http://aopkb.org/aop_ontology#KeyEvent`, `"has_key_event"` to
-    `…/hasKeyEvent`. Those IRIs reach the validator as types and predicates, never
+    A context maps names to classes and properties — `"Column"` to
+    `http://www.w3.org/ns/csvw#Column`, `"tableSchema"` to its csvw
+    property. Those IRIs reach the validator as types and predicates, never
     as reference objects, so scanning the graph for `{"@id": …}` values misses
     every one of them: on a real crate that was 47 findings asking a *property*
     for a human-readable name.
